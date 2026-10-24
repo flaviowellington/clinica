@@ -1,0 +1,19 @@
+# Open questions
+
+| ID | Question | Why it matters | How to answer | Status |
+|---|---|---|---|---|
+| Q-001 | O "Termo de Adesão" do Clinicorp proíbe engenharia reversa ou uso para criar produto concorrente? (Os Termos de Uso não proíbem explicitamente [doc SRC-015]) | A decisão de continuar o estudo é do usuário | Abrir o link "Termo de Adesão" no fim de https://sistema.clinicorp.com/termos e procurar "engenharia", "reversa", "cópia", "concorr" | open |
+| Q-002 | O Clinicorp gera guias TISS e lotes XML para convênios odontológicos? (há "Plano", "Nº Plano" e numero_carteirinha no paciente [obs EV-009] [net EV-004], e "Planos e convênios" no plano [doc SRC-002]; módulo não visível para Dentista) | Convênio é parte grande da receita de muitas clínicas | Observar o módulo "Planos e convênios" no sistema (L4) | answered (para esta clínica): não usa convênio no Clinicorp [obs EV-041] |
+| Q-003 | O prontuário do Clinicorp usa assinatura digital ICP-Brasil (NGS2) ou só assinatura eletrônica simples? | Define se o clone precisa de certificação SBIS e integração ICP-Brasil | Observar o fluxo de assinatura no prontuário; perguntar ao suporte | open |
+| Q-004 | Qual o prazo legal de guarda do prontuário odontológico eletrônico? | Define retenção e exclusão de dados (LGPD × CFO) | Ler integralmente a CFO-SEC-91/2009 e a Lei 13.787/2018; consultar advogado | open |
+| Q-005 | Quem é a instituição de pagamento por trás do Clinipay (licença BACEN própria ou parceiro BaaS)? | Define se o clone precisa de licença ou parceiro | Ler contrato do Clinipay; consultar registro no Banco Central | open |
+| Q-006 | Hospedar dados de saúde nos EUA (US-EAST) exige base de transferência internacional na LGPD? | O clone pode ter de oferecer hospedagem no Brasil | Advogado (LGPD art. 33) | open |
+| Q-008 | Quanto tempo leva, de fato, cada barreira (LGPD, CFO/SBIS, NFS-e, BACEN/parceiro, TISS, Meta)? | Ordem e prazo do plano de construção | Fontes oficiais de cada órgão; advogado; fornecedores (PSP, BSP, emissor fiscal) | open |
+| Q-009 | Quais recursos decidem a compra para clínicas odontológicas brasileiras (WhatsApp, NFS-e, TISS, Pix, app)? | Peso de cada barreira no PRD | Entrevistar 5 a 10 clínicas; avaliações de concorrentes | open |
+| Q-007 | Qual a matriz de permissões de cada perfil além de Dentista e Administrador (menus do admin mapeados em EV-025)? | Financeiro da clínica, relatórios, configurações e convênios não aparecem para Dentista [obs EV-009] | Entrar com um usuário administrador da conta trial | answered by inference: matriz deduzida em data-model/permissions.md; validar com a clínica ao implantar |
+| Q-010 | Quem é o parceiro de crédito do `loan_partner` e qual o modelo (correspondente bancário, BaaS)? | Barreira BR-012 | Configurações > financeiro (perfil admin) e site do Clinicorp | open |
+| Q-011 | Qual endpoint exclui uma consulta e se a exclusão é lógica (campo Deleted) ou física? | Paridade da agenda | Repetir a exclusão com o gravador instalado antes do carregamento ou ler a lista de rede | open |
+| Q-012 | A conta (perfis Dentista e Administrador) é uma clínica em produção ou trial com dados de exemplo? Há vários usuários com acessos recentes [obs EV-025] | Dados de teste podem aparecer nos relatórios reais | Perguntar ao dono da conta | open |
+| Q-013 | O Controle de Planos (guias) gera XML TISS? | BR-001 | Abrir uma guia existente como admin e procurar exportação XML | answered: nenhuma guia em 2026 e nenhuma tabela de convênio; a tela de guias não tem exportação XML [obs EV-041] |
+| Q-014 | Como funciona a integração Receita Saúde (API, certificado)? | BR-013 | Documentação da Receita Federal | open |
+| Q-015 | De onde vêm os cartões do Controle de Indicação? | A clínica não usa; só importa se for adotado | Gerar um link de indicação com Agendamento Online ligado (não feito: configuração global) | open |

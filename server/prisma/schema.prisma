@@ -1,0 +1,386 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Paciente e profissional são a mesma "pessoa", diferenciados pelo tipo (R-002).
+enum TipoPessoa {
+  PACIENTE
+  PROFISSIONAL
+}
+
+enum Perfil {
+  ADMINISTRADOR
+  PROFISSIONAL
+  RECEPCAO
+  FINANCEIRO
+}
+
+enum MotivoInativacao {
+  FALECIMENTO
+  SOLICITACAO_PACIENTE
+  DESISTENCIA_TRATAMENTO
+  OUTROS
+}
+
+model Pessoa {
+  id          Int        @id @default(autoincrement())
+  tipo        TipoPessoa
+  nome        String
+  /// Nome sem acento e em minúsculas, para a busca.
+  nomeBusca   String
+  nascimento  DateTime?  @db.Date
+  apelido     String?
+  cpf         String?
+  rg          String?
+  sexo        String?
+  estadoCivil String?
+  observacoes String?
+
+  email        String?
+  celular      String?
+  telefone     String?
+  comoConheceu String?
+  indicadoPor  String?
+
+  nomeMae               String?
+  nomePai               String?
+  responsavelNome       String?
+  responsavelCpf        String?
+  responsavelParentesco String?
+
+  /// Só profissional: registro no conselho, especialidade e cor da coluna na agenda.
+  cro           String?
+  especialidade String?
+  corAgenda     String?
+
+  ativo                     Boolean           @default(true)
+  motivoInativacao          MotivoInativacao?
+  motivoInativacaoDescricao String?
+
+  /// Exclusão lógica (R-057): o registro fica e pode ser restaurado.
+  excluidoEm    DateTime?
+  excluidoPorId Int?
+
+  criadoEm      DateTime @default(now())
+  criadoPorId   Int?
+  alteradoEm    DateTime @updatedAt
+  alteradoPorId Int?
+
+  usuario Usuario?
+  acessos LogAcesso[]
+
+  consultas      Agendamento[]     @relation("paciente")
+  agendaTrabalho Agendamento[]     @relation("profissional")
+  lancamentos    Lancamento[]
+  retornos       AlertaRetorno[]   @relation("pacienteRetorno")
+  retornosProf   AlertaRetorno[]   @relation("profissionalRetorno")
+  orcamentos     Orcamento[]       @relation("pacienteOrcamento")
+  orcamentosProf Orcamento[]       @relation("profissionalOrcamento")
+  contas         ContaFinanceira[]
+
+  @@index([tipo, nomeBusca])
+}
+
+model Usuario {
+  id        Int      @id @default(autoincrement())
+  login     String   @unique
+  nome      String
+  senhaHash String
+  perfis    Perfil[]
+  ativo     Boolean  @default(true)
+  /// Profissional ligado ao usuário (quando for dentista).
+  pessoaId  Int?     @unique
+  pessoa    Pessoa?  @relation(fields: [pessoaId], references: [id])
+  criadoEm  DateTime @default(now())
+
+  acessos           LogAcesso[]
+  agendou           Agendamento[]
+  lancamentos       Lancamento[]
+  contasDigitais    ContaDigital[]
+  retornos          AlertaRetorno[]
+  orcamentos        Orcamento[]
+  contasFinanceiras ContaFinanceira[]
+}
+
+/// Quem abriu cada ficha e quando (R-003, LGPD).
+model LogAcesso {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
+  pessoaId  Int
+  pessoa    Pessoa   @relation(fields: [pessoaId], references: [id])
+  caminho   String
+  em        DateTime @default(now())
+
+  @@index([pessoaId, em])
+}
+
+enum TipoAgendamento {
+  CONSULTA
+  COMPROMISSO
+}
+
+/// Os sete status do atendimento (R-030). Rótulos e cores em shared/agenda.ts.
+enum StatusAgenda {
+  AGENDADO
+  CONFIRMADO
+  EM_ESPERA
+  EM_ATENDIMENTO
+  ATENDIDO
+  ATRASADO
+  FALTOU
+}
+
+enum Canal {
+  NAO_ENVIAR
+  WHATSAPP
+  SMS
+  EMAIL
+}
+
+/// Consulta (com paciente) ou compromisso (bloqueia a agenda do profissional). E-002.
+model Agendamento {
+  id               Int             @id @default(autoincrement())
+  tipo             TipoAgendamento @default(CONSULTA)
+  data             DateTime        @db.Date
+  /// "HH:MM"
+  inicio           String
+  fim              String
+  profissionalId   Int
+  profissional     Pessoa          @relation("profissional", fields: [profissionalId], references: [id])
+  pacienteId       Int?
+  paciente         Pessoa?         @relation("paciente", fields: [pacienteId], references: [id])
+  /// Só no compromisso.
+  titulo           String?
+  categoria        String?
+  observacoes      String?
+  primeiraConsulta Boolean         @default(false)
+
+  status       StatusAgenda @default(AGENDADO)
+  /// Check-in e início da espera, gravados ao passar para "Em espera" (R-031).
+  checkinEm    DateTime?
+  esperaInicio DateTime?
+
+  /// Avisos ao paciente: começam em "Não enviar" (R-027).
+  confirmacao Canal @default(NAO_ENVIAR)
+  alerta      Canal @default(NAO_ENVIAR)
+
+  /// Desmarcação: o horário fica livre, mas a consulta fica no histórico (relatório).
+  desmarcadoEm      DateTime?
+  desmarcadoPorId   Int?
+  motivoDesmarcacao String?
+
+  /// Exclusão lógica: some da agenda, mas fica para auditoria.
+  excluidoEm    DateTime?
+  excluidoPorId Int?
+
+  criadoEm      DateTime @default(now())
+  criadoPorId   Int
+  criadoPor     Usuario  @relation(fields: [criadoPorId], references: [id])
+  alteradoEm    DateTime @updatedAt
+  alteradoPorId Int?
+
+  @@index([data, profissionalId])
+  @@index([pacienteId])
+}
+
+enum TipoLancamento {
+  VENDA
+  CANCELAMENTO
+  ENTRADA
+  SAIDA
+}
+
+/// Movimento da conta corrente da clínica (S-009). Valor sempre positivo, em centavos.
+/// ponytail: lançamento simples; partidas dobradas por conta (R-052) quando houver plano de contas.
+model Lancamento {
+  id              Int               @id @default(autoincrement())
+  data            DateTime          @db.Date
+  tipo            TipoLancamento
+  valorCentavos   Int
+  descricao       String
+  forma           String?
+  pacienteId      Int?
+  paciente        Pessoa?           @relation(fields: [pacienteId], references: [id])
+  /// Conta do plano de contas (shared/financeiro.ts), usada no DRE (R-043).
+  categoria       String?
+  orcamentoId     Int?
+  orcamento       Orcamento?        @relation(fields: [orcamentoId], references: [id])
+  /// Conciliação bancária: em qual conta e quando foi conferido com o extrato do banco.
+  contaBancariaId Int?
+  contaBancaria   ContaBancaria?    @relation(fields: [contaBancariaId], references: [id])
+  conciliadoEm    DateTime?
+  pagamentoDe     ContaFinanceira[]
+
+  excluidoEm    DateTime?
+  excluidoPorId Int?
+  criadoEm      DateTime  @default(now())
+  criadoPorId   Int
+  criadoPor     Usuario   @relation(fields: [criadoPorId], references: [id])
+
+  @@index([data])
+}
+
+enum TipoConta {
+  PESSOA_FISICA
+  PESSOA_JURIDICA
+}
+
+enum StatusConta {
+  PENDENTE
+  ATIVA
+  CANCELADA
+}
+
+/// Pedido de conta digital. Só vira ATIVA com um parceiro de pagamentos (BR-006).
+model ContaDigital {
+  id          Int         @id @default(autoincrement())
+  tipo        TipoConta
+  nome        String
+  /// CPF ou CNPJ, só dígitos.
+  documento   String
+  email       String
+  celular     String
+  status      StatusConta @default(PENDENTE)
+  criadoEm    DateTime    @default(now())
+  criadoPorId Int
+  criadoPor   Usuario     @relation(fields: [criadoPorId], references: [id])
+  alteradoEm  DateTime    @updatedAt
+}
+
+/// Lembrete para chamar o paciente de volta numa data (E-008).
+model AlertaRetorno {
+  id             Int       @id @default(autoincrement())
+  pacienteId     Int
+  paciente       Pessoa    @relation("pacienteRetorno", fields: [pacienteId], references: [id])
+  profissionalId Int
+  profissional   Pessoa    @relation("profissionalRetorno", fields: [profissionalId], references: [id])
+  data           DateTime  @db.Date
+  motivo         String?
+  concluidoEm    DateTime?
+  excluidoEm     DateTime?
+  criadoEm       DateTime  @default(now())
+  criadoPorId    Int
+  criadoPor      Usuario   @relation(fields: [criadoPorId], references: [id])
+
+  @@index([data])
+}
+
+/// Tabela de preços particular (E-009).
+model Procedimento {
+  id            Int             @id @default(autoincrement())
+  nome          String
+  nomeBusca     String
+  especialidade String?
+  valorCentavos Int
+  ativo         Boolean         @default(true)
+  itens         ItemOrcamento[]
+}
+
+enum StatusOrcamento {
+  ABERTO
+  APROVADO
+  REPROVADO
+  CANCELADO
+}
+
+/// Orçamento que vira tratamento ao ser aprovado (E-003, E-005).
+model Orcamento {
+  id                 Int             @id @default(autoincrement())
+  pacienteId         Int
+  paciente           Pessoa          @relation("pacienteOrcamento", fields: [pacienteId], references: [id])
+  profissionalId     Int
+  profissional       Pessoa          @relation("profissionalOrcamento", fields: [profissionalId], references: [id])
+  status             StatusOrcamento @default(ABERTO)
+  observacoes        String?
+  descontoCentavos   Int             @default(0)
+  /// Forma e parcelas (R-026); a 1ª parcela vence em primeiroVencimento.
+  forma              String?
+  parcelas           Int             @default(1)
+  primeiroVencimento DateTime?       @db.Date
+  motivoReprovacao   String?
+  aprovadoEm         DateTime?
+  aprovadoPorId      Int?
+  canceladoEm        DateTime?
+  criadoEm           DateTime        @default(now())
+  criadoPorId        Int
+  criadoPor          Usuario         @relation(fields: [criadoPorId], references: [id])
+  alteradoEm         DateTime        @updatedAt
+
+  itens       ItemOrcamento[]
+  contas      ContaFinanceira[]
+  lancamentos Lancamento[]
+}
+
+/// Procedimento do orçamento; depois de aprovado, "a realizar" até ser executado (E-004).
+model ItemOrcamento {
+  id             Int          @id @default(autoincrement())
+  orcamentoId    Int
+  orcamento      Orcamento    @relation(fields: [orcamentoId], references: [id], onDelete: Cascade)
+  procedimentoId Int
+  procedimento   Procedimento @relation(fields: [procedimentoId], references: [id])
+  /// Cópia do nome: o orçamento não muda se a tabela mudar.
+  nome           String
+  /// Dente na numeração FDI ou região (R-014).
+  dente          String?
+  valorCentavos  Int
+  executadoEm    DateTime?
+  executadoPorId Int?
+}
+
+enum TipoContaFinanceira {
+  PAGAR
+  RECEBER
+}
+
+enum StatusContaFinanceira {
+  ABERTA
+  PAGA
+  CANCELADA
+}
+
+/// Conta a pagar ou a receber (uma parcela). Ao baixar, vira lançamento na conta corrente.
+model ContaFinanceira {
+  id            Int                   @id @default(autoincrement())
+  tipo          TipoContaFinanceira
+  descricao     String
+  valorCentavos Int
+  vencimento    DateTime              @db.Date
+  forma         String?
+  categoria     String?
+  /// Fornecedor (a pagar) ou observação livre, como banco e número do cheque.
+  detalhes      String?
+  pacienteId    Int?
+  paciente      Pessoa?               @relation(fields: [pacienteId], references: [id])
+  orcamentoId   Int?
+  orcamento     Orcamento?            @relation(fields: [orcamentoId], references: [id])
+  parcela       Int?
+  totalParcelas Int?
+  status        StatusContaFinanceira @default(ABERTA)
+  pagoEm        DateTime?             @db.Date
+  lancamentoId  Int?
+  lancamento    Lancamento?           @relation(fields: [lancamentoId], references: [id])
+  criadoEm      DateTime              @default(now())
+  criadoPorId   Int
+  criadoPor     Usuario               @relation(fields: [criadoPorId], references: [id])
+
+  @@index([tipo, status, vencimento])
+}
+
+/// Conta em banco, para a conciliação bancária.
+model ContaBancaria {
+  id                   Int          @id @default(autoincrement())
+  nome                 String
+  banco                String?
+  agencia              String?
+  numero               String?
+  saldoInicialCentavos Int          @default(0)
+  ativa                Boolean      @default(true)
+  lancamentos          Lancamento[]
+}

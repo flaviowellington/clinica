@@ -1,0 +1,86 @@
+erDiagram
+    %% E-001 Pessoa, E-002 Agendamento, E-003 Tratamento/Orçamento, E-004 Item, E-005 Plano de pagamento,
+    %% E-006 Clínica, E-007 Status, E-008 Alerta de retorno, E-009 Tabela de preços
+    CLINICA ||--o{ AGENDAMENTO : "Clinic_BusinessId"
+    PESSOA ||--o{ AGENDAMENTO : "Patient_PersonId"
+    PESSOA ||--o{ AGENDAMENTO : "Dentist_PersonId"
+    STATUS ||--o{ AGENDAMENTO : "StatusId"
+    PESSOA ||--o{ TRATAMENTO : "Patient_PersonId"
+    PESSOA ||--o{ TRATAMENTO : "Dentist_PersonId"
+    CLINICA ||--o{ TRATAMENTO : "BusinessId"
+    TRATAMENTO ||--|{ ITEM_TRATAMENTO : "TreatmentId"
+    TRATAMENTO ||--o{ PLANO_PAGAMENTO : "CurrentChargePaymentPlanId"
+    PLANO_PAGAMENTO ||--o{ PARCELA : "InstallmentList"
+    TABELA_PRECOS ||--o{ PRECO : "PriceListId"
+    PRECO ||--o{ ITEM_TRATAMENTO : "PriceId"
+    PESSOA ||--o{ ALERTA_RETORNO : "Patient_PersonId"
+    PESSOA {
+      number id
+      string Type "PATIENT|DENTIST"
+      string Name
+      date BirthDate
+      string DocumentId "CPF"
+      string MobilePhone
+    }
+    AGENDAMENTO {
+      number id
+      date date
+      string fromTime
+      string toTime
+      number StatusId
+      object AlertInfo
+      number CheckinTime
+    }
+    TRATAMENTO {
+      number id
+      string IsEstimate
+      string Status "OPEN|APPROVED"
+      date ApprovedDate
+    }
+    ITEM_TRATAMENTO {
+      number id
+      string Tooth
+      string Surface
+      number Amount
+      boolean Executed
+    }
+    PLANO_PAGAMENTO {
+      number id
+      string Type "CHARGE"
+      string PaymentType "TOTAL|PROCEDURE"
+      number InstallmentsCount
+    }
+    PARCELA {
+      number Sequence
+      date DueDate
+      number PaymentForm_CharacteristicId
+      number Amount
+    }
+    CLINICA {
+      number id
+      string Name
+      number SlotTime
+      object WorkingDaysHours
+    }
+    STATUS {
+      number id
+      string Type
+      string Description
+      string Color
+    }
+    ALERTA_RETORNO {
+      number id
+      number AtomicDate
+      string Reason
+    }
+    TABELA_PRECOS {
+      number id
+      string Name
+      date ValidFrom
+    }
+    PRECO {
+      number id
+      string ProcedureName
+      number Amount
+      number ProcedureCost
+    }

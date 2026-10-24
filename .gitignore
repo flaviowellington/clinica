@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+server/src/generated/
+test-results/
+playwright-report/
+
+# Configuração pessoal do Claude Code
+.claude/settings.local.json
+# Capturas e respostas da API do sistema da clínica real (podem ter dados de pacientes; LGPD)
+docs/re-clinicorp/evidence/
+docs/re-clinicorp/REPORT.html

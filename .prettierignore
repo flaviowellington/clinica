@@ -1,0 +1,6 @@
+docs/
+server/src/generated/
+server/prisma/migrations/
+package-lock.json
+CLAUDE.md
+LEIA-ME.md

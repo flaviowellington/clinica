@@ -1,0 +1,91 @@
+@import 'tailwindcss';
+@custom-variant dark (&:where([data-tema='escuro'], [data-tema='escuro'] *));
+
+/* Tema global: as cores ficam em variáveis e mudam com data-tema no <html>. */
+:root {
+  --fundo: #f6f7f9;
+  --superficie: #ffffff;
+  --texto: #1c1917;
+  --suave: #6b7280;
+  --borda: #e5e7eb;
+  --primaria: #0f766e;
+  --primaria-clara: #e6f4f2;
+  --perigo: #dc2626;
+  --sucesso: #15803d;
+  color-scheme: light;
+}
+
+[data-tema='escuro'] {
+  --fundo: #0f1115;
+  --superficie: #181b21;
+  --texto: #ececec;
+  --suave: #9ca3af;
+  --borda: #2c313a;
+  --primaria: #2dd4bf;
+  --primaria-clara: #12302d;
+  --perigo: #f87171;
+  --sucesso: #4ade80;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-fundo: var(--fundo);
+  --color-superficie: var(--superficie);
+  --color-texto: var(--texto);
+  --color-suave: var(--suave);
+  --color-borda: var(--borda);
+  --color-primaria: var(--primaria);
+  --color-primaria-clara: var(--primaria-clara);
+  --color-perigo: var(--perigo);
+  --color-sucesso: var(--sucesso);
+  /* Fonte do sistema: nada carregado de terceiros (LGPD). */
+  --font-sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+body {
+  @apply bg-fundo text-texto font-sans text-sm;
+}
+
+@layer components {
+  .campo {
+    @apply w-full rounded-md border border-borda bg-superficie px-3 py-2 outline-none focus:border-primaria;
+  }
+  .rotulo {
+    @apply mb-1 block font-medium;
+  }
+  .botao {
+    @apply rounded-md bg-primaria px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:text-black;
+  }
+  .botao-leve {
+    @apply rounded-md border border-borda px-4 py-2 hover:bg-primaria-clara disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .botao-perigo {
+    @apply rounded-md bg-perigo px-4 py-2 font-medium text-white;
+  }
+  .cartao {
+    @apply rounded-lg border border-borda bg-superficie p-4;
+  }
+}
+
+/* Mãozinha do mouse em tudo que é clicável (o Tailwind 4 tirou o padrão dos botões). */
+@layer base {
+  button:not(:disabled),
+  [role='button'],
+  [role='tab'],
+  a[href],
+  select:not(:disabled),
+  summary,
+  label:has(> input[type='checkbox']:not(:disabled)),
+  label:has(> input[type='radio']:not(:disabled)),
+  input[type='checkbox']:not(:disabled),
+  input[type='radio']:not(:disabled),
+  input[type='color'],
+  input[type='date']::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+  }
+  button:disabled,
+  select:disabled,
+  input:disabled {
+    cursor: not-allowed;
+  }
+}
