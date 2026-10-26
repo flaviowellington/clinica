@@ -17,6 +17,7 @@ test('orçamento, contas, fluxo, conciliação, recibo e alerta de retorno', asy
   await buscaPac.fill('joão fictício silva')
   await buscaPac.press('Enter')
   await page.getByRole('link', { name: 'João Fictício Silva', exact: true }).click()
+  await page.getByRole('tab', { name: 'Orçamentos' }).click()
   await expect(page.getByRole('heading', { name: 'Orçamentos e tratamentos' })).toBeVisible()
   await page.getByRole('button', { name: 'Novo orçamento' }).click()
   await expect(page.getByRole('button', { name: 'Aprovar' })).toHaveCount(0)

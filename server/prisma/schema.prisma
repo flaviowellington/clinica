@@ -84,6 +84,16 @@ model Pessoa {
   orcamentosProf Orcamento[]       @relation("profissionalOrcamento")
   contas         ContaFinanceira[]
 
+  procedimentosClinicos     ProcedimentoClinico[] @relation("pacienteProcedimento")
+  procedimentosClinicosProf ProcedimentoClinico[] @relation("profissionalProcedimento")
+  anamneses                 Anamnese[]
+  fichasEspecialidade       FichaEspecialidade[]  @relation("pacienteFicha")
+  fichasEspecialidadeProf   FichaEspecialidade[]  @relation("profissionalFicha")
+  arquivos                  Arquivo[]
+  documentos                Documento[]           @relation("pacienteDocumento")
+  documentosProf            Documento[]           @relation("profissionalDocumento")
+  notas                     Nota[]
+
   @@index([tipo, nomeBusca])
 }
 
@@ -106,6 +116,13 @@ model Usuario {
   retornos          AlertaRetorno[]
   orcamentos        Orcamento[]
   contasFinanceiras ContaFinanceira[]
+
+  procedimentosClinicos ProcedimentoClinico[]
+  anamneses             Anamnese[]
+  fichasEspecialidade   FichaEspecialidade[]
+  arquivos              Arquivo[]
+  documentos            Documento[]
+  notas                 Nota[]
 }
 
 /// Quem abriu cada ficha e quando (R-003, LGPD).
@@ -274,13 +291,14 @@ model AlertaRetorno {
 
 /// Tabela de preços particular (E-009).
 model Procedimento {
-  id            Int             @id @default(autoincrement())
+  id            Int                   @id @default(autoincrement())
   nome          String
   nomeBusca     String
   especialidade String?
   valorCentavos Int
-  ativo         Boolean         @default(true)
+  ativo         Boolean               @default(true)
   itens         ItemOrcamento[]
+  clinicos      ProcedimentoClinico[]
 }
 
 enum StatusOrcamento {
@@ -383,4 +401,170 @@ model ContaBancaria {
   saldoInicialCentavos Int          @default(0)
   ativa                Boolean      @default(true)
   lancamentos          Lancamento[]
+}
+
+// ── Prontuário (rules/prontuario.md). Nada aqui é apagado de verdade (BR-003). ──
+
+/// Valor antigo de um registro do prontuário, gravado antes de cada alteração (BR-003).
+model Alteracao {
+  id         Int      @id @default(autoincrement())
+  tabela     String
+  registroId Int
+  antes      Json
+  usuarioId  Int
+  em         DateTime @default(now())
+
+  @@index([tabela, registroId])
+}
+
+/// "A realizar" vem dos orçamentos aprovados; aqui ficam os lançados direto (R-061).
+enum StatusClinico {
+  EXECUTADO
+  EXISTENTE
+}
+
+/// Procedimento lançado no odontograma ou na ficha clínica, sem cobrança (R-061).
+model ProcedimentoClinico {
+  id                 Int           @id @default(autoincrement())
+  pacienteId         Int
+  paciente           Pessoa        @relation("pacienteProcedimento", fields: [pacienteId], references: [id])
+  profissionalId     Int
+  profissional       Pessoa        @relation("profissionalProcedimento", fields: [profissionalId], references: [id])
+  procedimentoId     Int?
+  procedimento       Procedimento? @relation(fields: [procedimentoId], references: [id])
+  nome               String
+  /// Dente FDI (opcional) e faces V P M D O C, ex.: "MO" (R-069).
+  dente              String?
+  faces              String?
+  status             StatusClinico
+  data               DateTime      @db.Date
+  /// Interna, e a que aparece no documento do paciente (R-078).
+  observacao         String?
+  observacaoPaciente String?
+  excluidoEm         DateTime?
+  excluidoPorId      Int?
+  criadoEm           DateTime      @default(now())
+  criadoPorId        Int
+  criadoPor          Usuario       @relation(fields: [criadoPorId], references: [id])
+  alteradoEm         DateTime      @updatedAt
+
+  @@index([pacienteId])
+}
+
+enum Respondente {
+  PACIENTE
+  PROFISSIONAL
+}
+
+/// Anamnese: a mais nova é a "Atual"; as outras ficam no histórico (R-075).
+model Anamnese {
+  id            Int         @id @default(autoincrement())
+  pacienteId    Int
+  paciente      Pessoa      @relation(fields: [pacienteId], references: [id])
+  respondente   Respondente
+  /// [{ texto, tipo, opcoes, obrigatoria, alerta, resposta, descricao }]
+  perguntas     Json
+  observacoes   String?
+  excluidoEm    DateTime?
+  excluidoPorId Int?
+  criadoEm      DateTime    @default(now())
+  criadoPorId   Int
+  criadoPor     Usuario     @relation(fields: [criadoPorId], references: [id])
+  alteradoEm    DateTime    @updatedAt
+
+  @@index([pacienteId])
+}
+
+/// Ficha de especialidade com status por dente (R-068).
+model FichaEspecialidade {
+  id             Int                      @id @default(autoincrement())
+  pacienteId     Int
+  paciente       Pessoa                   @relation("pacienteFicha", fields: [pacienteId], references: [id])
+  profissionalId Int
+  profissional   Pessoa                   @relation("profissionalFicha", fields: [profissionalId], references: [id])
+  especialidade  String
+  observacoes    String?
+  excluidoEm     DateTime?
+  excluidoPorId  Int?
+  criadoEm       DateTime                 @default(now())
+  criadoPorId    Int
+  criadoPor      Usuario                  @relation(fields: [criadoPorId], references: [id])
+  itens          ItemFichaEspecialidade[]
+
+  @@index([pacienteId])
+}
+
+model ItemFichaEspecialidade {
+  id           Int                @id @default(autoincrement())
+  fichaId      Int
+  ficha        FichaEspecialidade @relation(fields: [fichaId], references: [id])
+  dente        String
+  procedimento String
+  status       String
+  observacao   String?
+  excluidoEm   DateTime?
+  criadoEm     DateTime           @default(now())
+  alteradoEm   DateTime           @updatedAt
+}
+
+enum CategoriaArquivo {
+  FOTO
+  EXAME
+}
+
+/// Foto ou exame do paciente, guardado no próprio banco (entra no backup diário).
+/// ponytail: bytes no Postgres; mover para um storage no Brasil se passar de alguns GB.
+model Arquivo {
+  id            Int              @id @default(autoincrement())
+  pacienteId    Int
+  paciente      Pessoa           @relation(fields: [pacienteId], references: [id])
+  categoria     CategoriaArquivo
+  pasta         String?
+  nome          String
+  tipo          String
+  tamanho       Int
+  dados         Bytes
+  /// Graus (0, 90, 180, 270) e espelhamento, gravados na hora (R-077).
+  rotacao       Int              @default(0)
+  espelhado     Boolean          @default(false)
+  excluidoEm    DateTime?
+  excluidoPorId Int?
+  criadoEm      DateTime         @default(now())
+  criadoPorId   Int
+  criadoPor     Usuario          @relation(fields: [criadoPorId], references: [id])
+
+  @@index([pacienteId, categoria])
+}
+
+/// Atestado, receita ou declaração gerados de um modelo (R-062).
+model Documento {
+  id             Int       @id @default(autoincrement())
+  pacienteId     Int
+  paciente       Pessoa    @relation("pacienteDocumento", fields: [pacienteId], references: [id])
+  profissionalId Int?
+  profissional   Pessoa?   @relation("profissionalDocumento", fields: [profissionalId], references: [id])
+  modelo         String
+  titulo         String
+  texto          String
+  excluidoEm     DateTime?
+  excluidoPorId  Int?
+  criadoEm       DateTime  @default(now())
+  criadoPorId    Int
+  criadoPor      Usuario   @relation(fields: [criadoPorId], references: [id])
+  alteradoEm     DateTime  @updatedAt
+
+  @@index([pacienteId])
+}
+
+/// Notas gerais da Visão Geral.
+model Nota {
+  id          Int      @id @default(autoincrement())
+  pacienteId  Int
+  paciente    Pessoa   @relation(fields: [pacienteId], references: [id])
+  texto       String
+  criadoEm    DateTime @default(now())
+  criadoPorId Int
+  criadoPor   Usuario  @relation(fields: [criadoPorId], references: [id])
+
+  @@index([pacienteId])
 }

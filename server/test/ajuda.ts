@@ -18,6 +18,14 @@ export function usarServidor() {
   })
   afterAll(() => new Promise((ok) => servidor.close(ok)))
   beforeEach(async () => {
+    await db.alteracao.deleteMany()
+    await db.itemFichaEspecialidade.deleteMany()
+    await db.fichaEspecialidade.deleteMany()
+    await db.procedimentoClinico.deleteMany()
+    await db.anamnese.deleteMany()
+    await db.arquivo.deleteMany()
+    await db.documento.deleteMany()
+    await db.nota.deleteMany()
     await db.contaFinanceira.deleteMany()
     await db.itemOrcamento.deleteMany()
     await db.alertaRetorno.deleteMany()
@@ -36,13 +44,22 @@ export function usarServidor() {
 export type Cliente = ReturnType<typeof cliente>
 
 export function cliente(cookie = '') {
-  return async (metodo: string, caminho: string, corpo?: unknown) => {
+  /** Corpo em bytes vai cru, com o tipo informado (upload de arquivo). */
+  return async (metodo: string, caminho: string, corpo?: unknown, tipo = 'application/json') => {
+    const bruto = corpo instanceof Uint8Array
     const r = await fetch(base + caminho, {
       method: metodo,
-      headers: { 'content-type': 'application/json', cookie },
-      body: corpo === undefined ? undefined : JSON.stringify(corpo),
+      headers: { 'content-type': tipo, cookie },
+      body: corpo === undefined ? undefined : bruto ? (corpo as BodyInit) : JSON.stringify(corpo),
     })
-    return { status: r.status, corpo: await r.json(), cookie: r.headers.get('set-cookie') ?? '' }
+    const json = r.headers.get('content-type')?.includes('json')
+    return {
+      status: r.status,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      corpo: (json ? await r.json() : new Uint8Array(await r.arrayBuffer())) as any,
+      tipo: r.headers.get('content-type') ?? '',
+      cookie: r.headers.get('set-cookie') ?? '',
+    }
   }
 }
 

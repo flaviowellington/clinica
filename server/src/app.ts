@@ -11,6 +11,7 @@ import { rotasAgenda } from './agenda'
 import { rotasContas, rotasFinanceiro, rotasProfissionais, rotasRelatorios } from './gestao'
 import { rotasFinanceiroContas } from './financeiro'
 import { rotasOrcamentos, rotasProcedimentos, rotasRetornos } from './tratamentos'
+import { rotasFichaPaciente, rotasProntuario } from './prontuario'
 
 export function criarApp() {
   const app = express()
@@ -48,7 +49,8 @@ export function criarApp() {
     res.json({ id, nome, login, perfis })
   })
 
-  app.use('/api/pacientes', exigirLogin, rotasPacientes)
+  app.use('/api/pacientes', exigirLogin, rotasPacientes, rotasFichaPaciente)
+  app.use('/api/prontuario', exigirLogin, rotasProntuario)
   app.use('/api/lixeira', exigirLogin, rotasLixeira)
   app.use('/api/agenda', exigirLogin, rotasAgenda)
   app.use('/api/profissionais', exigirLogin, rotasProfissionais)

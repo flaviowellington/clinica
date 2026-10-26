@@ -30,6 +30,7 @@ import { Financeiro } from './paginas/Financeiro'
 import { Relatorios } from './paginas/Relatorios'
 import { Contas } from './paginas/Contas'
 import { Recibo } from './paginas/Recibo'
+import { DocumentoImpresso } from './paginas/DocumentoImpresso'
 import { ABAS } from './abas'
 import { Icone } from './componentes/Icones'
 
@@ -164,19 +165,26 @@ const pacientes = createRoute({
   component: Pacientes,
 })
 
+/** ?aba=… guarda a aba aberta na URL (B-008: cada tela tem seu endereço). */
+const comAba = (s: Record<string, unknown>): { aba?: string } => ({
+  aba: typeof s.aba === 'string' && s.aba ? s.aba : undefined,
+})
+
 const ficha = createRoute({
   getParentRoute: () => logado,
   path: '/pacientes/$id',
+  validateSearch: comAba,
   component: Ficha,
+})
+const documento = createRoute({
+  getParentRoute: () => logado,
+  path: '/documento/$id',
+  component: DocumentoImpresso,
 })
 const lixeira = createRoute({ getParentRoute: () => logado, path: '/lixeira', component: Lixeira })
 
 const agenda = createRoute({ getParentRoute: () => logado, path: '/agenda', component: Agenda })
 
-/** ?aba=… guarda a aba aberta na URL (B-008: cada tela tem seu endereço). */
-const comAba = (s: Record<string, unknown>): { aba?: string } => ({
-  aba: typeof s.aba === 'string' && s.aba ? s.aba : undefined,
-})
 const financeiro = createRoute({
   getParentRoute: () => logado,
   path: '/financeiro',
@@ -222,6 +230,7 @@ const router = createRouter({
       relatorios,
       contas,
       recibo,
+      documento,
     ]),
   ]),
   context: { queryClient },

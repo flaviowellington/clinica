@@ -26,6 +26,11 @@ const MATRIZ = {
   'orcamento.aprovar': TODOS,
   'orcamento.cancelar': ['ADMINISTRADOR', 'FINANCEIRO'],
   'procedimento.executar': ['ADMINISTRADOR', 'PROFISSIONAL'],
+  // Prontuário clínico (permissions.md): Recepção no máximo vê anamnese e fotos; Financeiro nada.
+  'prontuario.ver': ['ADMINISTRADOR', 'PROFISSIONAL'],
+  'prontuario.editar': ['ADMINISTRADOR', 'PROFISSIONAL'],
+  'anamnese.ver': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
+  'fotos.ver': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
   'profissional.ver': TODOS,
   'profissional.editar': ['ADMINISTRADOR'],
   'financeiro.ver': ['ADMINISTRADOR', 'FINANCEIRO'],

@@ -116,7 +116,7 @@ function Tabela(props: {
 }
 
 // ── Contas a pagar / a receber / controles por forma ────────────────────────
-interface Conta {
+export interface Conta {
   id: number
   tipo: 'PAGAR' | 'RECEBER'
   descricao: string
@@ -414,7 +414,7 @@ function NovaConta(props: {
   )
 }
 
-function Baixar(props: { conta: Conta; aoTerminar: () => void }) {
+export function Baixar(props: { conta: Conta; aoTerminar: () => void }) {
   const qc = useQueryClient()
   const baixar = useMutation({
     mutationFn: async (d: Record<string, unknown>) =>
