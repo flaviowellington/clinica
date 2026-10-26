@@ -2,7 +2,9 @@
 // Pode rodar várias vezes: atualiza os usuários e só cria o que ainda não existe.
 import { db } from './db'
 import { gerarHash } from './auth'
+import { deflateSync, crc32 } from 'node:zlib'
 import { normalizar } from '../../shared/regras'
+import { MODELO_ANAMNESE, MODELOS_DOCUMENTO, preencherModelo } from '../../shared/prontuario'
 import type { MotivoInativacao, Perfil, Prisma } from './generated/prisma/client'
 
 if (process.env.NODE_ENV === 'production') throw new Error('O seed não roda em produção.')
@@ -11,6 +13,29 @@ if (!senha) throw new Error('Defina SEED_SENHA em server/.env')
 const senhaHash = await gerarHash(senha)
 
 const data = (iso: string) => new Date(`${iso}T00:00:00Z`)
+
+/** PNG de uma cor só, para as fotos fictícias (sem precisar de arquivo de imagem). */
+function pngLiso(largura: number, altura: number, [r, g, b]: readonly number[]) {
+  const pedaco = (tipo: string, dados: Buffer) => {
+    const tam = Buffer.alloc(4)
+    tam.writeUInt32BE(dados.length)
+    const corpo = Buffer.concat([Buffer.from(tipo, 'latin1'), dados])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32(corpo))
+    return Buffer.concat([tam, corpo, crc])
+  }
+  const cab = Buffer.alloc(13)
+  cab.writeUInt32BE(largura, 0)
+  cab.writeUInt32BE(altura, 4)
+  cab.set([8, 2, 0, 0, 0], 8) // 8 bits, RGB
+  const linha = Buffer.from([0, ...Array.from({ length: largura }, () => [r, g, b]).flat()])
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pedaco('IHDR', cab),
+    pedaco('IDAT', deflateSync(Buffer.concat(Array(altura).fill(linha)))),
+    pedaco('IEND', Buffer.alloc(0)),
+  ])
+}
 
 /** CPF com dígitos verificadores corretos, a partir de 9 dígitos quaisquer. */
 function cpfFicticio(base: string) {
@@ -588,6 +613,400 @@ if (!(await db.agendamento.count({ where: { status: 'FALTOU' } }))) {
         },
       })
   console.log('Casos para os relatórios criados.')
+}
+
+// ── Configurações da clínica (fictícias) ────────────────────────────────────
+const configs: [string, object][] = [
+  [
+    'clinica',
+    {
+      nome: 'Clínica Odontológica Fictícia',
+      cnpj: '00.000.000/0001-00',
+      endereco: 'Rua Fictícia, 100 – Centro',
+      cidade: 'Cidade Fictícia',
+      telefone: '(11) 3000-0000',
+      email: 'contato@example.com',
+    },
+  ],
+  [
+    'medicamentos',
+    [
+      { nome: 'Amoxicilina 500 mg', posologia: '1 cápsula de 8 em 8 horas por 7 dias' },
+      {
+        nome: 'Ibuprofeno 600 mg',
+        posologia: '1 comprimido de 8 em 8 horas por 3 dias, após as refeições',
+      },
+      { nome: 'Dipirona 500 mg', posologia: '1 comprimido de 6 em 6 horas, se houver dor' },
+      {
+        nome: 'Clorexidina 0,12%',
+        posologia: 'Bochechar 15 ml por 1 minuto, 2 vezes ao dia, por 7 dias',
+      },
+    ],
+  ],
+]
+for (const [chave, valor] of configs)
+  if (!(await db.configuracao.findUnique({ where: { chave } })))
+    await db.configuracao.create({ data: { chave, valor, alteradoPorId: adminId } })
+
+// Usuário inativo (saiu da clínica): aparece na tela de Usuários, mas não entra.
+await db.usuario.upsert({
+  where: { login: 'ex.recepcao' },
+  update: {},
+  create: {
+    login: 'ex.recepcao',
+    nome: 'Ex-Recepção Fictícia',
+    perfis: ['RECEPCAO'],
+    senhaHash,
+    ativo: false,
+  },
+})
+
+// ── Prontuário completo de um paciente: anamnese, odontograma, ficha, documentos, fotos ──
+const hojeSeed = new Date()
+hojeSeed.setUTCHours(0, 0, 0, 0)
+const diasAtras = (n: number) => new Date(hojeSeed.getTime() - n * 86_400_000)
+const completo = await db.pessoa.findFirstOrThrow({
+  where: { tipo: 'PACIENTE', nome: 'Paciente Fictício Completo' },
+})
+const [dra, dr] = [pessoaDe.dentista1, pessoaDe.dentista2]
+
+if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
+  const responder = (alergia: string | null) =>
+    MODELO_ANAMNESE.map((p) => {
+      if (p.texto.startsWith('Tem alergia'))
+        return { ...p, resposta: alergia ? 'Sim' : 'Não', descricao: alergia }
+      if (p.texto.startsWith('Toma algum'))
+        return { ...p, resposta: 'Sim', descricao: 'Losartana 50 mg (fictício)' }
+      if (p.texto.startsWith('Tem pressão')) return { ...p, resposta: 'Sim', descricao: null }
+      if (p.tipo === 'OPCOES') return { ...p, resposta: p.opcoes?.[1] ?? null, descricao: null }
+      if (p.tipo === 'DESCRITIVA')
+        return { ...p, resposta: 'Dor ao mastigar do lado direito', descricao: null }
+      return { ...p, resposta: 'Não', descricao: null }
+    })
+  // A antiga vai para o histórico; a mais nova é a atual e tem alergia (vira alerta).
+  await db.anamnese.create({
+    data: {
+      pacienteId: completo.id,
+      respondente: 'PACIENTE',
+      perguntas: responder(null),
+      criadoEm: diasAtras(400),
+      criadoPorId: adminId,
+    },
+  })
+  await db.anamnese.create({
+    data: {
+      pacienteId: completo.id,
+      respondente: 'PROFISSIONAL',
+      perguntas: responder('Penicilina'),
+      observacoes: 'Paciente ansioso; preferir anestesia sem vasoconstritor (fictício).',
+      criadoPorId: adminId,
+    },
+  })
+
+  const resina = await db.procedimento.findFirst({
+    where: { nome: 'Restauração em resina (2 faces)' },
+  })
+  const limpeza = await db.procedimento.findFirst({ where: { nome: 'Limpeza (profilaxia)' } })
+  const clinicos = [
+    {
+      procedimento: resina,
+      nome: 'Restauração em resina (2 faces)',
+      dente: '16',
+      faces: 'MO',
+      status: 'EXECUTADO' as const,
+      data: diasAtras(30),
+      obs: 'Resina cor A2',
+      obsPac: 'Evitar alimentos duros por 24 horas',
+    },
+    {
+      procedimento: limpeza,
+      nome: 'Limpeza (profilaxia)',
+      dente: null,
+      faces: null,
+      status: 'EXECUTADO' as const,
+      data: diasAtras(30),
+      obs: null,
+      obsPac: null,
+    },
+    {
+      procedimento: null,
+      nome: 'Restauração antiga em amálgama',
+      dente: '26',
+      faces: 'O',
+      status: 'EXISTENTE' as const,
+      data: diasAtras(400),
+      obs: 'Feita em outra clínica',
+      obsPac: null,
+    },
+    {
+      procedimento: null,
+      nome: 'Coroa metalocerâmica',
+      dente: '46',
+      faces: null,
+      status: 'EXISTENTE' as const,
+      data: diasAtras(400),
+      obs: null,
+      obsPac: null,
+    },
+  ]
+  for (const c of clinicos)
+    await db.procedimentoClinico.create({
+      data: {
+        pacienteId: completo.id,
+        profissionalId: dra,
+        procedimentoId: c.procedimento?.id,
+        nome: c.nome,
+        dente: c.dente,
+        faces: c.faces,
+        status: c.status,
+        data: c.data,
+        observacao: c.obs,
+        observacaoPaciente: c.obsPac,
+        criadoPorId: adminId,
+      },
+    })
+
+  await db.fichaEspecialidade.create({
+    data: {
+      pacienteId: completo.id,
+      profissionalId: dr,
+      especialidade: 'Endodontia',
+      observacoes: 'Dor espontânea no 36 (fictício).',
+      criadoPorId: adminId,
+      itens: {
+        create: [
+          { dente: '36', procedimento: 'Tratamento de canal', status: 'Em tratamento' },
+          { dente: '37', procedimento: 'Teste de vitalidade', status: 'Em avaliação' },
+        ],
+      },
+    },
+  })
+
+  const docAtestado = preencherModelo(MODELOS_DOCUMENTO.atestado.texto, {
+    paciente: completo.nome,
+    cpf: completo.cpf?.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'),
+    profissional: 'Dra. Fictícia Andrade',
+    cro: 'CRO-XX 10001',
+    data: diasAtras(30).toISOString().slice(0, 10).split('-').reverse().join('/'),
+    cidade: 'Cidade Fictícia',
+    horario: '14:00',
+    dias: '1 dia',
+  })
+  await db.documento.create({
+    data: {
+      pacienteId: completo.id,
+      profissionalId: dra,
+      modelo: 'atestado',
+      titulo: MODELOS_DOCUMENTO.atestado.titulo,
+      texto: docAtestado,
+      criadoEm: diasAtras(30),
+      criadoPorId: adminId,
+    },
+  })
+
+  await db.nota.createMany({
+    data: [
+      { pacienteId: completo.id, texto: 'Prefere consultas pela manhã.', criadoPorId: adminId },
+      {
+        pacienteId: completo.id,
+        texto: 'Pediu orçamento de clareamento para o próximo mês.',
+        criadoPorId: adminId,
+      },
+    ],
+  })
+
+  // Fotos (imagens geradas aqui, de cor lisa) e um exame em PDF, todos fictícios.
+  for (const [nome, cor, pasta] of [
+    ['frontal-inicial.png', [15, 118, 110], 'Inicial'],
+    ['oclusal-inicial.png', [56, 189, 248], 'Inicial'],
+    ['frontal-final.png', [234, 179, 8], 'Pós-tratamento'],
+  ] as const) {
+    const dados = pngLiso(160, 110, cor)
+    await db.arquivo.create({
+      data: {
+        pacienteId: completo.id,
+        categoria: 'FOTO',
+        pasta,
+        nome,
+        tipo: 'image/png',
+        tamanho: dados.length,
+        dados: new Uint8Array(dados),
+        criadoPorId: adminId,
+      },
+    })
+  }
+  const pdf = Buffer.from(
+    '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
+      '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF',
+  )
+  await db.arquivo.create({
+    data: {
+      pacienteId: completo.id,
+      categoria: 'EXAME',
+      nome: 'radiografia-panoramica-ficticia.pdf',
+      tipo: 'application/pdf',
+      tamanho: pdf.length,
+      dados: new Uint8Array(pdf),
+      criadoPorId: adminId,
+    },
+  })
+  console.log(`Prontuário completo criado para "${completo.nome}".`)
+}
+
+// ── Caixa: um caixa fechado ontem, com os recebimentos dele e uma diferença ──
+if (!(await db.caixa.count())) {
+  const recepcao = await db.usuario.findUniqueOrThrow({ where: { login: 'recepcao1' } })
+  const ontem = diasAtras(1)
+  const caixa = await db.caixa.create({
+    data: {
+      abertoEm: new Date(ontem.getTime() + 11 * 3_600_000),
+      abertoPorId: recepcao.id,
+      saldoInicialCentavos: 10000,
+      fechadoEm: new Date(ontem.getTime() + 21 * 3_600_000),
+      fechadoPorId: recepcao.id,
+      conferencia: {
+        Dinheiro: { esperado: 25000, contado: 24500 },
+        Pix: { esperado: 30000, contado: 30000 },
+      },
+      observacoes: 'Faltaram R$ 5,00 no troco (fictício).',
+    },
+  })
+  const pacs = await db.pessoa.findMany({
+    where: { tipo: 'PACIENTE', ativo: true, excluidoEm: null },
+    orderBy: { id: 'asc' },
+    skip: 3,
+    take: 2,
+  })
+  for (const [i, [valor, forma]] of (
+    [
+      [15000, 'Dinheiro'],
+      [30000, 'Pix'],
+    ] as const
+  ).entries())
+    await db.lancamento.create({
+      data: {
+        data: ontem,
+        tipo: 'ENTRADA',
+        valorCentavos: valor,
+        descricao: 'Recebimento no balcão',
+        forma,
+        categoria: 'Receita de tratamentos',
+        pacienteId: pacs[i].id,
+        caixaId: caixa.id,
+        criadoPorId: recepcao.id,
+      },
+    })
+  console.log('Caixa fechado de ontem criado.')
+}
+
+// ── Controle Protético: um trabalho em cada coluna, um deles atrasado ───────
+if (!(await db.trabalhoProtetico.count())) {
+  const pacs = await db.pessoa.findMany({
+    where: { tipo: 'PACIENTE', ativo: true, excluidoEm: null },
+    orderBy: { id: 'asc' },
+    skip: 5,
+    take: 5,
+  })
+  const emDias = (n: number) => new Date(hojeSeed.getTime() + n * 86_400_000)
+  const trabalhos = [
+    {
+      etapa: 'PRE_ENVIO',
+      trabalho: 'Coroa em porcelana',
+      dentes: '11',
+      cor: 'A2',
+      prazo: emDias(15),
+    },
+    {
+      etapa: 'EM_LABORATORIO',
+      trabalho: 'Prótese parcial removível',
+      dentes: 'Arcada superior',
+      cor: 'A3',
+      prazo: emDias(-2),
+      enviadoEm: emDias(-12),
+    },
+    {
+      etapa: 'RETORNO',
+      trabalho: 'Placa de bruxismo',
+      dentes: null,
+      cor: null,
+      prazo: emDias(3),
+      enviadoEm: emDias(-10),
+      retornoEm: emDias(-1),
+    },
+    {
+      etapa: 'AGENDAMENTO',
+      trabalho: 'Faceta em resina',
+      dentes: '21, 22',
+      cor: 'BL2',
+      prazo: emDias(1),
+      enviadoEm: emDias(-15),
+      retornoEm: emDias(-3),
+    },
+    {
+      etapa: 'INSTALADO',
+      trabalho: 'Coroa metalocerâmica',
+      dentes: '46',
+      cor: 'A3',
+      prazo: emDias(-20),
+      enviadoEm: emDias(-35),
+      retornoEm: emDias(-22),
+      instaladoEm: emDias(-18),
+    },
+  ] as const
+  for (const [i, t] of trabalhos.entries())
+    await db.trabalhoProtetico.create({
+      data: {
+        ...t,
+        pacienteId: pacs[i].id,
+        profissionalId: Object.values(pessoaDe)[i % 3],
+        laboratorio: i % 2 ? 'Laboratório Fictício Sul' : 'Laboratório Fictício',
+        valorCentavos: 30000 + i * 7500,
+        criadoPorId: adminId,
+      },
+    })
+  console.log('Trabalhos protéticos criados.')
+}
+
+// ── Confirmações: consultas já confirmadas e e-mails enviados (e um que falhou) ──
+if (!(await db.mensagem.count())) {
+  const futuras = await db.agendamento.findMany({
+    where: {
+      tipo: 'CONSULTA',
+      excluidoEm: null,
+      desmarcadoEm: null,
+      data: { gte: hojeSeed },
+      paciente: { email: { not: null } },
+    },
+    include: { paciente: true },
+    orderBy: [{ data: 'asc' }, { inicio: 'asc' }],
+    take: 4,
+  })
+  for (const [i, a] of futuras.entries()) {
+    const falhou = i === 3
+    await db.mensagem.create({
+      data: {
+        agendamentoId: a.id,
+        canal: 'EMAIL',
+        tipo: 'CONFIRMACAO',
+        destino: a.paciente!.email!,
+        assunto: 'Confirme sua consulta – Clínica Odontológica Fictícia',
+        status: falhou ? 'FALHOU' : 'ENVIADA',
+        erro: falhou ? 'Caixa de e-mail do paciente cheia (fictício).' : null,
+        enviadoPorId: adminId,
+      },
+    })
+    // Dois confirmaram: um pelo link, outro por telefone com a recepção.
+    if (i < 2)
+      await db.agendamento.update({
+        where: { id: a.id },
+        data: {
+          status: a.status === 'AGENDADO' ? 'CONFIRMADO' : a.status,
+          confirmadoEm: new Date(),
+          confirmadoPor: i === 0 ? 'Paciente' : 'Recepção Fictícia Um',
+        },
+      })
+  }
+  console.log('Confirmações e e-mails fictícios criados.')
 }
 
 console.log('Usuários (todos com a senha SEED_SENHA do server/.env):')

@@ -12,6 +12,13 @@ import { rotasContas, rotasFinanceiro, rotasProfissionais, rotasRelatorios } fro
 import { rotasFinanceiroContas } from './financeiro'
 import { rotasOrcamentos, rotasProcedimentos, rotasRetornos } from './tratamentos'
 import { rotasFichaPaciente, rotasProntuario } from './prontuario'
+import { rotasEu, rotasUsuarios } from './usuarios'
+import { rotasConfiguracoes, rotasTabelaProcedimentos } from './configuracoes'
+import { rotasCaixa } from './caixa'
+import { rotasProtetico } from './protetico'
+import { rotasConfirmacoes, rotasPublicas } from './confirmacoes'
+import { rotasPainel } from './painel'
+import { rotasImportacao } from './importacao'
 
 export function criarApp() {
   const app = express()
@@ -44,6 +51,9 @@ export function criarApp() {
     res.json({ ok: true })
   })
 
+  // Sem login: a página em que o paciente confirma a consulta pelo link do e-mail.
+  app.use('/api/publico', rotasPublicas)
+
   app.get('/api/eu', exigirLogin, (_req, res) => {
     const { id, nome, login, perfis } = usuarioDe(res)
     res.json({ id, nome, login, perfis })
@@ -56,10 +66,18 @@ export function criarApp() {
   app.use('/api/profissionais', exigirLogin, rotasProfissionais)
   app.use('/api/financeiro', exigirLogin, rotasFinanceiro, rotasFinanceiroContas)
   app.use('/api/retornos', exigirLogin, rotasRetornos)
-  app.use('/api/procedimentos', exigirLogin, rotasProcedimentos)
+  app.use('/api/procedimentos', exigirLogin, rotasProcedimentos, rotasTabelaProcedimentos)
   app.use('/api/orcamentos', exigirLogin, rotasOrcamentos)
   app.use('/api/contas', exigirLogin, rotasContas)
   app.use('/api/relatorios', exigirLogin, rotasRelatorios)
+  app.use('/api/eu', exigirLogin, rotasEu)
+  app.use('/api/usuarios', exigirLogin, rotasUsuarios)
+  app.use('/api/configuracoes', exigirLogin, rotasConfiguracoes)
+  app.use('/api/caixa', exigirLogin, rotasCaixa)
+  app.use('/api/protetico', exigirLogin, rotasProtetico)
+  app.use('/api/confirmacoes', exigirLogin, rotasConfirmacoes)
+  app.use('/api/painel', exigirLogin, rotasPainel)
+  app.use('/api/importacao', exigirLogin, rotasImportacao)
   app.use('/api', (_req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }))
 
   // Em produção, o próprio servidor entrega o front já compilado (web/dist).

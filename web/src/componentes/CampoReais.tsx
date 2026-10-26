@@ -7,10 +7,12 @@ export function CampoReais(props: {
   rotulo: string
   id: string
   erro?: string
+  /** Rótulo só para leitor de tela (quando a coluna da tabela já diz o que é). */
+  rotuloOculto?: boolean
 }) {
   return (
     <label htmlFor={props.id} className="block">
-      <span className="rotulo">{props.rotulo}</span>
+      <span className={props.rotuloOculto ? 'sr-only' : 'rotulo'}>{props.rotulo}</span>
       <input
         id={props.id}
         inputMode="numeric"

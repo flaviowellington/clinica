@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
-import { api, consultaEu, errosDosCampos, mensagemDeErro } from '../api'
+import { api, consultaConfig, consultaEu, errosDosCampos, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import { Dialogo } from '../componentes/Dialogo'
@@ -15,18 +15,6 @@ export interface Profissional {
   corAgenda: string | null
   ativo: boolean
 }
-
-const ESPECIALIDADES = [
-  'Clínica geral',
-  'Dentística',
-  'Endodontia',
-  'Implantodontia',
-  'Odontopediatria',
-  'Ortodontia',
-  'Periodontia',
-  'Prótese',
-  'Cirurgia bucomaxilofacial',
-]
 
 const iniciais = (nome: string) =>
   nome
@@ -44,6 +32,7 @@ export function Profissionais() {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const podeEditar = pode(eu.perfis, 'profissional.editar')
   const qc = useQueryClient()
+  const especialidades = useQuery(consultaConfig('especialidades'))
   const [busca, setBusca] = useState('')
   const [ativos, setAtivos] = useState(true)
   const [editando, setEditando] = useState<Profissional | 'novo' | null>(null)
@@ -227,7 +216,7 @@ export function Profissionais() {
                 defaultValue={atual?.especialidade ?? ''}
               />
               <datalist id="especialidades">
-                {ESPECIALIDADES.map((e) => (
+                {especialidades.data?.map((e) => (
                   <option key={e} value={e} />
                 ))}
               </datalist>

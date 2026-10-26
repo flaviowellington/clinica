@@ -34,6 +34,16 @@ const MATRIZ = {
   'profissional.ver': TODOS,
   'profissional.editar': ['ADMINISTRADOR'],
   'financeiro.ver': ['ADMINISTRADOR', 'FINANCEIRO'],
+  // Financeiro do paciente: todos veem; Recepção recebe no balcão e emite recibo (permissions.md).
+  'financeiro.paciente': TODOS,
+  'financeiro.receber': ['ADMINISTRADOR', 'FINANCEIRO', 'RECEPCAO'],
+  'caixa.operar': ['ADMINISTRADOR', 'FINANCEIRO', 'RECEPCAO'],
+  'protetico.ver': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
+  'protetico.editar': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
+  'painel.ver': ['ADMINISTRADOR', 'FINANCEIRO'],
+  'usuario.gerenciar': ['ADMINISTRADOR'],
+  'configuracao.editar': ['ADMINISTRADOR'],
+  'dados.importar': ['ADMINISTRADOR'],
   'financeiro.editar': ['ADMINISTRADOR', 'FINANCEIRO'],
   'conta.gerenciar': ['ADMINISTRADOR', 'FINANCEIRO'],
   // Relatórios por grupo (permissions.md: cada perfil vê os da sua área).

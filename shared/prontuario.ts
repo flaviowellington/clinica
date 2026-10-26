@@ -128,21 +128,21 @@ export const MODELOS_DOCUMENTO = {
     texto:
       'Atesto, para os devidos fins, que {paciente}, CPF {cpf}, esteve sob meus cuidados ' +
       'profissionais no dia {data}, às {horario}, devendo permanecer afastado(a) de suas ' +
-      'atividades por {dias}.\n\n{data}.\n\n\n{profissional}\nCRO {cro}',
+      'atividades por {dias}.\n\n{cidade}, {data}.\n\n\n{profissional}\n{cro}',
   },
   comparecimento: {
     titulo: 'Declaração de comparecimento',
     variaveis: ['horario'] as const,
     texto:
       'Declaro, para os devidos fins, que {paciente}, CPF {cpf}, compareceu a esta clínica ' +
-      'no dia {data}, às {horario}, para atendimento odontológico.\n\n{data}.\n\n\n' +
-      '{profissional}\nCRO {cro}',
+      'no dia {data}, às {horario}, para atendimento odontológico.\n\n{cidade}, {data}.\n\n\n' +
+      '{profissional}\n{cro}',
   },
   receita: {
     titulo: 'Receita',
     variaveis: [] as const,
     texto:
-      'Paciente: {paciente}\n\nUso interno:\n\n1. \n\n\n{data}.\n\n\n{profissional}\nCRO {cro}',
+      'Paciente: {paciente}\n\nUso interno:\n\n1. \n\n\n{cidade}, {data}.\n\n\n{profissional}\n{cro}',
   },
 } as const
 export type ModeloDocumento = keyof typeof MODELOS_DOCUMENTO

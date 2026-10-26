@@ -95,7 +95,7 @@ export function FinanceiroPaciente({ paciente }: { paciente: Paciente }) {
                 </td>
                 <td className={`${celula} font-medium`}>{reais(c.valorCentavos)}</td>
                 <td className={`${celula} text-right`}>
-                  {c.status === 'ABERTA' && pode(eu.perfis, 'financeiro.editar') && (
+                  {c.status === 'ABERTA' && pode(eu.perfis, 'financeiro.receber') && (
                     <button
                       className="text-primaria hover:underline"
                       onClick={() => setBaixar({ ...c, paciente: null })}
@@ -123,7 +123,7 @@ export function FinanceiroPaciente({ paciente }: { paciente: Paciente }) {
                 <td className={celula}>{l.forma ?? '—'}</td>
                 <td className={`${celula} font-medium`}>{reais(l.valorCentavos)}</td>
                 <td className={`${celula} text-right`}>
-                  {l.tipo === 'ENTRADA' && (
+                  {l.tipo === 'ENTRADA' && pode(eu.perfis, 'financeiro.receber') && (
                     <Link
                       to="/recibo/$id"
                       params={{ id: String(l.id) }}
@@ -146,6 +146,7 @@ export function FinanceiroPaciente({ paciente }: { paciente: Paciente }) {
             aoTerminar={() => {
               setBaixar(null)
               qc.invalidateQueries({ queryKey: ['financeiro-paciente', paciente.id] })
+              qc.invalidateQueries({ queryKey: ['caixa'] })
             }}
           />
         )}

@@ -18,6 +18,10 @@ export function usarServidor() {
   })
   afterAll(() => new Promise((ok) => servidor.close(ok)))
   beforeEach(async () => {
+    await db.mensagem.deleteMany()
+    await db.trabalhoProtetico.deleteMany()
+    await db.importacao.deleteMany()
+    await db.configuracao.deleteMany()
     await db.alteracao.deleteMany()
     await db.itemFichaEspecialidade.deleteMany()
     await db.fichaEspecialidade.deleteMany()
@@ -30,6 +34,7 @@ export function usarServidor() {
     await db.itemOrcamento.deleteMany()
     await db.alertaRetorno.deleteMany()
     await db.lancamento.deleteMany()
+    await db.caixa.deleteMany()
     await db.orcamento.deleteMany()
     await db.procedimento.deleteMany()
     await db.contaBancaria.deleteMany()

@@ -1,6 +1,6 @@
-import { Link, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { api, cpfBR, dataBR, mensagemDeErro } from '../api'
+import { api, consultaConfig, cpfBR, dataBR, mensagemDeErro } from '../api'
 import { reais } from '../../../shared/financeiro'
 
 interface Lancamento {
@@ -14,12 +14,10 @@ interface Lancamento {
   criadoPor: { nome: string }
 }
 
-// ponytail: nome da clínica fixo; virar configuração quando houver a tela de dados da clínica.
-const CLINICA = 'Clínica'
-
 /** Recibo de um recebimento, pronto para imprimir. */
 export function Recibo() {
   const { id } = useParams({ from: '/logado/recibo/$id' })
+  const clinica = useQuery(consultaConfig('clinica')).data
   const r = useQuery({
     queryKey: ['recibo', id],
     queryFn: async () => (await api.get<Lancamento>(`/financeiro/lancamentos/${id}`)).data,
@@ -30,9 +28,9 @@ export function Recibo() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div className="flex justify-between print:hidden">
-        <Link to="/financeiro" search={{ aba: 'conta-corrente' }} className="text-primaria">
-          ‹ Voltar para a conta corrente
-        </Link>
+        <button className="text-primaria" onClick={() => history.back()}>
+          ‹ Voltar
+        </button>
         <button className="botao" onClick={() => print()}>
           Imprimir
         </button>
@@ -50,9 +48,13 @@ export function Recibo() {
           <strong>{reais(l.valorCentavos)}</strong>, referente a {l.descricao}
           {l.forma && <>, paga em {l.forma.toLowerCase()}</>}.
         </p>
-        <p>Data: {dataBR(l.data)}</p>
+        <p>
+          {clinica?.cidade ? `${clinica.cidade}, ` : 'Data: '}
+          {dataBR(l.data)}
+        </p>
         <div className="pt-12 text-center">
-          <div className="mx-auto w-72 border-t border-texto pt-2">{CLINICA}</div>
+          <div className="mx-auto w-72 border-t border-texto pt-2">{clinica?.nome}</div>
+          {clinica?.cnpj && <p className="text-suave">CNPJ {clinica.cnpj}</p>}
           <p className="text-suave">Emitido por {l.criadoPor.nome}</p>
         </div>
       </article>

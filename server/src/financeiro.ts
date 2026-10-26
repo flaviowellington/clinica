@@ -2,6 +2,8 @@
 import { Router, type Request } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
+import { pode } from '../../shared/permissoes'
+import { caixaAberto } from './caixa'
 import {
   CATEGORIAS,
   CATEGORIA_PADRAO_ENTRADA,
@@ -34,7 +36,7 @@ export function periodo(req: Request) {
 export const rotasFinanceiroContas = Router()
 
 /** Um lançamento, para o recibo. */
-rotasFinanceiroContas.get('/lancamentos/:id', exigir('financeiro.ver'), async (req, res) => {
+rotasFinanceiroContas.get('/lancamentos/:id', exigir('financeiro.receber'), async (req, res) => {
   const l = await db.lancamento.findFirst({
     where: { id: id(req), excluidoEm: null },
     include: {
@@ -141,15 +143,25 @@ rotasFinanceiroContas.post('/contas', exigir('financeiro.editar'), async (req, r
   res.status(201).json(criadas.map(contaParaTela))
 })
 
-/** Baixa: registra o pagamento ou recebimento e lança na conta corrente. */
-rotasFinanceiroContas.post('/contas/:id/baixar', exigir('financeiro.editar'), async (req, res) => {
+/**
+ * Baixa: registra o pagamento ou recebimento e lança na conta corrente.
+ * Receber pode ser feito pela Recepção, desde que o caixa esteja aberto (F-031);
+ * com caixa aberto, todo recebimento entra nele.
+ */
+rotasFinanceiroContas.post('/contas/:id/baixar', async (req, res) => {
   const c = await db.contaFinanceira.findUnique({ where: { id: id(req) } })
   if (!c) return res.status(404).json({ erro: 'Conta não encontrada.' })
+  const u = usuarioDe(res)
+  const acao = c.tipo === 'RECEBER' ? 'financeiro.receber' : 'financeiro.editar'
+  if (!pode(u.perfis, acao))
+    return res.status(403).json({ erro: 'Você não tem permissão para esta ação.' })
   if (c.status !== 'ABERTA') return res.status(409).json({ erro: 'Esta conta não está em aberto.' })
   const data = texto(req.body?.data) ?? hojeNaClinica()
   if (isNaN(Date.parse(data))) return res.status(400).json({ erro: 'Data inválida.' })
   const forma = texto(req.body?.forma) ?? c.forma
-  const u = usuarioDe(res)
+  const caixa = c.tipo === 'RECEBER' ? await caixaAberto() : null
+  if (c.tipo === 'RECEBER' && !caixa && !pode(u.perfis, 'financeiro.editar'))
+    return res.status(409).json({ erro: 'Abra o caixa antes de receber.' })
   const novo = await db.$transaction(async (tx) => {
     const l = await tx.lancamento.create({
       data: {
@@ -161,6 +173,7 @@ rotasFinanceiroContas.post('/contas/:id/baixar', exigir('financeiro.editar'), as
         categoria: c.categoria,
         pacienteId: c.pacienteId,
         orcamentoId: c.orcamentoId,
+        caixaId: caixa?.id,
         criadoPorId: u.id,
       },
     })

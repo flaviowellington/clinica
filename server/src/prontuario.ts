@@ -437,7 +437,7 @@ rotasFichaPaciente.post('/:id/documentos', exigir('prontuario.editar'), async (r
 })
 
 // ── Financeiro, agendamentos e indicações do paciente ───────────────────────
-rotasFichaPaciente.get('/:id/financeiro', exigir('financeiro.ver'), async (_req, res) => {
+rotasFichaPaciente.get('/:id/financeiro', exigir('financeiro.paciente'), async (_req, res) => {
   const pacienteId = pacienteDe(res)
   const [contas, lancamentos] = await Promise.all([
     db.contaFinanceira.findMany({

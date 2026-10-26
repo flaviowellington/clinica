@@ -356,7 +356,7 @@ describe('abas de consulta: resumo, notas, financeiro, agendamentos, indicaçõe
     expect(r.corpo).toHaveProperty('proximaConsulta', null)
   })
 
-  it('financeiro do paciente traz só as contas e lançamentos dele, e só para quem vê o financeiro', async () => {
+  it('financeiro do paciente traz só as contas e lançamentos dele', async () => {
     const api = await entrarComo('ADMINISTRADOR')
     const { dentista, paciente, resina } = await base(api)
     const outro = (await api('POST', '/api/pacientes', { ...PACIENTE, nome: 'Outro Paciente' }))
@@ -375,10 +375,6 @@ describe('abas de consulta: resumo, notas, financeiro, agendamentos, indicaçõe
     expect(r.corpo.contas).toHaveLength(2)
     expect(r.corpo.lancamentos).toMatchObject([{ tipo: 'VENDA', valorCentavos: 30000 }])
     expect(r.corpo.saldoCentavos).toBe(-30000)
-    expect(
-      (await (await entrarComo('RECEPCAO'))('GET', `/api/pacientes/${paciente.id}/financeiro`))
-        .status,
-    ).toBe(403)
   })
 
   it('agendamentos do paciente, do mais novo para o mais antigo', async () => {

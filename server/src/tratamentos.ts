@@ -85,12 +85,14 @@ export const rotasProcedimentos = Router()
 /** R-013: acha o texto em qualquer parte do nome, sem acento nem maiúsculas. */
 rotasProcedimentos.get('/', exigir('orcamento.ver'), async (req, res) => {
   const termo = normalizar(String(req.query.busca ?? ''))
+  // ?todos=1: a tabela inteira, com os inativos (tela de Configurações).
+  const todos = req.query.todos === '1'
   res.json(
     await db.procedimento.findMany({
-      where: { ativo: true, ...(termo && { nomeBusca: { contains: termo } }) },
-      select: { id: true, nome: true, especialidade: true, valorCentavos: true },
+      where: { ...(!todos && { ativo: true }), ...(termo && { nomeBusca: { contains: termo } }) },
+      select: { id: true, nome: true, especialidade: true, valorCentavos: true, ativo: true },
       orderBy: { nomeBusca: 'asc' },
-      take: 50,
+      take: todos ? 2000 : 50,
     }),
   )
 })

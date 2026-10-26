@@ -3,6 +3,7 @@ import { queryOptions } from '@tanstack/react-query'
 import type { Perfil } from '../../shared/permissoes'
 import type { MotivoInativacao } from '../../shared/regras'
 import type { StatusAgenda } from '../../shared/agenda'
+import type { ChaveConfig, PADROES } from '../../shared/configuracoes'
 
 export const api = axios.create({ baseURL: '/api', withCredentials: true })
 
@@ -114,3 +115,11 @@ export function somarDias(iso: string, dias: number) {
 
 export const horaBR = (instante: string) =>
   new Date(instante).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+/** Configuração da clínica (shared/configuracoes.ts): padrão até o administrador mudar. */
+export const consultaConfig = <C extends ChaveConfig>(chave: C) =>
+  queryOptions({
+    queryKey: ['config', chave],
+    queryFn: async () => (await api.get<(typeof PADROES)[C]>(`/configuracoes/${chave}`)).data,
+    staleTime: 5 * 60_000,
+  })

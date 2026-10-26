@@ -1,7 +1,15 @@
 // Anamnese: Atual e Histórico, respostas com alerta, obrigatórias (R-058, R-059, R-074, R-075).
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
-import { api, consultaEu, dataBR, errosDosCampos, mensagemDeErro, type Paciente } from '../api'
+import {
+  api,
+  consultaConfig,
+  consultaEu,
+  dataBR,
+  errosDosCampos,
+  mensagemDeErro,
+  type Paciente,
+} from '../api'
 import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import {
@@ -34,6 +42,8 @@ export function Anamneses({ paciente }: { paciente: Paciente }) {
     queryFn: async () => (await api.get<Anamnese[]>(`/pacientes/${paciente.id}/anamneses`)).data,
   })
   const [aberta, setAberta] = useState<Anamnese | 'nova' | null>(null)
+  // Perguntas do modelo da clínica (Configurações > Anamnese).
+  const modelo = useQuery(consultaConfig('anamnese')).data ?? MODELO_ANAMNESE
   const podeEditar = pode(eu.perfis, 'prontuario.editar')
   const atual = lista.data?.[0]
   const historico = lista.data?.slice(1) ?? []
@@ -81,6 +91,7 @@ export function Anamneses({ paciente }: { paciente: Paciente }) {
         {aberta && (
           <FormAnamnese
             paciente={paciente}
+            modelo={modelo}
             anamnese={aberta === 'nova' ? undefined : aberta}
             aoTerminar={() => setAberta(null)}
           />
@@ -143,12 +154,17 @@ function Respostas({ anamnese: a }: { anamnese: Anamnese }) {
 }
 
 /** Nada é gravado até "Salvar" (R-058). Editar altera a mesma; nova vira a Atual (R-075). */
-function FormAnamnese(props: { paciente: Paciente; anamnese?: Anamnese; aoTerminar: () => void }) {
+function FormAnamnese(props: {
+  paciente: Paciente
+  anamnese?: Anamnese
+  modelo: Pergunta[]
+  aoTerminar: () => void
+}) {
   const qc = useQueryClient()
   const a = props.anamnese
   const [respondente, setRespondente] = useState(a?.respondente ?? 'PROFISSIONAL')
   const [perguntas, setPerguntas] = useState<Pergunta[]>(
-    a?.perguntas ?? MODELO_ANAMNESE.map((p) => ({ ...p, resposta: null, descricao: null })),
+    a?.perguntas ?? props.modelo.map((p) => ({ ...p, resposta: null, descricao: null })),
   )
   const [observacoes, setObservacoes] = useState(a?.observacoes ?? '')
   const [tentou, setTentou] = useState(false)

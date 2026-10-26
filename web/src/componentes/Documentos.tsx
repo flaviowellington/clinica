@@ -2,7 +2,16 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
-import { api, consultaEu, cpfBR, dataBR, isoLocal, mensagemDeErro, type Paciente } from '../api'
+import {
+  api,
+  consultaConfig,
+  consultaEu,
+  cpfBR,
+  dataBR,
+  isoLocal,
+  mensagemDeErro,
+  type Paciente,
+} from '../api'
 import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import {
@@ -121,6 +130,9 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
       (await api.get<Profissional[]>('/profissionais', { params: { ativos: 1 } })).data,
   })
   const { data: eu } = useSuspenseQuery(consultaEu)
+  const modelos = useQuery(consultaConfig('documentos')).data
+  const clinica = useQuery(consultaConfig('clinica')).data
+  const medicamentos = useQuery(consultaConfig('medicamentos')).data ?? []
   const [modelo, setModelo] = useState<ModeloDocumento>('atestado')
   const [profissionalId, setProfissionalId] = useState<number | ''>('')
   const [valores, setValores] = useState<Record<string, string>>({})
@@ -146,7 +158,9 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
 
   function abrirEditor() {
     const prof = profissionais.data?.find((p) => p.id === profissionalId)
-    const pronto = preencherModelo(MODELOS_DOCUMENTO[modelo].texto, {
+    const pronto = preencherModelo(modelos?.[modelo] ?? MODELOS_DOCUMENTO[modelo].texto, {
+      clinica: clinica?.nome,
+      cidade: clinica?.cidade,
       paciente: props.paciente.nome,
       cpf: cpfBR(props.paciente.cpf),
       profissional: prof?.nome ?? eu.nome,
@@ -172,6 +186,35 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
             autoFocus
           />
         </label>
+        {modelo === 'receita' && medicamentos.length > 0 && (
+          <label className="block">
+            <span className="rotulo">Inserir medicamento</span>
+            <select
+              className="campo"
+              value=""
+              onChange={(e) => {
+                const m = medicamentos[Number(e.target.value)]
+                if (!m) return
+                // Entra antes da data, como mais um item da lista.
+                const linha = m.posologia ? `${m.nome}\n   ${m.posologia}` : m.nome
+                const n = (texto.match(/^\d+\. /gm) ?? []).length
+                const vazio = /^\d+\. *$/m
+                setTexto(
+                  vazio.test(texto)
+                    ? texto.replace(vazio, `${n}. ${linha}`)
+                    : texto.replace(/\n\n\n/, `\n${n + 1}. ${linha}\n\n\n`),
+                )
+              }}
+            >
+              <option value="">Escolha para inserir na receita…</option>
+              {medicamentos.map((m, i) => (
+                <option key={i} value={i}>
+                  {m.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <p className="text-suave">
           Revise o texto. O botão Salvar libera depois da primeira edição.
         </p>

@@ -1,4 +1,4 @@
-import { StrictMode, useEffect } from 'react'
+import { StrictMode, useEffect, useState, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   QueryClient,
@@ -31,6 +31,15 @@ import { Relatorios } from './paginas/Relatorios'
 import { Contas } from './paginas/Contas'
 import { Recibo } from './paginas/Recibo'
 import { DocumentoImpresso } from './paginas/DocumentoImpresso'
+import { TrocarMinhaSenha, Usuarios } from './paginas/Usuarios'
+import { Configuracoes } from './paginas/Configuracoes'
+import { CaixaTela } from './paginas/Caixa'
+import { Protetico } from './paginas/Protetico'
+import { Confirmacoes } from './paginas/Confirmacoes'
+import { ConfirmarPresenca } from './paginas/ConfirmarPresenca'
+import { Painel } from './paginas/Painel'
+import { Importacao } from './paginas/Importacao'
+import { Dialogo } from './componentes/Dialogo'
 import { ABAS } from './abas'
 import { Icone } from './componentes/Icones'
 
@@ -66,6 +75,7 @@ function Layout() {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const { alternar, tema } = useTema()
   const qc = useQueryClient()
+  const [trocarSenha, setTrocarSenha] = useState(false)
   async function sair() {
     await api.post('/sair')
     qc.clear()
@@ -113,12 +123,27 @@ function Layout() {
             <Icone nome={tema === 'claro' ? 'escuro' : 'claro'} />
             <span className={nome}>{tema === 'claro' ? 'Tema escuro' : 'Tema claro'}</span>
           </button>
+          <button
+            className={`${item} w-full`}
+            onClick={() => setTrocarSenha(true)}
+            title="Trocar minha senha"
+          >
+            <Icone nome="usuarios" />
+            <span className={nome}>Trocar senha</span>
+          </button>
           <button className={`${item} w-full`} onClick={sair} title="Sair">
             <Icone nome="sair" />
             <span className={nome}>Sair</span>
           </button>
         </div>
       </div>
+      <Dialogo
+        aberto={trocarSenha}
+        aoFechar={() => setTrocarSenha(false)}
+        titulo="Trocar minha senha"
+      >
+        <TrocarMinhaSenha aoTerminar={() => setTrocarSenha(false)} />
+      </Dialogo>
       <main className="min-w-0 flex-1 p-4">
         <div className="mx-auto max-w-screen-2xl">
           <Outlet />
@@ -209,6 +234,27 @@ const recibo = createRoute({
   path: '/recibo/$id',
   component: Recibo,
 })
+const pagina = <P extends string>(path: P, component: () => ReactNode) =>
+  createRoute({ getParentRoute: () => logado, path, component })
+const usuarios = pagina('/usuarios', Usuarios)
+const configuracoes = createRoute({
+  getParentRoute: () => logado,
+  path: '/configuracoes',
+  validateSearch: comAba,
+  component: Configuracoes,
+})
+const caixa = pagina('/caixa', CaixaTela)
+const protetico = pagina('/protetico', Protetico)
+const confirmacoes = pagina('/confirmacoes', Confirmacoes)
+const painel = pagina('/painel', Painel)
+const importacao = pagina('/importacao', Importacao)
+// Pública: o paciente abre pelo link do e-mail, sem login.
+const confirmar = createRoute({
+  getParentRoute: () => raiz,
+  path: '/confirmar/$token',
+  component: ConfirmarPresenca,
+})
+
 const contas = createRoute({
   getParentRoute: () => logado,
   path: '/contas',
@@ -219,6 +265,7 @@ const contas = createRoute({
 const router = createRouter({
   routeTree: raiz.addChildren([
     entrar,
+    confirmar,
     logado.addChildren([
       inicio,
       agenda,
@@ -231,6 +278,13 @@ const router = createRouter({
       contas,
       recibo,
       documento,
+      usuarios,
+      configuracoes,
+      caixa,
+      protetico,
+      confirmacoes,
+      painel,
+      importacao,
     ]),
   ]),
   context: { queryClient },

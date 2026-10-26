@@ -38,7 +38,7 @@ type Janela = 'editar' | 'inativar' | 'excluir' | null
 const ABAS_FICHA = [
   { id: 'visao-geral', rotulo: 'Visão Geral', acao: 'paciente.ver' },
   { id: 'orcamentos', rotulo: 'Orçamentos', acao: 'orcamento.ver' },
-  { id: 'financeiro', rotulo: 'Financeiro', acao: 'financeiro.ver' },
+  { id: 'financeiro', rotulo: 'Financeiro', acao: 'financeiro.paciente' },
   { id: 'fotos', rotulo: 'Fotos', acao: 'fotos.ver' },
   { id: 'plano', rotulo: 'Plano e Ficha Clínica', acao: 'prontuario.ver' },
   { id: 'especialidades', rotulo: 'Fichas Especialidades', acao: 'prontuario.ver' },
@@ -46,7 +46,7 @@ const ABAS_FICHA = [
   { id: 'anamnese', rotulo: 'Anamnese', acao: 'anamnese.ver' },
   { id: 'documentos', rotulo: 'Documentos', acao: 'prontuario.ver' },
   { id: 'exames', rotulo: 'Exames', acao: 'prontuario.ver' },
-  { id: 'recibos', rotulo: 'Recibos', acao: 'financeiro.ver' },
+  { id: 'recibos', rotulo: 'Recibos', acao: 'financeiro.receber' },
   { id: 'agendamentos', rotulo: 'Agendamentos', acao: 'agenda.ver' },
   { id: 'indicacoes', rotulo: 'Indicações', acao: 'paciente.ver' },
 ] as const satisfies readonly { id: string; rotulo: string; acao: Acao }[]

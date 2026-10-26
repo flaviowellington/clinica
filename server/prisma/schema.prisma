@@ -93,6 +93,8 @@ model Pessoa {
   documentos                Documento[]           @relation("pacienteDocumento")
   documentosProf            Documento[]           @relation("profissionalDocumento")
   notas                     Nota[]
+  trabalhosProteticos       TrabalhoProtetico[]   @relation("pacienteProtetico")
+  trabalhosProteticosProf   TrabalhoProtetico[]   @relation("profissionalProtetico")
 
   @@index([tipo, nomeBusca])
 }
@@ -123,6 +125,10 @@ model Usuario {
   arquivos              Arquivo[]
   documentos            Documento[]
   notas                 Nota[]
+  caixasAbertos         Caixa[]               @relation("caixaAberto")
+  caixasFechados        Caixa[]               @relation("caixaFechado")
+  trabalhosProteticos   TrabalhoProtetico[]
+  importacoes           Importacao[]
 }
 
 /// Quem abriu cada ficha e quando (R-003, LGPD).
@@ -193,6 +199,11 @@ model Agendamento {
   desmarcadoPorId   Int?
   motivoDesmarcacao String?
 
+  /// Quando e por quem a presença foi confirmada ("Paciente" pelo link do e-mail, ou o usuário).
+  confirmadoEm  DateTime?
+  confirmadoPor String?
+  mensagens     Mensagem[]
+
   /// Exclusão lógica: some da agenda, mas fica para auditoria.
   excluidoEm    DateTime?
   excluidoPorId Int?
@@ -234,6 +245,9 @@ model Lancamento {
   contaBancaria   ContaBancaria?    @relation(fields: [contaBancariaId], references: [id])
   conciliadoEm    DateTime?
   pagamentoDe     ContaFinanceira[]
+  /// Caixa aberto no momento do recebimento (F-031).
+  caixaId         Int?
+  caixa           Caixa?            @relation(fields: [caixaId], references: [id])
 
   excluidoEm    DateTime?
   excluidoPorId Int?
@@ -567,4 +581,104 @@ model Nota {
   criadoPor   Usuario  @relation(fields: [criadoPorId], references: [id])
 
   @@index([pacienteId])
+}
+
+// ── Telas de gestão: configurações, caixa, protético, mensagens, importação ──
+
+/// Configurações da clínica, uma linha por assunto (shared/configuracoes.ts).
+/// ponytail: chave-valor em JSON; vira tabela própria se algum assunto crescer.
+model Configuracao {
+  chave         String   @id
+  valor         Json
+  alteradoEm    DateTime @updatedAt
+  alteradoPorId Int?
+}
+
+/// Caixa do dia: abre com o troco, recebe os pagamentos e fecha conferindo cada forma (F-031).
+model Caixa {
+  id                   Int          @id @default(autoincrement())
+  abertoEm             DateTime     @default(now())
+  abertoPorId          Int
+  abertoPor            Usuario      @relation("caixaAberto", fields: [abertoPorId], references: [id])
+  saldoInicialCentavos Int
+  fechadoEm            DateTime?
+  fechadoPorId         Int?
+  fechadoPor           Usuario?     @relation("caixaFechado", fields: [fechadoPorId], references: [id])
+  /// Esperado e contado por forma no fechamento: { "Dinheiro": { esperado, contado } }
+  conferencia          Json?
+  observacoes          String?
+  lancamentos          Lancamento[]
+}
+
+/// As cinco etapas do trabalho de laboratório (R-082).
+enum EtapaProtetica {
+  PRE_ENVIO
+  EM_LABORATORIO
+  RETORNO
+  AGENDAMENTO
+  INSTALADO
+}
+
+/// Ordem de serviço protética: um cartão do quadro (R-082).
+model TrabalhoProtetico {
+  id             Int            @id @default(autoincrement())
+  pacienteId     Int
+  paciente       Pessoa         @relation("pacienteProtetico", fields: [pacienteId], references: [id])
+  profissionalId Int
+  profissional   Pessoa         @relation("profissionalProtetico", fields: [profissionalId], references: [id])
+  laboratorio    String
+  trabalho       String
+  dentes         String?
+  cor            String?
+  etapa          EtapaProtetica @default(PRE_ENVIO)
+  prazo          DateTime?      @db.Date
+  valorCentavos  Int            @default(0)
+  enviadoEm      DateTime?      @db.Date
+  retornoEm      DateTime?      @db.Date
+  instaladoEm    DateTime?      @db.Date
+  observacoes    String?
+  movidoEm       DateTime?
+  movidoPorId    Int?
+  excluidoEm     DateTime?
+  excluidoPorId  Int?
+  criadoEm       DateTime       @default(now())
+  criadoPorId    Int
+  criadoPor      Usuario        @relation(fields: [criadoPorId], references: [id])
+
+  @@index([etapa])
+}
+
+enum StatusMensagem {
+  ENVIADA
+  FALHOU
+}
+
+/// Cada mensagem enviada (ou tentada) ao paciente: confirmação, lembrete ou teste.
+model Mensagem {
+  id            Int            @id @default(autoincrement())
+  agendamentoId Int?
+  agendamento   Agendamento?   @relation(fields: [agendamentoId], references: [id])
+  canal         Canal
+  tipo          String
+  destino       String
+  assunto       String?
+  status        StatusMensagem
+  erro          String?
+  criadoEm      DateTime       @default(now())
+  enviadoPorId  Int?
+
+  @@index([agendamentoId])
+}
+
+/// Registro de cada importação de planilha do sistema antigo.
+model Importacao {
+  id          Int      @id @default(autoincrement())
+  tipo        String
+  arquivo     String
+  criados     Int
+  ignorados   Int
+  erros       Int
+  criadoEm    DateTime @default(now())
+  criadoPorId Int
+  criadoPor   Usuario  @relation(fields: [criadoPorId], references: [id])
 }
