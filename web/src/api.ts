@@ -53,6 +53,7 @@ export interface Paciente {
   telefone: string | null
   comoConheceu: string | null
   indicadoPor: string | null
+  comoConheceuOutro: string | null
   nomeMae: string | null
   nomePai: string | null
   responsavelNome: string | null

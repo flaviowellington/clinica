@@ -1,10 +1,13 @@
 // Configurações da clínica (S-014), tabela de procedimentos e teste do e-mail.
 import { Router } from 'express'
+import type { z } from 'zod'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
 import { CHAVES, PADROES, validarConfig, type ChaveConfig } from '../../shared/configuracoes'
 import { normalizar } from '../../shared/regras'
 import { emailConfigurado, enviar, ErroEnvio } from './mensagens'
+import { EmailTesteDto, ProcedimentoTabelaDto } from '../../shared/dtos'
+import { lerCorpo } from './dto'
 
 /** Lê uma configuração; sem nada gravado, vale o padrão. */
 export async function lerConfig<C extends ChaveConfig>(chave: C): Promise<(typeof PADROES)[C]> {
@@ -31,9 +34,9 @@ rotasConfiguracoes.get('/email/estado', exigir('configuracao.editar'), (_req, re
 })
 
 rotasConfiguracoes.post('/email/teste', exigir('configuracao.editar'), async (req, res) => {
-  const para = typeof req.body?.para === 'string' ? req.body.para.trim() : ''
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para))
-    return res.status(400).json({ erro: 'Informe um e-mail válido.' })
+  const b = lerCorpo(EmailTesteDto, req.body, res, null)
+  if (!b) return
+  const { para } = b
   const clinica = await lerConfig('clinica')
   try {
     await enviar({
@@ -76,39 +79,22 @@ rotasConfiguracoes.put('/:chave', exigir('configuracao.editar'), async (req, res
 // A busca (GET) fica em tratamentos.ts; aqui o cadastro.
 export const rotasTabelaProcedimentos = Router()
 
-function lerProcedimento(b: Record<string, unknown>) {
-  const nome = typeof b.nome === 'string' ? b.nome.trim().slice(0, 200) : ''
-  const valor = Number.isInteger(b.valorCentavos) ? (b.valorCentavos as number) : -1
-  const erros: Record<string, string> = {}
-  if (!nome) erros.nome = 'Informe o nome do procedimento.'
-  if (valor < 0) erros.valorCentavos = 'Informe o valor.'
-  const especialidade =
-    typeof b.especialidade === 'string' && b.especialidade.trim()
-      ? b.especialidade.trim().slice(0, 80)
-      : null
-  return {
-    erros,
-    dados: {
-      nome,
-      nomeBusca: normalizar(nome),
-      especialidade,
-      valorCentavos: valor,
-      ativo: b.ativo !== false,
-    },
-  }
-}
+const paraBanco = (d: z.output<typeof ProcedimentoTabelaDto>) => ({
+  ...d,
+  nomeBusca: normalizar(d.nome),
+})
 
 rotasTabelaProcedimentos.post('/', exigir('configuracao.editar'), async (req, res) => {
-  const { erros, dados } = lerProcedimento(req.body ?? {})
-  if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
-  res.status(201).json(await db.procedimento.create({ data: dados }))
+  const d = lerCorpo(ProcedimentoTabelaDto, req.body, res)
+  if (!d) return
+  res.status(201).json(await db.procedimento.create({ data: paraBanco(d) }))
 })
 
 rotasTabelaProcedimentos.put('/:id', exigir('configuracao.editar'), async (req, res) => {
   const p = await db.procedimento.findUnique({ where: { id: Number(req.params.id) || 0 } })
   if (!p) return res.status(404).json({ erro: 'Procedimento não encontrado.' })
-  const { erros, dados } = lerProcedimento(req.body ?? {})
-  if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
+  const d = lerCorpo(ProcedimentoTabelaDto, req.body, res)
+  if (!d) return
   // Orçamentos antigos guardam a cópia do nome e do valor: mudar aqui não mexe neles.
-  res.json(await db.procedimento.update({ where: { id: p.id }, data: dados }))
+  res.json(await db.procedimento.update({ where: { id: p.id }, data: paraBanco(d) }))
 })

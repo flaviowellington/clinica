@@ -26,6 +26,8 @@ import { CampoReais } from '../componentes/CampoReais'
 import { BuscaPaciente } from '../componentes/BuscaPaciente'
 import { ConciliacaoBancaria, ContasLista, Extrato, FluxoCaixa } from './FinanceiroAbas'
 import { CampoData } from '../componentes/CampoData'
+import { CampoSelect } from '../componentes/CampoSelect'
+import { confirmar } from '../componentes/Confirmar'
 
 const ABAS = [
   { id: 'geral', rotulo: 'Geral', pronta: true },
@@ -206,18 +208,12 @@ function ContaCorrente() {
         </label>
         <label>
           <span className="rotulo">Tipo</span>
-          <select
-            className="campo"
+          <CampoSelect
             value={rascunho.tipo}
             onChange={(e) => setRascunho({ ...rascunho, tipo: e.target.value })}
-          >
-            <option value="">Todos</option>
-            {Object.entries(TIPOS_LANCAMENTO).map(([v, r]) => (
-              <option key={v} value={v}>
-                {r}
-              </option>
-            ))}
-          </select>
+            vazio="Todos"
+            opcoes={TIPOS_LANCAMENTO}
+          />
         </label>
         <label className="min-w-48 flex-1">
           <span className="rotulo">Buscar</span>
@@ -346,8 +342,8 @@ function LinhaLancamento({ l, podeEditar }: { l: Lancamento; podeEditar: boolean
           <button
             className="text-perigo hover:underline"
             disabled={excluir.isPending}
-            onClick={() =>
-              confirm(`Excluir o lançamento "${l.descricao}" de ${dataBR(l.data)}?`) &&
+            onClick={async () =>
+              (await confirmar(`Excluir o lançamento "${l.descricao}" de ${dataBR(l.data)}?`)) &&
               excluir.mutate()
             }
           >
@@ -396,17 +392,12 @@ function NovoLancamento({ hoje, aoTerminar }: { hoje: string; aoTerminar: () => 
       <div className="grid gap-3 sm:grid-cols-3">
         <label>
           <span className="rotulo">Tipo *</span>
-          <select
-            className="campo"
+          <CampoSelect
             value={tipo}
             onChange={(e) => setTipo(e.target.value as TipoLancamento)}
-          >
-            {Object.entries(TIPOS_LANCAMENTO).map(([v, r]) => (
-              <option key={v} value={v}>
-                {r}
-              </option>
-            ))}
-          </select>
+            vazio={false}
+            opcoes={TIPOS_LANCAMENTO}
+          />
         </label>
         <label>
           <span className="rotulo">Data *</span>
@@ -429,30 +420,19 @@ function NovoLancamento({ hoje, aoTerminar }: { hoje: string; aoTerminar: () => 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="rotulo">Forma de pagamento</span>
-          <select name="forma" className="campo" defaultValue="">
-            <option value="">Não informar</option>
-            {FORMAS.map((f) => (
-              <option key={f}>{f}</option>
-            ))}
-          </select>
+          <CampoSelect name="forma" defaultValue="" vazio="Não informar" opcoes={FORMAS} />
         </label>
         {comConta && (
           <label className="block">
             <span className="rotulo">Conta do plano de contas</span>
-            <select name="categoria" className="campo" defaultValue="">
-              <option value="">
-                {tipo === 'ENTRADA'
-                  ? 'Receita de tratamentos'
-                  : 'Despesas operacionais (sem conta)'}
-              </option>
-              {Object.entries(PLANO_DE_CONTAS).map(([grupo, contas]) => (
-                <optgroup key={grupo} label={grupo}>
-                  {contas.map((c) => (
-                    <option key={c}>{c}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+            <CampoSelect
+              name="categoria"
+              defaultValue=""
+              vazio={
+                tipo === 'ENTRADA' ? 'Receita de tratamentos' : 'Despesas operacionais (sem conta)'
+              }
+              grupos={PLANO_DE_CONTAS}
+            />
             {erro('categoria')}
           </label>
         )}

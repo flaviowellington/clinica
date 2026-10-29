@@ -26,6 +26,8 @@ import {
 import { Dialogo } from './Dialogo'
 import { CampoReais } from './CampoReais'
 import { CampoData } from './CampoData'
+import { CampoSelect } from './CampoSelect'
+import { confirmar, perguntar } from './Confirmar'
 
 interface Item {
   id?: number
@@ -274,18 +276,11 @@ function EditorOrcamento(props: {
         </p>
         <label>
           <span className="rotulo">Profissional</span>
-          <select
-            className="campo"
+          <CampoSelect
             value={profissionalId}
             onChange={(e) => setProfissionalId(Number(e.target.value) || '')}
-          >
-            <option value="">Escolha…</option>
-            {prof?.profissionais.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nome}
-              </option>
-            ))}
-          </select>
+            opcoes={prof?.profissionais.map((p) => [p.id, p.nome] as const)}
+          />
           {erros.profissionalId && <p className="mt-1 text-perigo">{erros.profissionalId}</p>}
         </label>
       </div>
@@ -395,26 +390,24 @@ function EditorOrcamento(props: {
         <CampoReais id="desconto" rotulo="Desconto" valor={desconto} aoMudar={setDesconto} />
         <label>
           <span className="rotulo">Forma de pagamento</span>
-          <select className="campo" value={forma} onChange={(e) => setForma(e.target.value)}>
-            <option value="">A definir</option>
-            {FORMAS.map((f) => (
-              <option key={f}>{f}</option>
-            ))}
-          </select>
+          <CampoSelect
+            value={forma}
+            onChange={(e) => setForma(e.target.value)}
+            vazio="A definir"
+            opcoes={FORMAS}
+          />
         </label>
         <label>
           <span className="rotulo">Parcelas</span>
-          <select
-            className="campo"
+          <CampoSelect
             value={parcelas}
             onChange={(e) => setParcelas(Number(e.target.value))}
-          >
-            {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                {n === 1 ? 'À vista' : `${n}x`}
-              </option>
-            ))}
-          </select>
+            vazio={false}
+            opcoes={Array.from(
+              { length: 24 },
+              (_, i) => [i + 1, i ? `${i + 1}x` : 'À vista'] as const,
+            )}
+          />
         </label>
         <label>
           <span className="rotulo">1º vencimento</span>
@@ -453,8 +446,11 @@ function EditorOrcamento(props: {
             <button
               type="button"
               className="botao-leve"
-              onClick={() => {
-                const motivo = prompt('Motivo da reprovação (opcional):')
+              onClick={async () => {
+                const motivo = await perguntar('Motivo da reprovação (opcional)', {
+                  titulo: 'Reprovar orçamento',
+                  botao: 'Reprovar',
+                })
                 if (motivo !== null) reprovar.mutate(motivo)
               }}
             >
@@ -483,10 +479,11 @@ function EditorOrcamento(props: {
                   className="botao"
                   disabled={salvar.isPending || !forma}
                   title={forma ? undefined : 'Escolha a forma de pagamento para aprovar'}
-                  onClick={() =>
-                    confirm(
+                  onClick={async () =>
+                    (await confirmar(
                       'Aprovar este orçamento? Ele vira tratamento e gera as parcelas a receber.',
-                    ) && salvar.mutate(true)
+                      { titulo: 'Aprovar orçamento', botao: 'Aprovar', perigo: false },
+                    )) && salvar.mutate(true)
                   }
                 >
                   Aprovar

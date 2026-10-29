@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, dataBR, horaBR, mensagemDeErro, type Agendamento } from '../api'
 import { avisar } from '../estado'
 import { COM_CHECKIN, STATUS, type StatusAgenda } from '../../../shared/agenda'
+import { CampoSelect } from './CampoSelect'
 
 /** Detalhes de um agendamento: status, check-in e excluir (C-005). */
 export function CartaoConsulta(props: {
@@ -164,19 +165,14 @@ export function CartaoConsulta(props: {
           <label className="rotulo" htmlFor="status">
             Status
           </label>
-          <select
+          <CampoSelect
             id="status"
-            className="campo"
             value={a.status}
             disabled={!props.podeEditar || status.isPending}
             onChange={(e) => status.mutate(e.target.value as StatusAgenda)}
-          >
-            {Object.entries(STATUS).map(([v, s]) => (
-              <option key={v} value={v}>
-                {s.rotulo}
-              </option>
-            ))}
-          </select>
+            vazio={false}
+            opcoes={Object.entries(STATUS).map(([v, s]) => [v, s.rotulo] as const)}
+          />
         </div>
       )}
 

@@ -3,23 +3,16 @@ import dotenv from 'dotenv'
 
 const env = dotenv.config({ path: 'server/.env', quiet: true }).parsed ?? {}
 
-test('Início, Profissionais, Financeiro, Relatórios e Conta digital', async ({ page }) => {
+test('Início, Profissionais, Financeiro, e Relatórios', async ({ page }) => {
   await page.goto('/')
   await page.getByLabel('Usuário').fill('admin')
   await page.getByLabel('Senha').fill(env.SEED_SENHA)
   await page.getByRole('button', { name: 'Entrar' }).click()
 
-  // Início com os 6 cartões.
+  // Início com os cartões.
   await expect(page.getByRole('heading', { name: /Olá/ })).toBeVisible()
   const main = page.getByRole('main')
-  for (const c of [
-    'Agenda',
-    'Pacientes',
-    'Financeiro',
-    'Profissionais',
-    'Relatórios',
-    'Conta digital',
-  ])
+  for (const c of ['Agenda', 'Pacientes', 'Financeiro', 'Profissionais', 'Relatórios'])
     await expect(main.getByRole('link', { name: new RegExp(`^${c}`) })).toBeVisible()
   await page.screenshot({ path: 'test-results/inicio.png', fullPage: true })
 
@@ -28,7 +21,8 @@ test('Início, Profissionais, Financeiro, Relatórios e Conta digital', async ({
   await expect(page.getByText('Dra. Fictícia Andrade')).toBeVisible()
   await page.getByRole('button', { name: 'Adicionar profissional' }).click()
   await page.getByLabel('Nome *').fill('Dr. Ponta a Ponta')
-  await page.getByLabel('Especialidade').fill('Periodontia')
+  await page.getByLabel('Especialidade').fill('Perio')
+  await page.getByRole('button', { name: 'Periodontia' }).click()
   await page.getByRole('button', { name: 'Salvar' }).click()
   await expect(page.getByText('Profissional salvo')).toBeVisible()
   await expect(page.getByText('Dr. Ponta a Ponta')).toBeVisible()
@@ -65,17 +59,4 @@ test('Início, Profissionais, Financeiro, Relatórios e Conta digital', async ({
   expect(await page.evaluate(() => scrollY)).toBe(0)
   await page.screenshot({ path: 'test-results/relatorios.png' })
 
-  // Conta digital: pedido de conta PJ.
-  await page.getByRole('navigation').getByRole('link', { name: 'Conta digital' }).click()
-  await page.getByRole('button', { name: /^Abrir conta/ }).click()
-  await page.getByRole('button', { name: 'Próximo' }).click()
-  await page.getByLabel('Razão social').fill('Clínica Fictícia Ltda')
-  await page.getByLabel('CNPJ').fill('11.222.333/0001-81')
-  await page.getByLabel('E-mail').fill('clinica@example.com')
-  await page.getByLabel('Celular').fill('(11) 90000-0000')
-  await page.getByRole('button', { name: 'Próximo' }).click()
-  await page.getByRole('button', { name: 'Enviar pedido' }).click()
-  await expect(page.getByText('Pedido de conta registrado')).toBeVisible()
-  await expect(page.getByRole('cell', { name: 'Aguardando parceiro de pagamentos' })).toBeVisible()
-  await page.screenshot({ path: 'test-results/contas.png', fullPage: true })
 })

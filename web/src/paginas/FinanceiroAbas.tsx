@@ -17,6 +17,8 @@ import { Dialogo } from '../componentes/Dialogo'
 import { CampoReais } from '../componentes/CampoReais'
 import { BuscaPaciente } from '../componentes/BuscaPaciente'
 import { CampoData } from '../componentes/CampoData'
+import { CampoSelect } from '../componentes/CampoSelect'
+import { confirmar } from '../componentes/Confirmar'
 
 const hoje = () => isoLocal(new Date())
 const inicioDoMes = () => `${hoje().slice(0, 8)}01`
@@ -189,14 +191,12 @@ export function ContasLista(props: {
       {filtro.campos(
         <label>
           <span className="rotulo">Situação</span>
-          <select className="campo" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">Todas</option>
-            {Object.entries(STATUS_CONTA_FINANCEIRA).map(([v, r]) => (
-              <option key={v} value={v}>
-                {r}
-              </option>
-            ))}
-          </select>
+          <CampoSelect
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            vazio="Todas"
+            opcoes={STATUS_CONTA_FINANCEIRA}
+          />
         </label>,
       )}
       <div className="grid gap-3 sm:grid-cols-3">
@@ -256,7 +256,10 @@ export function ContasLista(props: {
                   <button
                     className="ml-2 text-perigo hover:underline"
                     disabled={cancelar.isPending}
-                    onClick={() => confirm(`Cancelar "${c.descricao}"?`) && cancelar.mutate(c.id)}
+                    onClick={async () =>
+                      (await confirmar(`Cancelar a conta "${c.descricao}"?`, { botao: 'Cancelar conta' })) &&
+                      cancelar.mutate(c.id)
+                    }
                   >
                     Cancelar
                   </button>
@@ -293,16 +296,12 @@ function SeletorConta(props: { nome: string; padrao?: string; obrigatorio: boole
   return (
     <label className="block">
       <span className="rotulo">Conta do plano de contas{props.obrigatorio && ' *'}</span>
-      <select name={props.nome} className="campo" defaultValue={props.padrao ?? ''}>
-        <option value="">{props.obrigatorio ? 'Escolha…' : 'Receita de tratamentos'}</option>
-        {Object.entries(PLANO_DE_CONTAS).map(([grupo, contas]) => (
-          <optgroup key={grupo} label={grupo}>
-            {contas.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
+      <CampoSelect
+        name={props.nome}
+        defaultValue={props.padrao ?? ''}
+        vazio={props.obrigatorio ? 'Selecione' : 'Receita de tratamentos'}
+        grupos={PLANO_DE_CONTAS}
+      />
     </label>
   )
 }
@@ -368,25 +367,27 @@ function NovaConta(props: {
         </label>
         <label>
           <span className="rotulo">Parcelas</span>
-          <select name="parcelas" className="campo" defaultValue="1">
-            {Array.from({ length: 24 }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                {n === 1 ? 'Única' : `${n}x mensais`}
-              </option>
-            ))}
-          </select>
+          <CampoSelect
+            name="parcelas"
+            defaultValue="1"
+            vazio={false}
+            opcoes={Array.from(
+              { length: 24 },
+              (_, i) => [i + 1, i ? `${i + 1}x mensais` : 'Única'] as const,
+            )}
+          />
         </label>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <SeletorConta nome="categoria" obrigatorio={pagar} />
         <label>
           <span className="rotulo">Forma</span>
-          <select name="forma" className="campo" defaultValue={props.formaInicial ?? ''}>
-            <option value="">A definir</option>
-            {FORMAS.map((f) => (
-              <option key={f}>{f}</option>
-            ))}
-          </select>
+          <CampoSelect
+            name="forma"
+            defaultValue={props.formaInicial ?? ''}
+            vazio="A definir"
+            opcoes={FORMAS}
+          />
         </label>
       </div>
       {erro('categoria')}
@@ -445,12 +446,12 @@ export function Baixar(props: { conta: Conta; aoTerminar: () => void }) {
         </label>
         <label>
           <span className="rotulo">Forma</span>
-          <select name="forma" className="campo" defaultValue={props.conta.forma ?? ''}>
-            <option value="">Não informar</option>
-            {FORMAS.map((f) => (
-              <option key={f}>{f}</option>
-            ))}
-          </select>
+          <CampoSelect
+            name="forma"
+            defaultValue={props.conta.forma ?? ''}
+            vazio="Não informar"
+            opcoes={FORMAS}
+          />
         </label>
       </div>
       <p className="text-suave">
@@ -620,14 +621,12 @@ export function Extrato() {
       {filtro.campos(
         <label>
           <span className="rotulo">Conta bancária</span>
-          <select className="campo" value={conta} onChange={(e) => setConta(e.target.value)}>
-            <option value="">Todas as movimentações</option>
-            {bancos.data?.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.nome}
-              </option>
-            ))}
-          </select>
+          <CampoSelect
+            value={conta}
+            onChange={(e) => setConta(e.target.value)}
+            vazio="Todas as movimentações"
+            opcoes={bancos.data?.map((b) => [b.id, b.nome] as const)}
+          />
         </label>,
       )}
       <div className="grid gap-3 sm:grid-cols-2">
@@ -734,18 +733,14 @@ export function ConciliacaoBancaria() {
           {filtro.campos(
             <label>
               <span className="rotulo">Conta bancária</span>
-              <select
-                className="campo"
+              <CampoSelect
                 value={atual ?? ''}
                 onChange={(e) => setConta(Number(e.target.value))}
-              >
-                {bancos.data?.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.nome}
-                    {b.banco && ` · ${b.banco}`}
-                  </option>
-                ))}
-              </select>
+                vazio={false}
+                opcoes={bancos.data?.map(
+                  (b) => [b.id, b.banco ? `${b.nome} · ${b.banco}` : b.nome] as const,
+                )}
+              />
             </label>,
           )}
           <div className="grid gap-3 sm:grid-cols-3">

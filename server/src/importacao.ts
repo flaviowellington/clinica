@@ -8,9 +8,10 @@ import { cpfValido, normalizar } from '../../shared/regras'
 import { STATUS, type StatusAgenda } from '../../shared/agenda'
 import { DENTES_VALIDOS, normalizarFaces } from '../../shared/prontuario'
 import { CAMPOS_IMPORTACAO, type TipoImportacao } from '../../shared/importacao'
+import { ImportacaoDto } from '../../shared/dtos'
+import { lerCorpo } from './dto'
 
 type Linha = Record<string, unknown>
-const LOTE_MAXIMO = 500
 
 const txt = (v: unknown, max = 200) => {
   const t = v === null || v === undefined ? '' : String(v).trim()
@@ -213,10 +214,9 @@ rotasImportacao.post('/:tipo', exigir('dados.importar'), async (req, res) => {
   const tipo = req.params.tipo as TipoImportacao
   if (!(tipo in CAMPOS_IMPORTACAO))
     return res.status(404).json({ erro: 'Tipo de importação desconhecido.' })
-  const linhas = req.body?.linhas
-  if (!Array.isArray(linhas) || linhas.length > LOTE_MAXIMO)
-    return res.status(400).json({ erro: `Envie de 1 a ${LOTE_MAXIMO} linhas por vez.` })
-  const primeira = Number(req.body?.primeiraLinha) || 1
+  const b = lerCorpo(ImportacaoDto, req.body, res, null)
+  if (!b) return
+  const { linhas, primeiraLinha: primeira } = b
   const usuarioId = usuarioDe(res).id
   const profissionais = await db.pessoa.findMany({
     where: { tipo: 'PROFISSIONAL', excluidoEm: null },
@@ -228,9 +228,9 @@ rotasImportacao.post('/:tipo', exigir('dados.importar'), async (req, res) => {
   let ignorados = 0
   const erros: { linha: number; erro: string }[] = []
   // Uma linha por vez: a linha com erro não derruba as outras.
-  for (const [i, l] of (linhas as Linha[]).entries()) {
+  for (const [i, l] of linhas.entries()) {
     try {
-      if (await IMPORTADORES[tipo](l ?? {}, ctx)) criados++
+      if (await IMPORTADORES[tipo](l, ctx)) criados++
       else ignorados++
     } catch (e) {
       if (!(e instanceof ErroLinha)) throw e
@@ -240,7 +240,7 @@ rotasImportacao.post('/:tipo', exigir('dados.importar'), async (req, res) => {
   await db.importacao.create({
     data: {
       tipo,
-      arquivo: txt(req.body?.arquivo, 200) ?? 'planilha',
+      arquivo: b.arquivo ?? 'planilha',
       criados,
       ignorados,
       erros: erros.length,

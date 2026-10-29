@@ -34,12 +34,10 @@ export function usarServidor() {
     await db.itemOrcamento.deleteMany()
     await db.alertaRetorno.deleteMany()
     await db.lancamento.deleteMany()
-    await db.caixa.deleteMany()
     await db.orcamento.deleteMany()
     await db.procedimento.deleteMany()
     await db.contaBancaria.deleteMany()
     await db.agendamento.deleteMany()
-    await db.contaDigital.deleteMany()
     await db.logAcesso.deleteMany()
     await db.usuario.deleteMany()
     await db.pessoa.deleteMany()
@@ -52,12 +50,14 @@ export const urlBase = () => base
 export type Cliente = ReturnType<typeof cliente>
 
 export function cliente(cookie = '') {
-  /** Corpo em bytes vai cru, com o tipo informado (upload de arquivo). */
+  /** Corpo em bytes vai cru, com o tipo informado (upload de arquivo); FormData vai como multipart. */
   return async (metodo: string, caminho: string, corpo?: unknown, tipo = 'application/json') => {
-    const bruto = corpo instanceof Uint8Array
+    const multipart = corpo instanceof FormData
+    const bruto = corpo instanceof Uint8Array || multipart
     const r = await fetch(base + caminho, {
       method: metodo,
-      headers: { 'content-type': tipo, cookie },
+      // No multipart o fetch põe o content-type sozinho (com o boundary).
+      headers: multipart ? { cookie } : { 'content-type': tipo, cookie },
       body: corpo === undefined ? undefined : bruto ? (corpo as BodyInit) : JSON.stringify(corpo),
     })
     const json = r.headers.get('content-type')?.includes('json')

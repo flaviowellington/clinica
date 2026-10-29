@@ -9,6 +9,6 @@ export function exigirBancoDeTeste(url = process.env.DATABASE_URL ?? '') {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   exigirBancoDeTeste()
   const { db } = await import('./db')
-  await db.$executeRaw`TRUNCATE "Mensagem", "TrabalhoProtetico", "Importacao", "Configuracao", "Caixa", "Alteracao", "ItemFichaEspecialidade", "FichaEspecialidade", "ProcedimentoClinico", "Anamnese", "Arquivo", "Documento", "Nota", "ContaFinanceira", "ItemOrcamento", "AlertaRetorno", "Lancamento", "Orcamento", "Procedimento", "ContaBancaria", "Agendamento", "ContaDigital", "LogAcesso", "Usuario", "Pessoa" RESTART IDENTITY CASCADE`
+  await db.$executeRaw`TRUNCATE "Mensagem", "TrabalhoProtetico", "Importacao", "Configuracao", "Alteracao", "ItemFichaEspecialidade", "FichaEspecialidade", "ProcedimentoClinico", "Anamnese", "Arquivo", "Documento", "Nota", "ContaFinanceira", "ItemOrcamento", "AlertaRetorno", "Lancamento", "Orcamento", "Procedimento", "ContaBancaria", "Agendamento", "LogAcesso", "Usuario", "Pessoa" RESTART IDENTITY CASCADE`
   await db.$disconnect()
 }

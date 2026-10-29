@@ -4,6 +4,7 @@ import { api, dataBR, errosDosCampos, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
 import { PERFIS, type Perfil } from '../../../shared/permissoes'
 import { Dialogo } from '../componentes/Dialogo'
+import { CampoSelect } from '../componentes/CampoSelect'
 
 interface Usuario {
   id: number
@@ -22,8 +23,8 @@ interface Profissional {
 const DESCRICAO_PERFIL: Record<Perfil, string> = {
   ADMINISTRADOR: 'Tudo, inclusive usuários e configurações.',
   PROFISSIONAL: 'Agenda, prontuário completo e orçamentos.',
-  RECEPCAO: 'Agenda, cadastro, orçamentos, caixa e recebimentos.',
-  FINANCEIRO: 'Financeiro da clínica, caixa e relatórios financeiros.',
+  RECEPCAO: 'Agenda, cadastro, orçamentos e recebimentos.',
+  FINANCEIRO: 'Financeiro da clínica e relatórios financeiros.',
 }
 const SENHA_MINIMA = 8
 
@@ -202,14 +203,12 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
       </fieldset>
       <label className="block">
         <span className="rotulo">Profissional ligado (dentista)</span>
-        <select name="pessoaId" className="campo" defaultValue={u?.pessoa?.id ?? ''}>
-          <option value="">Nenhum</option>
-          {profissionais.data?.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nome}
-            </option>
-          ))}
-        </select>
+        <CampoSelect
+          name="pessoaId"
+          defaultValue={u?.pessoa?.id ?? ''}
+          vazio="Nenhum"
+          opcoes={profissionais.data?.map((p) => [p.id, p.nome] as const)}
+        />
         <span className="text-xs text-suave">
           Assim a agenda e o prontuário já abrem com o nome dele.
         </span>

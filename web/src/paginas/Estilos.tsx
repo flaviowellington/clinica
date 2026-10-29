@@ -1,6 +1,7 @@
 // TEMPORÁRIO: vitrine dos componentes globais para comparar as paletas. Apagar junto com o
 // SeletorPaleta do main.tsx quando a paleta for escolhida.
 import type { CSSProperties, ReactNode } from 'react'
+import { CampoSelect } from '../componentes/CampoSelect'
 
 const CORES = [
   'primaria',
@@ -126,10 +127,7 @@ export function Estilos() {
           </label>
           <label>
             <span className="rotulo">Lista</span>
-            <select className="campo">
-              <option>Dra. Fictícia</option>
-              <option>Dr. Exemplo</option>
-            </select>
+            <CampoSelect opcoes={['Dra. Fictícia', 'Dr. Exemplo']} />
           </label>
           <label className="sm:col-span-2 lg:col-span-3">
             <span className="rotulo">Observações</span>

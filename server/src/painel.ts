@@ -23,7 +23,7 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
   if (!data) return res.status(400).json({ erro: 'Período inválido.' })
   const instantes = { gte: data.gte, lt: new Date(data.lte.getTime() + DIA_MS) }
 
-  const [consultas, desmarcadas, lancamentos, atrasadas, criados, aprovados, novos, caixas] =
+  const [consultas, desmarcadas, lancamentos, atrasadas, criados, aprovados, novos] =
     await Promise.all([
       db.agendamento.findMany({
         where: { tipo: 'CONSULTA', excluidoEm: null, desmarcadoEm: null, data },
@@ -47,7 +47,6 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
         include: { itens: { include: { procedimento: { select: { especialidade: true } } } } },
       }),
       db.pessoa.count({ where: { tipo: 'PACIENTE', excluidoEm: null, criadoEm: instantes } }),
-      db.caixa.findMany({ where: { fechadoEm: instantes }, select: { conferencia: true } }),
     ])
 
   // Ocupação: horários de 15 min usados ÷ horários dos dias em que cada profissional atendeu.
@@ -68,10 +67,6 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
     (s, o) => s + o.itens.reduce((t, i) => t + i.valorCentavos, 0) - o.descontoCentavos,
     0,
   )
-  const diferencaCaixa = caixas.reduce((s, c) => {
-    const conf = (c.conferencia ?? {}) as Record<string, { esperado: number; contado: number }>
-    return s + Object.values(conf).reduce((t, f) => t + f.contado - f.esperado, 0)
-  }, 0)
   const porProfissional = new Map<string, { consultas: number; faltas: number }>()
   for (const c of consultas) {
     const g = porProfissional.get(c.profissional.nome) ?? { consultas: 0, faltas: 0 }
@@ -122,6 +117,5 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
       ),
     },
     pacientesNovos: novos,
-    caixa: { fechados: caixas.length, diferenca: diferencaCaixa },
   })
 })

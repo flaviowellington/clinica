@@ -1,19 +1,29 @@
 // Alerta de retorno, tabela de procedimentos e orçamentos (rules/orcamentos.md).
 import { Router, type Request } from 'express'
+import type { z } from 'zod'
 import { db } from './db'
 import { conferirSenha, exigir, usuarioDe } from './auth'
 import { hojeNaClinica, normalizar } from '../../shared/regras'
-import { CATEGORIA_PADRAO_ENTRADA, FORMAS } from '../../shared/financeiro'
+import { CATEGORIA_PADRAO_ENTRADA } from '../../shared/financeiro'
 import { dividirParcelas, totalOrcamento, umMesDepois, vencimentos } from '../../shared/orcamentos'
 import type { Prisma } from './generated/prisma/client'
+import {
+  CancelarOrcamentoDto,
+  DesaprovarOrcamentoDto,
+  OrcamentoDto,
+  ReprovarOrcamentoDto,
+  RetornoDto,
+} from '../../shared/dtos'
+import { lerCorpo } from './dto'
 
-const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
 const isoDe = (d: Date) => d.toISOString().slice(0, 10)
 const id = (req: Request) => Number(req.params.id) || 0
 const dataIso = (v: unknown): v is string =>
   typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v))
 const hojeIso = () => hojeNaClinica()
+const existe = (id: number, tipo: 'PACIENTE' | 'PROFISSIONAL') =>
+  db.pessoa.findFirst({ where: { id, tipo, excluidoEm: null } })
 
 // ── Alerta de retorno (E-008) ───────────────────────────────────────────────
 export const rotasRetornos = Router()
@@ -49,28 +59,17 @@ rotasRetornos.get('/', exigir('agenda.ver'), async (req, res) => {
 })
 
 rotasRetornos.post('/', exigir('agenda.editar'), async (req, res) => {
-  const b = req.body ?? {}
+  const b = lerCorpo(RetornoDto, req.body, res)
+  if (!b) return
   const erros: Record<string, string> = {}
-  const pacienteId = Number(b.pacienteId) || 0
-  const profissionalId = Number(b.profissionalId) || 0
-  if (
-    !(await db.pessoa.findFirst({ where: { id: pacienteId, tipo: 'PACIENTE', excluidoEm: null } }))
-  )
-    erros.pacienteId = 'Escolha o paciente.'
-  if (
-    !(await db.pessoa.findFirst({
-      where: { id: profissionalId, tipo: 'PROFISSIONAL', excluidoEm: null },
-    }))
-  )
+  if (!(await existe(b.pacienteId, 'PACIENTE'))) erros.pacienteId = 'Escolha o paciente.'
+  if (!(await existe(b.profissionalId, 'PROFISSIONAL')))
     erros.profissionalId = 'Escolha o profissional.'
-  if (!dataIso(b.data)) erros.data = 'Informe a data do retorno.'
   if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
   const r = await db.alertaRetorno.create({
     data: {
-      pacienteId,
-      profissionalId,
+      ...b,
       data: dia(b.data),
-      motivo: texto(b.motivo),
       criadoPorId: usuarioDe(res).id,
     },
     include: comPessoas,
@@ -135,47 +134,33 @@ const paraTela = (o: OrcamentoCompleto) => ({
 const acharOrcamento = (req: Request) =>
   db.orcamento.findUnique({ where: { id: id(req) }, include: incluir })
 
-/** Lê e valida o corpo do orçamento; devolve os itens já com nome e valor da tabela. */
-async function lerOrcamento(b: Record<string, unknown>) {
+/** Orçamento lido pelo DTO; os itens ganham nome e valor da tabela (R-012: o valor pode ser editado). */
+async function lerOrcamento(b: z.output<typeof OrcamentoDto>) {
   const erros: Record<string, string> = {}
-  const itensBrutos = Array.isArray(b.itens) ? (b.itens as Record<string, unknown>[]) : []
-  if (!itensBrutos.length) erros.itens = 'Adicione pelo menos um procedimento.'
-  const ids = itensBrutos.map((i) => Number(i.procedimentoId) || 0)
-  const tabela = await db.procedimento.findMany({ where: { id: { in: ids } } })
-  const itens = itensBrutos.map((i, n) => {
-    const p = tabela.find((t) => t.id === ids[n])
+  const tabela = await db.procedimento.findMany({
+    where: { id: { in: b.itens.map((i) => i.procedimentoId) } },
+  })
+  const itens = b.itens.map((i) => {
+    const p = tabela.find((t) => t.id === i.procedimentoId)
     if (!p) erros.itens = 'Procedimento não encontrado.'
-    // R-012: valor vem da tabela e pode ser editado.
-    const valor =
-      Number.isInteger(i.valorCentavos) && (i.valorCentavos as number) >= 0
-        ? (i.valorCentavos as number)
-        : (p?.valorCentavos ?? 0)
     return {
-      procedimentoId: ids[n],
+      procedimentoId: i.procedimentoId,
       nome: p?.nome ?? '',
-      dente: texto(i.dente)?.slice(0, 40) ?? null,
-      valorCentavos: valor,
+      dente: i.dente,
+      valorCentavos: i.valorCentavos ?? p?.valorCentavos ?? 0,
     }
   })
-  const desconto = Number.isInteger(b.descontoCentavos)
-    ? Math.max(0, b.descontoCentavos as number)
-    : 0
-  if (desconto > itens.reduce((s, i) => s + i.valorCentavos, 0))
+  if (b.descontoCentavos > itens.reduce((s, i) => s + i.valorCentavos, 0))
     erros.descontoCentavos = 'O desconto passa do total.'
-  const forma = texto(b.forma)
-  if (forma && !(FORMAS as readonly string[]).includes(forma))
-    erros.forma = 'Forma de pagamento inválida.'
-  const parcelas = Math.min(24, Math.max(1, Number(b.parcelas) || 1))
-  const primeiro = dataIso(b.primeiroVencimento) ? b.primeiroVencimento : null
   return {
     erros,
     itens,
     dados: {
-      observacoes: texto(b.observacoes),
-      descontoCentavos: desconto,
-      forma,
-      parcelas,
-      primeiroVencimento: primeiro ? dia(primeiro) : null,
+      observacoes: b.observacoes,
+      descontoCentavos: b.descontoCentavos,
+      forma: b.forma,
+      parcelas: b.parcelas,
+      primeiroVencimento: b.primeiroVencimento ? dia(b.primeiroVencimento) : null,
     },
   }
 }
@@ -191,19 +176,13 @@ rotasOrcamentos.get('/', exigir('orcamento.ver'), async (req, res) => {
 })
 
 rotasOrcamentos.post('/', exigir('orcamento.editar'), async (req, res) => {
-  const b = req.body ?? {}
+  const b = lerCorpo(OrcamentoDto, req.body, res)
+  if (!b) return
   const { erros, itens, dados } = await lerOrcamento(b)
-  const pacienteId = Number(b.pacienteId) || 0
-  const profissionalId = Number(b.profissionalId) || 0
-  if (
-    !(await db.pessoa.findFirst({ where: { id: pacienteId, tipo: 'PACIENTE', excluidoEm: null } }))
-  )
-    erros.pacienteId = 'Paciente não encontrado.'
-  if (
-    !(await db.pessoa.findFirst({
-      where: { id: profissionalId, tipo: 'PROFISSIONAL', excluidoEm: null },
-    }))
-  )
+  const pacienteId = b.pacienteId ?? 0
+  const profissionalId = b.profissionalId ?? 0
+  if (!(await existe(pacienteId, 'PACIENTE'))) erros.pacienteId = 'Paciente não encontrado.'
+  if (!(await existe(profissionalId, 'PROFISSIONAL')))
     erros.profissionalId = 'Escolha o profissional.'
   if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
   const o = await db.orcamento.create({
@@ -225,8 +204,10 @@ rotasOrcamentos.put('/:id', exigir('orcamento.editar'), async (req, res) => {
   if (!o) return res.status(404).json({ erro: 'Orçamento não encontrado.' })
   if (o.status !== 'ABERTO')
     return res.status(409).json({ erro: 'Só dá para editar orçamento em aberto.' })
-  const { erros, itens, dados } = await lerOrcamento(req.body ?? {})
-  const profissionalId = Number(req.body?.profissionalId) || o.profissionalId
+  const b = lerCorpo(OrcamentoDto, req.body, res)
+  if (!b) return
+  const { erros, itens, dados } = await lerOrcamento(b)
+  const profissionalId = b.profissionalId ?? o.profissionalId
   if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
   const novo = await db.orcamento.update({
     where: { id: o.id },
@@ -294,9 +275,11 @@ rotasOrcamentos.post('/:id/reprovar', exigir('orcamento.editar'), async (req, re
   if (!o) return res.status(404).json({ erro: 'Orçamento não encontrado.' })
   if (o.status !== 'ABERTO')
     return res.status(409).json({ erro: 'Só dá para reprovar orçamento em aberto.' })
+  const b = lerCorpo(ReprovarOrcamentoDto, req.body, res)
+  if (!b) return
   const novo = await db.orcamento.update({
     where: { id: o.id },
-    data: { status: 'REPROVADO', motivoReprovacao: texto(req.body?.motivo) },
+    data: { status: 'REPROVADO', motivoReprovacao: b.motivo },
     include: incluir,
   })
   res.json(paraTela(novo))
@@ -309,7 +292,9 @@ rotasOrcamentos.post('/:id/desaprovar', exigir('orcamento.aprovar'), async (req,
   if (o.status !== 'APROVADO')
     return res.status(409).json({ erro: 'Este orçamento não está aprovado.' })
   const u = usuarioDe(res)
-  if (!(await conferirSenha(u.login, String(req.body?.senha ?? ''))))
+  const b = lerCorpo(DesaprovarOrcamentoDto, req.body, res)
+  if (!b) return
+  if (!(await conferirSenha(u.login, b.senha)))
     return res.status(401).json({ erro: 'Senha incorreta.' })
   if (o.contas.some((c) => c.status === 'PAGA'))
     return res
@@ -342,8 +327,7 @@ rotasOrcamentos.post('/:id/cancelar', exigir('orcamento.cancelar'), async (req, 
   if (!o) return res.status(404).json({ erro: 'Orçamento não encontrado.' })
   if (o.status !== 'APROVADO')
     return res.status(409).json({ erro: 'Só dá para cancelar orçamento aprovado.' })
-  if (req.body?.ciente !== true)
-    return res.status(400).json({ erro: 'Confirme que está ciente de que a ação é irreversível.' })
+  if (!lerCorpo(CancelarOrcamentoDto, req.body, res, null)) return
   const u = usuarioDe(res)
   await db.$transaction([
     db.orcamento.update({

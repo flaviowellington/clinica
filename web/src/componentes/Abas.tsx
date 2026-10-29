@@ -1,4 +1,4 @@
-/** Barra de abas de uma tela (Financeiro, Conta digital). */
+/** Barra de abas de uma tela (Financeiro, Ficha, Configurações). */
 export function Abas<T extends string>(props: {
   abas: { id: T; rotulo: string }[]
   atual: T

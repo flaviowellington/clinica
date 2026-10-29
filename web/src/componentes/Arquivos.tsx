@@ -5,6 +5,7 @@ import { api, consultaEu, dataBR, mensagemDeErro, type Paciente } from '../api'
 import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import { Dialogo } from './Dialogo'
+import { confirmar } from './Confirmar'
 
 interface Arquivo {
   id: number
@@ -239,8 +240,8 @@ function Visualizador(props: {
             <button
               className="botao-leve text-perigo"
               disabled={excluir.isPending}
-              onClick={() =>
-                confirm(`Excluir "${a.nome}"? Ele sai da ficha, mas fica guardado no histórico.`) &&
+              onClick={async () =>
+                (await confirmar(`Excluir "${a.nome}"? Ele sai da ficha, mas fica guardado no histórico.`)) &&
                 excluir.mutate()
               }
             >

@@ -56,26 +56,11 @@ export function idade(nascimento: string, hoje = new Date()): number {
 export interface DadosPaciente {
   nome?: string | null
   nascimento?: string | null
-  cpf?: string | null
-  email?: string | null
-  responsavelCpf?: string | null
 }
 
 /** R-001: só Nome e Data de nascimento são obrigatórios. */
 export function podeCadastrar(d: DadosPaciente): boolean {
   return !!d.nome?.trim() && dataValida(d.nascimento)
-}
-
-/** Erros por campo; objeto vazio quando está tudo certo. */
-export function validarPaciente(d: DadosPaciente): Record<string, string> {
-  const erros: Record<string, string> = {}
-  if (!d.nome?.trim()) erros.nome = 'Informe o nome.'
-  else if (d.nome.length > 150) erros.nome = 'O nome pode ter até 150 caracteres.'
-  if (!dataValida(d.nascimento)) erros.nascimento = 'Informe uma data de nascimento válida.'
-  if (d.cpf && !cpfValido(d.cpf)) erros.cpf = 'CPF inválido.'
-  if (d.responsavelCpf && !cpfValido(d.responsavelCpf)) erros.responsavelCpf = 'CPF inválido.'
-  if (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) erros.email = 'E-mail inválido.'
-  return erros
 }
 
 // ponytail: fuso fixo de Brasília; virar configuração se a clínica ficar em outro fuso.

@@ -1,55 +1,20 @@
 import { Router, type Request } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
-import {
-  MOTIVOS_INATIVACAO,
-  normalizar,
-  validarPaciente,
-  type MotivoInativacao,
-} from '../../shared/regras'
+import type { z } from 'zod'
+import { normalizar } from '../../shared/regras'
+import { InativarPacienteDto, PacienteDto } from '../../shared/dtos'
+import { lerCorpo } from './dto'
 import type { Pessoa } from './generated/prisma/client'
 
 const POR_PAGINA = 10
 const TAMANHOS = [10, 25, 50]
 
-const CAMPOS = [
-  'nome',
-  'nascimento',
-  'apelido',
-  'cpf',
-  'rg',
-  'sexo',
-  'estadoCivil',
-  'observacoes',
-  'email',
-  'celular',
-  'telefone',
-  'comoConheceu',
-  'indicadoPor',
-  'nomeMae',
-  'nomePai',
-  'responsavelNome',
-  'responsavelCpf',
-  'responsavelParentesco',
-] as const
-
-/** Lê só os campos conhecidos do corpo; texto vazio vira null. */
-function lerDados(body: Record<string, unknown>) {
-  const d = {} as Record<(typeof CAMPOS)[number], string | null>
-  for (const c of CAMPOS) {
-    const v = typeof body?.[c] === 'string' ? (body[c] as string).trim() : ''
-    d[c] = v || null
-  }
-  if (d.cpf) d.cpf = d.cpf.replace(/\D/g, '')
-  if (d.responsavelCpf) d.responsavelCpf = d.responsavelCpf.replace(/\D/g, '')
-  return d
-}
-
-function paraBanco(d: ReturnType<typeof lerDados>) {
+/** Paciente lido pelo DTO, pronto para gravar. */
+function paraBanco(d: z.output<typeof PacienteDto>) {
   return {
     ...d,
-    nome: d.nome!,
-    nomeBusca: normalizar(d.nome!),
+    nomeBusca: normalizar(d.nome),
     nascimento: new Date(`${d.nascimento}T00:00:00Z`),
   }
 }
@@ -113,9 +78,8 @@ rotasPacientes.get('/', exigir('paciente.ver'), async (req, res) => {
 })
 
 rotasPacientes.post('/', exigir('paciente.editar'), async (req, res) => {
-  const d = lerDados(req.body)
-  const erros = validarPaciente(d)
-  if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
+  const d = lerCorpo(PacienteDto, req.body, res)
+  if (!d) return
 
   const quem = usuarioDe(res).id
   const p = await db.pessoa.create({
@@ -143,9 +107,8 @@ rotasPacientes.put('/:id', exigir('paciente.editar'), async (req, res) => {
   const p = await acharPaciente(req)
   if (!p) return res.status(404).json(NAO_ACHOU)
 
-  const d = lerDados(req.body)
-  const erros = validarPaciente(d)
-  if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
+  const d = lerCorpo(PacienteDto, req.body, res)
+  if (!d) return
 
   const novo = await db.pessoa.update({
     where: { id: p.id },
@@ -159,18 +122,15 @@ rotasPacientes.post('/:id/inativar', exigir('paciente.inativar'), async (req, re
   const p = await acharPaciente(req)
   if (!p) return res.status(404).json(NAO_ACHOU)
 
-  const motivo = String(req.body?.motivo ?? '')
-  const descricao = String(req.body?.descricao ?? '').trim()
-  if (!Object.hasOwn(MOTIVOS_INATIVACAO, motivo))
-    return res.status(400).json({ erro: 'Escolha o motivo.' })
-  if (motivo === 'OUTROS' && !descricao) return res.status(400).json({ erro: 'Descreva o motivo.' })
+  const b = lerCorpo(InativarPacienteDto, req.body, res, null)
+  if (!b) return
 
   const novo = await db.pessoa.update({
     where: { id: p.id },
     data: {
       ativo: false,
-      motivoInativacao: motivo as MotivoInativacao,
-      motivoInativacaoDescricao: descricao || null,
+      motivoInativacao: b.motivo,
+      motivoInativacaoDescricao: b.descricao,
       alteradoPorId: usuarioDe(res).id,
     },
   })

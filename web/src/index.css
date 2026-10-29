@@ -268,7 +268,7 @@
   --color-desativado: var(--desativado);
   --color-desativado-texto: var(--desativado-texto);
   /* Fontes servidas pelo próprio app (sem CDN de terceiros, LGPD). */
-  --font-sans: 'M PLUS Rounded 1c', system-ui, 'Segoe UI', sans-serif;
+  --font-sans: 'Nunito', system-ui, 'Segoe UI', sans-serif;
 }
 
 body {
@@ -330,16 +330,20 @@ body {
     --seta: var(--primaria);
   }
   ::-webkit-scrollbar-button:single-button:vertical:decrement {
-    background: conic-gradient(from 135deg at 50% 0, var(--seta) 90deg, transparent 0) center / 8px 4px no-repeat;
+    background: conic-gradient(from 135deg at 50% 0, var(--seta) 90deg, transparent 0) center / 8px
+      4px no-repeat;
   }
   ::-webkit-scrollbar-button:single-button:vertical:increment {
-    background: conic-gradient(from -45deg at 50% 100%, var(--seta) 90deg, transparent 0) center / 8px 4px no-repeat;
+    background: conic-gradient(from -45deg at 50% 100%, var(--seta) 90deg, transparent 0) center /
+      8px 4px no-repeat;
   }
   ::-webkit-scrollbar-button:single-button:horizontal:decrement {
-    background: conic-gradient(from 45deg at 0 50%, var(--seta) 90deg, transparent 0) center / 4px 8px no-repeat;
+    background: conic-gradient(from 45deg at 0 50%, var(--seta) 90deg, transparent 0) center / 4px
+      8px no-repeat;
   }
   ::-webkit-scrollbar-button:single-button:horizontal:increment {
-    background: conic-gradient(from 225deg at 100% 50%, var(--seta) 90deg, transparent 0) center / 4px 8px no-repeat;
+    background: conic-gradient(from 225deg at 100% 50%, var(--seta) 90deg, transparent 0) center /
+      4px 8px no-repeat;
   }
   /* Firefox não tem os pseudo-elementos: só cor da barra, sem setas. */
   @supports not selector(::-webkit-scrollbar) {
@@ -555,6 +559,72 @@ body {
 @layer base {
   html {
     scrollbar-gutter: stable;
+  }
+}
+
+/*
+ * Dropdown padrão (todo <select>). Usa o select personalizável nativo do navegador;
+ * onde ele não existe (Firefox/Safari antigos), fica a lista padrão do sistema.
+ */
+@layer base {
+  @supports (appearance: base-select) {
+    select,
+    ::picker(select) {
+      appearance: base-select;
+    }
+    select {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    select::picker-icon {
+      color: var(--suave);
+      transition: none;
+    }
+    select:open {
+      border-color: var(--primaria);
+    }
+    select:open::picker-icon {
+      rotate: 180deg;
+      color: var(--primaria);
+    }
+    ::picker(select) {
+      margin-block: 0.35rem;
+      padding: 0.3rem;
+      border: 1px solid var(--borda);
+      border-radius: 0.9rem;
+      background: var(--superficie);
+      color: var(--texto);
+      box-shadow: 0 10px 30px -8px color-mix(in srgb, black 30%, transparent);
+      max-height: 18rem;
+    /* Sempre abre para baixo (o navegador viraria para cima quando há mais espaço lá). */
+    position-area: block-end span-inline-end;
+    position-try-order: normal;
+    position-try-fallbacks: none;
+    }
+    select option {
+      padding: 0.45rem 0.75rem;
+      border-radius: 0.6rem;
+      cursor: pointer;
+    }
+    select option::checkmark {
+      display: none;
+    }
+    select option:hover,
+    select option:focus-visible {
+      outline: none;
+      background: var(--primaria-clara);
+    }
+    select option:checked {
+      background: var(--primaria);
+      color: var(--sobre-primaria);
+      font-weight: 700;
+    }
+    select option:disabled {
+      color: var(--desativado-texto);
+      background: none;
+      cursor: not-allowed;
+    }
   }
 }
 

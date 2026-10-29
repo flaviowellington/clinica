@@ -8,7 +8,6 @@ const CAMINHOS = {
   profissionais:
     'M9 4h6M12 4v3M7 7h10a1 1 0 0 1 1 1v12H6V8a1 1 0 0 1 1-1zM12 15a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM9 20c0-2 1.3-3 3-3s3 1 3 3',
   relatorios: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
-  conta: 'M3 7h18v12H3zM3 11h18M7 15h4M16 4l-9 3',
   inicio: 'M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10',
   lixeira: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
   escuro: 'M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z',
@@ -19,7 +18,6 @@ const CAMINHOS = {
     'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14.5a6.5 6.5 0 0 1 3.5 5.5',
   configuracoes:
     'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z',
-  caixa: 'M3 10h18v10H3zM6 10V6h12v4M12 14v2M3 14h18',
   protetico: 'M4 5h4v14H4zM10 5h4v14h-4zM16 5h4v14h-4z',
   confirmacoes: 'M4 6h16v12H4zM4 7l8 6 8-6M15 17l2 2 4-4',
   painel: 'M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z',
@@ -28,6 +26,9 @@ const CAMINHOS = {
   recolher:'M4 4h16v16H4zM9 4v16M16 9l-3 3 3 3',
   expandir: 'M4 4h16v16H4zM9 4v16M13 9l3 3-3 3',
   mais: 'M12 5v14M5 12h14',
+  pausa: 'M9 6v12M15 6v12',
+  esquerda: 'M15 6l-6 6 6 6',
+  direita: 'M9 6l6 6-6 6',
   celular: 'M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM11 18h2',
   documento: 'M3 6h18v12H3zM7 10h4M7 14h6M15 10h2M15 14h2',
 } as const

@@ -47,6 +47,8 @@ model Pessoa {
   telefone     String?
   comoConheceu String?
   indicadoPor  String?
+  /// Texto livre quando "Como conheceu" é "Outros".
+  comoConheceuOutro String?
 
   nomeMae               String?
   nomePai               String?
@@ -58,6 +60,10 @@ model Pessoa {
   cro           String?
   especialidade String?
   corAgenda     String?
+  /// Foto do profissional: quadrado 400x400 em WebP, já recortado no servidor.
+  foto          Bytes?
+  /// Quando a foto mudou; vai na URL para o navegador não mostrar a antiga do cache.
+  fotoEm        DateTime?
 
   ativo                     Boolean           @default(true)
   motivoInativacao          MotivoInativacao?
@@ -114,7 +120,6 @@ model Usuario {
   acessos           LogAcesso[]
   agendou           Agendamento[]
   lancamentos       Lancamento[]
-  contasDigitais    ContaDigital[]
   retornos          AlertaRetorno[]
   orcamentos        Orcamento[]
   contasFinanceiras ContaFinanceira[]
@@ -125,8 +130,6 @@ model Usuario {
   arquivos              Arquivo[]
   documentos            Documento[]
   notas                 Nota[]
-  caixasAbertos         Caixa[]               @relation("caixaAberto")
-  caixasFechados        Caixa[]               @relation("caixaFechado")
   trabalhosProteticos   TrabalhoProtetico[]
   importacoes           Importacao[]
 }
@@ -245,9 +248,6 @@ model Lancamento {
   contaBancaria   ContaBancaria?    @relation(fields: [contaBancariaId], references: [id])
   conciliadoEm    DateTime?
   pagamentoDe     ContaFinanceira[]
-  /// Caixa aberto no momento do recebimento (F-031).
-  caixaId         Int?
-  caixa           Caixa?            @relation(fields: [caixaId], references: [id])
 
   excluidoEm    DateTime?
   excluidoPorId Int?
@@ -256,33 +256,6 @@ model Lancamento {
   criadoPor     Usuario   @relation(fields: [criadoPorId], references: [id])
 
   @@index([data])
-}
-
-enum TipoConta {
-  PESSOA_FISICA
-  PESSOA_JURIDICA
-}
-
-enum StatusConta {
-  PENDENTE
-  ATIVA
-  CANCELADA
-}
-
-/// Pedido de conta digital. Só vira ATIVA com um parceiro de pagamentos (BR-006).
-model ContaDigital {
-  id          Int         @id @default(autoincrement())
-  tipo        TipoConta
-  nome        String
-  /// CPF ou CNPJ, só dígitos.
-  documento   String
-  email       String
-  celular     String
-  status      StatusConta @default(PENDENTE)
-  criadoEm    DateTime    @default(now())
-  criadoPorId Int
-  criadoPor   Usuario     @relation(fields: [criadoPorId], references: [id])
-  alteradoEm  DateTime    @updatedAt
 }
 
 /// Lembrete para chamar o paciente de volta numa data (E-008).
@@ -596,7 +569,7 @@ model Nota {
   @@index([pacienteId])
 }
 
-// ── Telas de gestão: configurações, caixa, protético, mensagens, importação ──
+// ── Telas de gestão: configurações, protético, mensagens, importação ──
 
 /// Configurações da clínica, uma linha por assunto (shared/configuracoes.ts).
 /// ponytail: chave-valor em JSON; vira tabela própria se algum assunto crescer.
@@ -605,22 +578,6 @@ model Configuracao {
   valor         Json
   alteradoEm    DateTime @updatedAt
   alteradoPorId Int?
-}
-
-/// Caixa do dia: abre com o troco, recebe os pagamentos e fecha conferindo cada forma (F-031).
-model Caixa {
-  id                   Int          @id @default(autoincrement())
-  abertoEm             DateTime     @default(now())
-  abertoPorId          Int
-  abertoPor            Usuario      @relation("caixaAberto", fields: [abertoPorId], references: [id])
-  saldoInicialCentavos Int
-  fechadoEm            DateTime?
-  fechadoPorId         Int?
-  fechadoPor           Usuario?     @relation("caixaFechado", fields: [fechadoPorId], references: [id])
-  /// Esperado e contado por forma no fechamento: { "Dinheiro": { esperado, contado } }
-  conferencia          Json?
-  observacoes          String?
-  lancamentos          Lancamento[]
 }
 
 /// As cinco etapas do trabalho de laboratório (R-082).
@@ -640,6 +597,8 @@ model TrabalhoProtetico {
   profissionalId Int
   profissional   Pessoa         @relation("profissionalProtetico", fields: [profissionalId], references: [id])
   laboratorio    String
+  /// Contato do laboratório (telefone, WhatsApp, e-mail); o mais recente vale para o laboratório.
+  laboratorioContato String?
   trabalho       String
   dentes         String?
   cor            String?

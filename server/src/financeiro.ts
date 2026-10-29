@@ -3,11 +3,9 @@ import { Router, type Request } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
 import { pode } from '../../shared/permissoes'
-import { caixaAberto } from './caixa'
 import {
   CATEGORIAS,
   CATEGORIA_PADRAO_ENTRADA,
-  FORMAS,
   PLANO_DE_CONTAS,
   grupoDe,
 } from '../../shared/financeiro'
@@ -19,8 +17,14 @@ import {
 } from '../../shared/orcamentos'
 import { hojeNaClinica } from '../../shared/regras'
 import type { Prisma } from './generated/prisma/client'
+import {
+  BaixarContaDto,
+  ConciliarDto,
+  ContaBancariaDto,
+  ContaFinanceiraDto,
+} from '../../shared/dtos'
+import { lerCorpo } from './dto'
 
-const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
 const isoDe = (d: Date) => d.toISOString().slice(0, 10)
 const id = (req: Request) => Number(req.params.id) || 0
@@ -55,7 +59,9 @@ rotasFinanceiroContas.patch(
   async (req, res) => {
     const l = await db.lancamento.findFirst({ where: { id: id(req), excluidoEm: null } })
     if (!l) return res.status(404).json({ erro: 'Lançamento não encontrado.' })
-    const contaBancariaId = Number(req.body?.contaBancariaId) || null
+    const b = lerCorpo(ConciliarDto, req.body, res)
+    if (!b) return
+    const { contaBancariaId } = b
     if (contaBancariaId && !(await db.contaBancaria.findUnique({ where: { id: contaBancariaId } })))
       return res.status(400).json({ erro: 'Conta bancária não encontrada.' })
     const novo = await db.lancamento.update({
@@ -97,40 +103,31 @@ rotasFinanceiroContas.get('/contas', exigir('financeiro.ver'), async (req, res) 
 
 /** Cria a conta; com "parcelas" > 1 divide o valor (R-015) e vence todo mês. */
 rotasFinanceiroContas.post('/contas', exigir('financeiro.editar'), async (req, res) => {
-  const b = req.body ?? {}
-  const tipo = b.tipo === 'PAGAR' ? ('PAGAR' as const) : ('RECEBER' as const)
-  const valor = Number.isInteger(b.valorCentavos) ? (b.valorCentavos as number) : 0
-  const vencimento = texto(b.vencimento)
-  const descricao = texto(b.descricao)
-  const categoria = texto(b.categoria) ?? (tipo === 'RECEBER' ? CATEGORIA_PADRAO_ENTRADA : null)
-  const forma = texto(b.forma)
-  const parcelas = Math.min(24, Math.max(1, Number(b.parcelas) || 1))
-  const pacienteId = Number(b.pacienteId) || null
+  const b = lerCorpo(ContaFinanceiraDto, req.body, res)
+  if (!b) return
+  const { tipo, valorCentavos: valor, vencimento, descricao, forma, parcelas, pacienteId } = b
+  const categoria = b.categoria ?? (tipo === 'RECEBER' ? CATEGORIA_PADRAO_ENTRADA : null)
   const erros: Record<string, string> = {}
-  if (!descricao) erros.descricao = 'Informe a descrição.'
-  if (valor <= 0) erros.valorCentavos = 'Informe um valor maior que zero.'
-  if (!vencimento || isNaN(Date.parse(vencimento))) erros.vencimento = 'Informe o vencimento.'
   // R-054: a conta precisa estar no plano de contas.
   if (!categoria) erros.categoria = 'Escolha a conta do plano de contas.'
   else if (!CATEGORIAS.includes(categoria)) erros.categoria = 'Conta do plano de contas inválida.'
-  if (forma && !(FORMAS as readonly string[]).includes(forma)) erros.forma = 'Forma inválida.'
   if (pacienteId && !(await db.pessoa.findFirst({ where: { id: pacienteId, tipo: 'PACIENTE' } })))
     erros.pacienteId = 'Paciente não encontrado.'
   if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
 
-  const datas = vencimentos(vencimento!, parcelas)
+  const datas = vencimentos(vencimento, parcelas)
   const u = usuarioDe(res)
   const criadas = await db.$transaction(
     dividirParcelas(valor, parcelas).map((v, i) =>
       db.contaFinanceira.create({
         data: {
           tipo,
-          descricao: parcelas > 1 ? `${descricao} – parcela ${i + 1}/${parcelas}` : descricao!,
+          descricao: parcelas > 1 ? `${descricao} – parcela ${i + 1}/${parcelas}` : descricao,
           valorCentavos: v,
           vencimento: dia(datas[i]),
           forma,
           categoria,
-          detalhes: texto(b.detalhes),
+          detalhes: b.detalhes,
           pacienteId,
           parcela: parcelas > 1 ? i + 1 : null,
           totalParcelas: parcelas > 1 ? parcelas : null,
@@ -145,8 +142,7 @@ rotasFinanceiroContas.post('/contas', exigir('financeiro.editar'), async (req, r
 
 /**
  * Baixa: registra o pagamento ou recebimento e lança na conta corrente.
- * Receber pode ser feito pela Recepção, desde que o caixa esteja aberto (F-031);
- * com caixa aberto, todo recebimento entra nele.
+ * Receber pode ser feito pela Recepção.
  */
 rotasFinanceiroContas.post('/contas/:id/baixar', async (req, res) => {
   const c = await db.contaFinanceira.findUnique({ where: { id: id(req) } })
@@ -156,12 +152,10 @@ rotasFinanceiroContas.post('/contas/:id/baixar', async (req, res) => {
   if (!pode(u.perfis, acao))
     return res.status(403).json({ erro: 'Você não tem permissão para esta ação.' })
   if (c.status !== 'ABERTA') return res.status(409).json({ erro: 'Esta conta não está em aberto.' })
-  const data = texto(req.body?.data) ?? hojeNaClinica()
-  if (isNaN(Date.parse(data))) return res.status(400).json({ erro: 'Data inválida.' })
-  const forma = texto(req.body?.forma) ?? c.forma
-  const caixa = c.tipo === 'RECEBER' ? await caixaAberto() : null
-  if (c.tipo === 'RECEBER' && !caixa && !pode(u.perfis, 'financeiro.editar'))
-    return res.status(409).json({ erro: 'Abra o caixa antes de receber.' })
+  const b = lerCorpo(BaixarContaDto, req.body, res, null)
+  if (!b) return
+  const data = b.data ?? hojeNaClinica()
+  const forma = b.forma ?? c.forma
   const novo = await db.$transaction(async (tx) => {
     const l = await tx.lancamento.create({
       data: {
@@ -173,7 +167,6 @@ rotasFinanceiroContas.post('/contas/:id/baixar', async (req, res) => {
         categoria: c.categoria,
         pacienteId: c.pacienteId,
         orcamentoId: c.orcamentoId,
-        caixaId: caixa?.id,
         criadoPorId: u.id,
       },
     })
@@ -295,21 +288,9 @@ rotasFinanceiroContas.get('/bancos', exigir('financeiro.ver'), async (_req, res)
 })
 
 rotasFinanceiroContas.post('/bancos', exigir('financeiro.editar'), async (req, res) => {
-  const b = req.body ?? {}
-  const nome = texto(b.nome)
-  if (!nome)
-    return res
-      .status(400)
-      .json({ erro: 'Confira os campos.', erros: { nome: 'Informe o nome da conta.' } })
-  const c = await db.contaBancaria.create({
-    data: {
-      nome,
-      banco: texto(b.banco),
-      agencia: texto(b.agencia),
-      numero: texto(b.numero),
-      saldoInicialCentavos: Number.isInteger(b.saldoInicialCentavos) ? b.saldoInicialCentavos : 0,
-    },
-  })
+  const b = lerCorpo(ContaBancariaDto, req.body, res)
+  if (!b) return
+  const c = await db.contaBancaria.create({ data: b })
   res.status(201).json(c)
 })
 

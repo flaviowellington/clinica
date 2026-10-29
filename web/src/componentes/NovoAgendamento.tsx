@@ -1,11 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   api,
   consultaConfig,
-  consultaEu,
   consultaProfissionais,
-  cpfBR,
   errosDosCampos,
   isoLocal,
   mensagemDeErro,
@@ -25,12 +23,11 @@ import {
   paraHora,
   paraMinutos,
 } from '../../../shared/agenda'
-import { pode } from '../../../shared/permissoes'
-import { Dialogo } from './Dialogo'
-import { FormPaciente } from './FormPaciente'
+import { Avatar, BuscaPaciente, CampoBusca, iniciais } from './BuscaPaciente'
 import { Icone } from './Icones'
 import { MiniCalendario } from './MiniCalendario'
 import { COR_PADRAO } from '../paginas/Profissionais'
+import { CampoSelect } from './CampoSelect'
 
 export interface Inicial {
   tipo: 'CONSULTA' | 'COMPROMISSO'
@@ -67,22 +64,6 @@ function segundaDe(iso: string) {
 function outroDia(iso: string, dir: 1 | -1) {
   const d = somarDias(iso, dir)
   return diaComExpediente(d) ? d : somarDias(d, dir)
-}
-
-/** O que foi buscado vira o campo certo do cadastro: CPF, celular ou nome. */
-function sugestaoDeCadastro(termo: string): Partial<Paciente> {
-  const digitos = termo.replace(/\D/g, '')
-  if (!/[a-zà-ú]/i.test(termo) && digitos.length >= 8)
-    return digitos.length === 11 && !/[()\s+]/.test(termo) ? { cpf: termo } : { celular: termo }
-  return { nome: termo }
-}
-
-function iniciais(nome: string) {
-  const p = nome
-    .replace(/^dra?\.\s*/i, '')
-    .split(/\s+/)
-    .filter(Boolean)
-  return ((p[0]?.[0] ?? '') + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase()
 }
 
 interface Marcacao {
@@ -139,22 +120,8 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
   const [buscaProf, setBuscaProf] = useState('')
   const [paciente, setPaciente] = useState<Paciente | null>(null)
   const [titulo, setTitulo] = useState('')
-  const [busca, setBusca] = useState('')
-  const [termo, setTermo] = useState('')
   // Decisão da clínica: confirmação e lembrete por WhatsApp de saída (o estudo, R-027, vinha desligado).
   const [avisos, setAvisos] = useState({ confirmacao: 'WHATSAPP', alerta: 'WHATSAPP' })
-
-  // Busca enquanto digita (B-018: só pacientes existentes); ENTER busca na hora.
-  useEffect(() => {
-    const t = setTimeout(() => setTermo(busca.trim()), 250)
-    return () => clearTimeout(t)
-  }, [busca])
-  const achados = useQuery({
-    queryKey: ['pacientes', termo, 1],
-    queryFn: async () =>
-      (await api.get<{ itens: Paciente[] }>('/pacientes', { params: { busca: termo } })).data.itens,
-    enabled: termo.length >= 2,
-  })
 
   // A semana de todos os profissionais numa chamada: trocar de profissional não busca de novo.
   const semana = segundaDe(data)
@@ -207,22 +174,6 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
       if (h) return { dia: d, h }
     }
   })()
-
-  // Paciente que não existe ainda: cadastra numa janela por cima e já escolhe (R-001).
-  const { data: eu } = useQuery(consultaEu)
-  const podeCadastrar = !!eu && pode(eu.perfis, 'paciente.editar')
-  const [cadastrando, setCadastrando] = useState(false)
-  const cadastrar = useMutation({
-    mutationFn: async (dados: Record<string, string>) =>
-      (await api.post<Paciente>('/pacientes', dados)).data,
-    onSuccess: (p) => {
-      avisar('Paciente cadastrado com sucesso')
-      qc.invalidateQueries({ queryKey: ['pacientes'] })
-      setPaciente(p)
-      setCadastrando(false)
-    },
-    onError: (e) => avisar(mensagemDeErro(e), true),
-  })
 
   // Grava uma por vez; se uma falhar, as já gravadas saem da lista e o erro aponta qual foi.
   const lote = multiplos ? marcacoes : [marcacoes[ativa]]
@@ -454,94 +405,13 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
 
             {tipo === 'CONSULTA' ? (
               <Passo n={1} id="passo-paciente" titulo="Paciente" feito={!!paciente}>
-                {paciente ? (
-                  <div className="flex items-center gap-3 rounded-xl border-2 border-primaria/40 bg-primaria-clara px-3 py-2">
-                    <Avatar texto={iniciais(paciente.nome)} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-bold">{paciente.nome}</p>
-                      <p className="truncate text-xs text-suave">
-                        {[paciente.celular, paciente.email].filter(Boolean).join(' · ') ||
-                          'Sem contato'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="botao-fantasma botao-pequeno"
-                      onClick={() => setPaciente(null)}
-                    >
-                      Trocar
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <CampoBusca
-                      rotulo="passo-paciente"
-                      placeholder="Buscar por nome, telefone ou CPF"
-                      valor={busca}
-                      aoMudar={setBusca}
-                      aoEnter={() => setTermo(busca.trim())}
-                      autoFocus
-                    />
-                    {termo.length >= 2 && (
-                      <div className="mt-2 max-h-72 overflow-y-auto rounded-xl border border-borda bg-superficie">
-                        {podeCadastrar && (
-                          <button
-                            type="button"
-                            onClick={() => setCadastrando(true)}
-                            className="flex w-full items-center gap-2 border-b border-borda bg-superficie-2 px-3 py-2.5 text-left hover:bg-primaria-clara focus-visible:bg-primaria-clara"
-                          >
-                            <Icone nome="mais" className="h-5 w-5 shrink-0 text-suave" />
-                            <span className="min-w-0 truncate">
-                              Novo paciente: <span className="font-bold">{termo}</span>
-                            </span>
-                          </button>
-                        )}
-                        <p className="px-3 pt-2 pb-1 text-xs font-bold text-suave">Pacientes</p>
-                        {achados.isFetching && !achados.data && (
-                          <p className="px-3 pb-2 text-sm text-suave">Buscando…</p>
-                        )}
-                        {achados.data?.length === 0 && (
-                          <p className="px-3 pb-3 text-sm text-suave">
-                            Nenhum paciente com “{termo}”.
-                            {!podeCadastrar && ' Peça a quem pode cadastrar pacientes.'}
-                          </p>
-                        )}
-                        <ul>
-                          {achados.data?.map((p) => (
-                            <li key={p.id}>
-                              <button
-                                type="button"
-                                disabled={!p.ativo}
-                                onClick={() => setPaciente(p)}
-                                className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-primaria-clara focus-visible:bg-primaria-clara disabled:opacity-50"
-                              >
-                                <Icone nome="pacientes" className="h-5 w-5 shrink-0 text-suave" />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate font-bold text-primaria">
-                                    {p.nome}
-                                  </span>
-                                  <span className="flex flex-wrap gap-x-4 text-xs text-suave">
-                                    <span className="flex items-center gap-1">
-                                      <Icone nome="celular" className="h-3.5 w-3.5" />
-                                      {p.celular || p.telefone || 'Sem telefone'}
-                                    </span>
-                                    {p.cpf && (
-                                      <span className="flex items-center gap-1">
-                                        <Icone nome="documento" className="h-3.5 w-3.5" />
-                                        {cpfBR(p.cpf)}
-                                      </span>
-                                    )}
-                                  </span>
-                                </span>
-                                {!p.ativo && <span className="etiqueta">inativo</span>}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </>
-                )}
+                <BuscaPaciente
+                  valor={paciente}
+                  aoEscolher={setPaciente}
+                  rotulo="passo-paciente"
+                  somenteAtivos
+                  autoFocus
+                />
                 {erro('pacienteId')}
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
                   <label className="flex items-center gap-2">
@@ -680,18 +550,13 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
                         <label className="rotulo text-sm" htmlFor={campo}>
                           {campo === 'confirmacao' ? 'Pedir confirmação' : 'Lembrete da consulta'}
                         </label>
-                        <select
+                        <CampoSelect
                           id={campo}
-                          className="campo"
                           value={avisos[campo]}
                           onChange={(e) => setAvisos({ ...avisos, [campo]: e.target.value })}
-                        >
-                          {Object.entries(CANAIS).map(([v, r]) => (
-                            <option key={v} value={v}>
-                              {r}
-                            </option>
-                          ))}
-                        </select>
+                          vazio={false}
+                          opcoes={CANAIS}
+                        />
                       </div>
                     ))}
                     {data === hoje && <p className="ajuda">{AVISO_MESMO_DIA}</p>}
@@ -945,17 +810,6 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
           </div>
         </footer>
       </form>
-
-      {/* Fora do <form> acima: formulário dentro de formulário não vale no HTML. */}
-      <Dialogo aberto={cadastrando} aoFechar={() => setCadastrando(false)} titulo="Novo paciente">
-        <FormPaciente
-          inicial={sugestaoDeCadastro(termo)}
-          textoBotao="Cadastrar e usar na consulta"
-          enviando={cadastrar.isPending}
-          erros={errosDosCampos(cadastrar.error)}
-          aoEnviar={(d) => cadastrar.mutate(d)}
-        />
-      </Dialogo>
     </>
   )
 }
@@ -990,53 +844,6 @@ function Passo(props: {
       </div>
       {props.children}
     </section>
-  )
-}
-
-function CampoBusca(props: {
-  rotulo: string
-  placeholder: string
-  valor: string
-  aoMudar: (v: string) => void
-  aoEnter?: () => void
-  autoFocus?: boolean
-  pequeno?: boolean
-}) {
-  return (
-    <div className="relative">
-      <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-suave">
-        <Icone nome="busca" className="h-4 w-4" />
-      </span>
-      <input
-        type="search"
-        className={`campo pl-9 ${props.pequeno ? 'py-1.5 text-sm' : ''}`}
-        placeholder={props.placeholder}
-        aria-labelledby={props.rotulo}
-        value={props.valor}
-        onChange={(e) => props.aoMudar(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            props.aoEnter?.()
-          }
-        }}
-        autoFocus={props.autoFocus}
-      />
-    </div>
-  )
-}
-
-function Avatar(props: { texto: string; cor?: string; pequeno?: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className={`grid shrink-0 place-items-center rounded-full font-bold ${
-        props.pequeno ? 'size-7 text-[10px]' : 'size-9 text-xs'
-      } ${props.cor ? 'text-white' : 'bg-primaria text-sobre-primaria'}`}
-      style={props.cor ? { backgroundColor: props.cor } : undefined}
-    >
-      {props.texto}
-    </span>
   )
 }
 

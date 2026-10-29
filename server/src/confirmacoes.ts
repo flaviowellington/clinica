@@ -6,6 +6,8 @@ import { exigir, usuarioDe } from './auth'
 import { enviar, ErroEnvio } from './mensagens'
 import { lerConfig } from './configuracoes'
 import { preencherModelo } from '../../shared/prontuario'
+import { EnviarConfirmacaoDto } from '../../shared/dtos'
+import { lerCorpo } from './dto'
 
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
 const isoDe = (d: Date) => d.toISOString().slice(0, 10)
@@ -69,7 +71,9 @@ rotasConfirmacoes.get('/', exigir('agenda.ver'), async (req, res) => {
 rotasConfirmacoes.post('/:id/enviar', exigir('agenda.editar'), async (req, res) => {
   const a = await acharConsulta(req)
   if (!a?.paciente) return res.status(404).json({ erro: 'Consulta não encontrada.' })
-  const canal = ['EMAIL', 'WHATSAPP', 'SMS'].includes(req.body?.canal) ? req.body.canal : 'EMAIL'
+  const b = lerCorpo(EnviarConfirmacaoDto, req.body, res)
+  if (!b) return
+  const { canal } = b
   const destino = canal === 'EMAIL' ? a.paciente.email : a.paciente.celular
   if (canal === 'EMAIL' && !destino)
     return res.status(400).json({ erro: 'O paciente não tem e-mail no cadastro.' })

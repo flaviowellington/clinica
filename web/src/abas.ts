@@ -13,11 +13,9 @@ export const ABAS: {
     | '/pacientes'
     | '/protetico'
     | '/financeiro'
-    | '/caixa'
     | '/profissionais'
     | '/relatorios'
     | '/painel'
-    | '/contas'
     | '/usuarios'
     | '/configuracoes'
     | '/importacao'
@@ -69,13 +67,6 @@ export const ABAS: {
     visivel: (p) => pode(p, 'financeiro.ver'),
   },
   {
-    para: '/caixa',
-    rotulo: 'Caixa',
-    descricao: 'Abra o caixa, receba no balcão e feche conferindo.',
-    icone: 'caixa',
-    visivel: (p) => pode(p, 'caixa.operar'),
-  },
-  {
     para: '/profissionais',
     rotulo: 'Profissionais',
     descricao: 'Dentistas da clínica, especialidades e cor na agenda.',
@@ -95,13 +86,6 @@ export const ABAS: {
     descricao: 'Indicadores de agenda, vendas, recebimentos e inadimplência.',
     icone: 'painel',
     visivel: (p) => pode(p, 'painel.ver'),
-  },
-  {
-    para: '/contas',
-    rotulo: 'Conta digital',
-    descricao: 'Pedido de conta para receber por Pix e boleto.',
-    icone: 'conta',
-    visivel: (p) => pode(p, 'conta.gerenciar'),
   },
   {
     para: '/usuarios',

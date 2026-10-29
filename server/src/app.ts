@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { abrirSessao, conferirSenha, COOKIE, exigirLogin, usuarioDe } from './auth'
 import { rotasLixeira, rotasPacientes } from './pacientes'
 import { rotasAgenda } from './agenda'
-import { rotasContas, rotasFinanceiro, rotasProfissionais, rotasRelatorios } from './gestao'
+import { rotasFinanceiro, rotasProfissionais, rotasRelatorios } from './gestao'
 import { rotasFinanceiroContas } from './financeiro'
 import { rotasOrcamentos, rotasProcedimentos, rotasRetornos } from './tratamentos'
 import { rotasIntegracao } from './integracao'
@@ -16,11 +16,12 @@ import { abrirEventos, avisarAoMudar } from './tempoReal'
 import { rotasFichaPaciente, rotasProntuario } from './prontuario'
 import { rotasEu, rotasUsuarios } from './usuarios'
 import { rotasConfiguracoes, rotasTabelaProcedimentos } from './configuracoes'
-import { rotasCaixa } from './caixa'
 import { rotasProtetico } from './protetico'
 import { rotasConfirmacoes, rotasPublicas } from './confirmacoes'
 import { rotasPainel } from './painel'
 import { rotasImportacao } from './importacao'
+import { lerCorpo } from './dto'
+import { EntrarDto } from '../../shared/dtos'
 
 export function criarApp() {
   const app = express()
@@ -39,9 +40,9 @@ export function criarApp() {
     // ponytail: contagem por IP na memória; com mais de um servidor, guardar no banco
     rateLimit({ windowMs: 15 * 60_000, limit: 10, skipSuccessfulRequests: true }),
     async (req, res) => {
-      const login = String(req.body?.login ?? '')
-      const senha = String(req.body?.senha ?? '')
-      const usuario = await conferirSenha(login, senha)
+      const b = lerCorpo(EntrarDto, req.body, res)
+      if (!b) return
+      const usuario = await conferirSenha(b.login, b.senha)
       if (!usuario) return res.status(401).json({ erro: 'Usuário ou senha incorretos.' })
       abrirSessao(res, usuario.id)
       res.json({ id: usuario.id, nome: usuario.nome, login: usuario.login, perfis: usuario.perfis })
@@ -73,12 +74,10 @@ export function criarApp() {
   app.use('/api/retornos', exigirLogin, avisarAoMudar('retornos'), rotasRetornos)
   app.use('/api/procedimentos', exigirLogin, rotasProcedimentos, rotasTabelaProcedimentos)
   app.use('/api/orcamentos', exigirLogin, rotasOrcamentos)
-  app.use('/api/contas', exigirLogin, rotasContas)
   app.use('/api/relatorios', exigirLogin, rotasRelatorios)
   app.use('/api/eu', exigirLogin, rotasEu)
   app.use('/api/usuarios', exigirLogin, rotasUsuarios)
   app.use('/api/configuracoes', exigirLogin, rotasConfiguracoes)
-  app.use('/api/caixa', exigirLogin, rotasCaixa)
   app.use('/api/protetico', exigirLogin, rotasProtetico)
   app.use('/api/confirmacoes', exigirLogin, avisarAoMudar('agenda'), rotasConfirmacoes)
   app.use('/api/painel', exigirLogin, rotasPainel)

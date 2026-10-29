@@ -1,15 +1,12 @@
 // Controle Protético (R-082): ordem de serviço como cartão de quadro, mover e excluir.
-import { Router, type Request } from 'express'
+import { Router, type Request, type Response } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
-import { ETAPAS, type Etapa } from '../../shared/protetico'
+import { EtapaDto, TrabalhoProteticoDto } from '../../shared/dtos'
+import { lerCorpo } from './dto'
 import { hojeNaClinica } from '../../shared/regras'
 
-const texto = (v: unknown, max = 200) =>
-  typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
-const dataIso = (v: unknown): v is string =>
-  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v))
 const id = (req: Request) => Number(req.params.id) || 0
 
 const incluir = {
@@ -25,44 +22,27 @@ function paraTela<T extends Record<string, unknown>>(t: T) {
   return r
 }
 
-async function lerTrabalho(b: Record<string, unknown>) {
+/** Trabalho lido pelo DTO; paciente e profissional precisam existir. */
+async function lerTrabalho(corpo: unknown, res: Response) {
+  const d = lerCorpo(TrabalhoProteticoDto, corpo, res)
+  if (!d) return
   const erros: Record<string, string> = {}
-  const pacienteId = Number(b.pacienteId) || 0
-  const profissionalId = Number(b.profissionalId) || 0
-  if (
-    !(await db.pessoa.findFirst({ where: { id: pacienteId, tipo: 'PACIENTE', excluidoEm: null } }))
-  )
-    erros.pacienteId = 'Escolha o paciente.'
-  if (
-    !(await db.pessoa.findFirst({
-      where: { id: profissionalId, tipo: 'PROFISSIONAL', excluidoEm: null },
-    }))
-  )
+  const existe = (id: number, tipo: 'PACIENTE' | 'PROFISSIONAL') =>
+    db.pessoa.findFirst({ where: { id, tipo, excluidoEm: null } })
+  if (!(await existe(d.pacienteId, 'PACIENTE'))) erros.pacienteId = 'Escolha o paciente.'
+  if (!(await existe(d.profissionalId, 'PROFISSIONAL')))
     erros.profissionalId = 'Escolha o profissional.'
-  const laboratorio = texto(b.laboratorio, 120)
-  const trabalho = texto(b.trabalho)
-  if (!laboratorio) erros.laboratorio = 'Informe o laboratório.'
-  if (!trabalho) erros.trabalho = 'Descreva o trabalho.'
-  const valor = b.valorCentavos === undefined ? 0 : b.valorCentavos
-  if (!Number.isInteger(valor) || (valor as number) < 0) erros.valorCentavos = 'Valor inválido.'
-  const datas: Record<string, Date | null> = {}
-  for (const c of ['prazo', 'enviadoEm', 'retornoEm', 'instaladoEm']) {
-    if (b[c] && !dataIso(b[c])) erros[c] = 'Data inválida.'
-    datas[c] = dataIso(b[c]) ? dia(b[c]) : null
+  if (Object.keys(erros).length) {
+    res.status(400).json({ erro: 'Confira os campos.', erros })
+    return
   }
+  const quando = (v: string | null) => (v ? dia(v) : null)
   return {
-    erros,
-    dados: {
-      pacienteId,
-      profissionalId,
-      laboratorio: laboratorio ?? '',
-      trabalho: trabalho ?? '',
-      dentes: texto(b.dentes, 60),
-      cor: texto(b.cor, 40),
-      valorCentavos: valor as number,
-      observacoes: texto(b.observacoes, 1500),
-      ...datas,
-    },
+    ...d,
+    prazo: quando(d.prazo),
+    enviadoEm: quando(d.enviadoEm),
+    retornoEm: quando(d.retornoEm),
+    instaladoEm: quando(d.instaladoEm),
   }
 }
 
@@ -79,8 +59,8 @@ rotasProtetico.get('/', exigir('protetico.ver'), async (_req, res) => {
 
 /** Novo cartão entra sempre na primeira coluna (Pré-envio). */
 rotasProtetico.post('/', exigir('protetico.editar'), async (req, res) => {
-  const { erros, dados } = await lerTrabalho(req.body ?? {})
-  if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
+  const dados = await lerTrabalho(req.body, res)
+  if (!dados) return
   const t = await db.trabalhoProtetico.create({
     data: { ...dados, criadoPorId: usuarioDe(res).id },
     include: incluir,
@@ -91,8 +71,8 @@ rotasProtetico.post('/', exigir('protetico.editar'), async (req, res) => {
 rotasProtetico.put('/:id', exigir('protetico.editar'), async (req, res) => {
   const t = await db.trabalhoProtetico.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!t) return res.status(404).json({ erro: 'Trabalho não encontrado.' })
-  const { erros, dados } = await lerTrabalho(req.body ?? {})
-  if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
+  const dados = await lerTrabalho(req.body, res)
+  if (!dados) return
   const novo = await db.trabalhoProtetico.update({
     where: { id: t.id },
     data: dados,
@@ -105,8 +85,9 @@ rotasProtetico.put('/:id', exigir('protetico.editar'), async (req, res) => {
 rotasProtetico.patch('/:id/etapa', exigir('protetico.editar'), async (req, res) => {
   const t = await db.trabalhoProtetico.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!t) return res.status(404).json({ erro: 'Trabalho não encontrado.' })
-  const etapa = String(req.body?.etapa) as Etapa
-  if (!(etapa in ETAPAS)) return res.status(400).json({ erro: 'Etapa inválida.' })
+  const b = lerCorpo(EtapaDto, req.body, res, null)
+  if (!b) return
+  const { etapa } = b
   const hoje = dia(hojeNaClinica())
   const novo = await db.trabalhoProtetico.update({
     where: { id: t.id },

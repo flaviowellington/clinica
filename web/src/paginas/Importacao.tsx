@@ -11,6 +11,7 @@ import {
   sugerirColunas,
   type TipoImportacao,
 } from '../../../shared/importacao'
+import { CampoSelect } from '../componentes/CampoSelect'
 
 type Celula = string | number | boolean | Date | null
 interface Planilha {
@@ -142,21 +143,16 @@ export function Importacao() {
         <div className="flex flex-wrap items-end gap-3">
           <label>
             <span className="rotulo">O que importar</span>
-            <select
-              className="campo"
+            <CampoSelect
               value={tipo}
               onChange={(e) => {
                 const t = e.target.value as TipoImportacao
                 setTipo(t)
                 if (planilha) escolherAba(planilha, aba, t)
               }}
-            >
-              {ORDEM.map((t, i) => (
-                <option key={t} value={t}>
-                  {i + 1}. {TITULOS_IMPORTACAO[t]}
-                </option>
-              ))}
-            </select>
+              vazio={false}
+              opcoes={ORDEM.map((t, i) => [t, `${i + 1}. ${TITULOS_IMPORTACAO[t]}`] as const)}
+            />
           </label>
           <label className="botao">
             Escolher planilha (.xlsx)
@@ -174,17 +170,12 @@ export function Importacao() {
           {planilha && planilha.abas.length > 1 && (
             <label>
               <span className="rotulo">Aba da planilha</span>
-              <select
-                className="campo"
+              <CampoSelect
                 value={aba}
                 onChange={(e) => escolherAba(planilha, Number(e.target.value))}
-              >
-                {planilha.abas.map((a, i) => (
-                  <option key={a.sheet} value={i}>
-                    {a.sheet}
-                  </option>
-                ))}
-              </select>
+                vazio={false}
+                opcoes={planilha.abas.map((a, i) => [i, a.sheet] as const)}
+              />
             </label>
           )}
           {planilha && (
@@ -206,20 +197,14 @@ export function Importacao() {
                   {d.rotulo}
                   {d.obrigatorio && ' *'}
                 </span>
-                <select
-                  className="campo"
+                <CampoSelect
                   value={mapa[c] ?? ''}
                   onChange={(e) =>
                     setMapa({ ...mapa, [c]: e.target.value === '' ? null : Number(e.target.value) })
                   }
-                >
-                  <option value="">— não importar —</option>
-                  {cabecalhos.map((h, i) => (
-                    <option key={i} value={i}>
-                      {h || `Coluna ${i + 1}`}
-                    </option>
-                  ))}
-                </select>
+                  vazio="— não importar —"
+                  opcoes={cabecalhos.map((h, i) => [i, h || `Coluna ${i + 1}`] as const)}
+                />
               </label>
             ))}
           </div>

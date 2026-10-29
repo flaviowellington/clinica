@@ -6,25 +6,30 @@ import { exigir, usuarioDe } from './auth'
 import { pode, type Acao } from '../../shared/permissoes'
 import { hojeNaClinica, normalizar } from '../../shared/regras'
 import {
-  DENTES_VALIDOS,
-  ESPECIALIDADES_FICHA,
-  LIMITE_OBSERVACAO,
   MODELOS_DOCUMENTO,
-  STATUS_CLINICO,
-  STATUS_DENTE_FICHA,
   alertasDaAnamnese,
   faltandoObrigatorias,
   lerPerguntas,
   normalizarFaces,
   type Pergunta,
 } from '../../shared/prontuario'
-import type { CategoriaArquivo, StatusClinico } from './generated/prisma/client'
+import type { CategoriaArquivo } from './generated/prisma/client'
+import {
+  AnamneseDto,
+  ArquivoDto,
+  DocumentoDto,
+  FichaEspecialidadeDto,
+  ItemFichaDto,
+  NotaDto,
+  ProcedimentoClinicoDto,
+  StatusItemFichaDto,
+  TextoDocumentoDto,
+} from '../../shared/dtos'
+import { lerCorpo } from './dto'
 
 const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
 const isoDe = (d: Date) => d.toISOString().slice(0, 10)
-const dataIso = (v: unknown): v is string =>
-  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v))
 const id = (req: Request) => Number(req.params.id) || 0
 const pacienteDe = (res: Response) => res.locals.pacienteId as number
 const ERRO_CAMPOS = 'Confira os campos.'
@@ -104,12 +109,10 @@ rotasFichaPaciente.get('/:id/resumo', exigir('paciente.ver'), async (_req, res) 
 })
 
 rotasFichaPaciente.post('/:id/notas', exigir('paciente.editar'), async (req, res) => {
-  const t = texto(req.body?.texto)
-  if (!t) return res.status(400).json({ erro: 'Escreva a nota.' })
-  if (t.length > LIMITE_OBSERVACAO)
-    return res.status(400).json({ erro: `A nota passa de ${LIMITE_OBSERVACAO} caracteres.` })
+  const b = lerCorpo(NotaDto, req.body, res, null)
+  if (!b) return
   const n = await db.nota.create({
-    data: { pacienteId: pacienteDe(res), texto: t, criadoPorId: usuarioDe(res).id },
+    data: { pacienteId: pacienteDe(res), texto: b.texto, criadoPorId: usuarioDe(res).id },
     include: { criadoPor: { select: { nome: true } } },
   })
   res.status(201).json(n)
@@ -153,15 +156,16 @@ rotasFichaPaciente.get('/:id/alertas', exigir('anamnese.ver'), async (_req, res)
 })
 
 rotasFichaPaciente.post('/:id/anamneses', exigir('prontuario.editar'), async (req, res) => {
-  const v = validarAnamnese(req.body?.perguntas)
+  const b = lerCorpo(AnamneseDto, req.body, res)
+  if (!b) return
+  const v = validarAnamnese(b.perguntas)
   if (v.erro) return res.status(400).json(v.erro)
-  const respondente = req.body?.respondente === 'PACIENTE' ? 'PACIENTE' : 'PROFISSIONAL'
   const a = await db.anamnese.create({
     data: {
       pacienteId: pacienteDe(res),
-      respondente,
+      respondente: b.respondente,
       perguntas: v.perguntas as object[],
-      observacoes: texto(req.body?.observacoes)?.slice(0, LIMITE_OBSERVACAO),
+      observacoes: b.observacoes,
       criadoPorId: usuarioDe(res).id,
     },
     include: comAutor,
@@ -220,51 +224,33 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
   res.json(lista)
 })
 
-/** Lê o procedimento do corpo; devolve erros por campo ou os dados prontos para gravar. */
-async function lerProcedimento(b: Record<string, unknown>) {
-  const erros: Record<string, string> = {}
-  const procedimentoId = Number(b.procedimentoId) || null
-  const tabela = procedimentoId
-    ? await db.procedimento.findUnique({ where: { id: procedimentoId } })
+/** Lê o procedimento pelo DTO; o nome vem da tabela e o profissional precisa existir. */
+async function lerProcedimento(corpo: unknown, res: Response) {
+  const d = lerCorpo(ProcedimentoClinicoDto, corpo, res)
+  if (!d) return
+  const tabela = d.procedimentoId
+    ? await db.procedimento.findUnique({ where: { id: d.procedimentoId } })
     : null
-  const nome = tabela?.nome ?? texto(b.nome)?.slice(0, 200)
+  const nome = tabela?.nome ?? d.nome
+  const erros: Record<string, string> = {}
   if (!nome) erros.procedimentoId = 'Escolha o procedimento.'
-  const profissionalId = Number(b.profissionalId) || 0
-  if (!(await ehProfissional(profissionalId))) erros.profissionalId = 'Escolha o profissional.'
-  const status = String(b.status)
-  if (!(status in STATUS_CLINICO)) erros.status = 'Escolha o status.'
-  // R-061: o dente é opcional; as faces só valem com dente.
-  const dente = texto(b.dente)
-  if (dente && !DENTES_VALIDOS.has(dente)) erros.dente = 'Dente inválido (numeração FDI).'
-  if (b.data !== undefined && b.data !== null && b.data !== '' && !dataIso(b.data))
-    erros.data = 'Data inválida.'
-  const observacao = texto(b.observacao)
-  const observacaoPaciente = texto(b.observacaoPaciente)
-  // R-078: duas observações de até 1500 caracteres.
-  for (const [campo, v] of [
-    ['observacao', observacao],
-    ['observacaoPaciente', observacaoPaciente],
-  ] as const)
-    if (v && v.length > LIMITE_OBSERVACAO) erros[campo] = `Use até ${LIMITE_OBSERVACAO} caracteres.`
+  if (!(await ehProfissional(d.profissionalId))) erros.profissionalId = 'Escolha o profissional.'
+  if (Object.keys(erros).length) {
+    res.status(400).json({ erro: ERRO_CAMPOS, erros })
+    return
+  }
   return {
-    erros,
-    dados: {
-      procedimentoId: tabela?.id ?? null,
-      nome: nome ?? '',
-      profissionalId,
-      status: status as StatusClinico,
-      dente,
-      faces: dente ? normalizarFaces(texto(b.faces)) || null : null,
-      data: dia(dataIso(b.data) ? b.data : hojeNaClinica()),
-      observacao,
-      observacaoPaciente,
-    },
+    ...d,
+    procedimentoId: tabela?.id ?? null,
+    nome: nome!,
+    faces: d.dente ? normalizarFaces(d.faces) || null : null,
+    data: dia(d.data ?? hojeNaClinica()),
   }
 }
 
 rotasFichaPaciente.post('/:id/procedimentos', exigir('prontuario.editar'), async (req, res) => {
-  const { erros, dados } = await lerProcedimento(req.body ?? {})
-  if (Object.keys(erros).length) return res.status(400).json({ erro: ERRO_CAMPOS, erros })
+  const dados = await lerProcedimento(req.body, res)
+  if (!dados) return
   const c = await db.procedimentoClinico.create({
     data: { ...dados, pacienteId: pacienteDe(res), criadoPorId: usuarioDe(res).id },
   })
@@ -288,19 +274,16 @@ rotasFichaPaciente.get('/:id/fichas', exigir('prontuario.ver'), async (_req, res
 })
 
 rotasFichaPaciente.post('/:id/fichas', exigir('prontuario.editar'), async (req, res) => {
-  const b = req.body ?? {}
-  const erros: Record<string, string> = {}
-  if (!(ESPECIALIDADES_FICHA as readonly string[]).includes(b.especialidade))
-    erros.especialidade = 'Escolha a especialidade.'
-  const profissionalId = Number(b.profissionalId) || 0
-  if (!(await ehProfissional(profissionalId))) erros.profissionalId = 'Escolha o profissional.'
-  if (Object.keys(erros).length) return res.status(400).json({ erro: ERRO_CAMPOS, erros })
+  const b = lerCorpo(FichaEspecialidadeDto, req.body, res)
+  if (!b) return
+  if (!(await ehProfissional(b.profissionalId)))
+    return res
+      .status(400)
+      .json({ erro: ERRO_CAMPOS, erros: { profissionalId: 'Escolha o profissional.' } })
   const f = await db.fichaEspecialidade.create({
     data: {
+      ...b,
       pacienteId: pacienteDe(res),
-      profissionalId,
-      especialidade: b.especialidade,
-      observacoes: texto(b.observacoes)?.slice(0, LIMITE_OBSERVACAO),
       criadoPorId: usuarioDe(res).id,
     },
     include: comItens,
@@ -408,27 +391,18 @@ rotasFichaPaciente.get('/:id/documentos', exigir('prontuario.ver'), async (_req,
   )
 })
 
-const LIMITE_DOCUMENTO = 20_000
-
 rotasFichaPaciente.post('/:id/documentos', exigir('prontuario.editar'), async (req, res) => {
-  const b = req.body ?? {}
-  const erros: Record<string, string> = {}
-  const modelo = String(b.modelo)
-  if (!Object.hasOwn(MODELOS_DOCUMENTO, modelo)) erros.modelo = 'Escolha o modelo.'
-  const t = texto(b.texto)
-  if (!t) erros.texto = 'O documento está vazio.'
-  else if (t.length > LIMITE_DOCUMENTO) erros.texto = 'O documento está grande demais.'
-  const profissionalId = Number(b.profissionalId) || null
-  if (profissionalId && !(await ehProfissional(profissionalId)))
-    erros.profissionalId = 'Profissional não encontrado.'
-  if (Object.keys(erros).length) return res.status(400).json({ erro: ERRO_CAMPOS, erros })
+  const b = lerCorpo(DocumentoDto, req.body, res)
+  if (!b) return
+  if (b.profissionalId && !(await ehProfissional(b.profissionalId)))
+    return res
+      .status(400)
+      .json({ erro: ERRO_CAMPOS, erros: { profissionalId: 'Profissional não encontrado.' } })
   const d = await db.documento.create({
     data: {
+      ...b,
       pacienteId: pacienteDe(res),
-      profissionalId,
-      modelo,
-      titulo: MODELOS_DOCUMENTO[modelo as keyof typeof MODELOS_DOCUMENTO].titulo,
-      texto: t!,
+      titulo: MODELOS_DOCUMENTO[b.modelo].titulo,
       criadoPorId: usuarioDe(res).id,
     },
     include: comPessoasDoc,
@@ -508,7 +482,9 @@ const NAO_ACHOU = { erro: 'Registro não encontrado.' }
 rotasProntuario.put('/anamneses/:id', exigir('prontuario.editar'), async (req, res) => {
   const a = await db.anamnese.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!a) return res.status(404).json(NAO_ACHOU)
-  const v = validarAnamnese(req.body?.perguntas)
+  const b = lerCorpo(AnamneseDto, req.body, res)
+  if (!b) return
+  const v = validarAnamnese(b.perguntas)
   if (v.erro) return res.status(400).json(v.erro)
   const u = usuarioDe(res)
   const [, nova] = await db.$transaction([
@@ -517,7 +493,7 @@ rotasProntuario.put('/anamneses/:id', exigir('prontuario.editar'), async (req, r
       where: { id: a.id },
       data: {
         perguntas: v.perguntas as object[],
-        observacoes: texto(req.body?.observacoes)?.slice(0, LIMITE_OBSERVACAO) ?? null,
+        observacoes: b.observacoes,
       },
       include: comAutor,
     }),
@@ -528,13 +504,11 @@ rotasProntuario.put('/anamneses/:id', exigir('prontuario.editar'), async (req, r
 rotasProntuario.put('/procedimentos/:id', exigir('prontuario.editar'), async (req, res) => {
   const c = await db.procedimentoClinico.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!c) return res.status(404).json(NAO_ACHOU)
-  const { erros, dados } = await lerProcedimento({
-    procedimentoId: c.procedimentoId,
-    nome: c.nome,
-    data: isoDe(c.data),
-    ...req.body,
-  })
-  if (Object.keys(erros).length) return res.status(400).json({ erro: ERRO_CAMPOS, erros })
+  const dados = await lerProcedimento(
+    { procedimentoId: c.procedimentoId, nome: c.nome, data: isoDe(c.data), ...req.body },
+    res,
+  )
+  if (!dados) return
   const [, novo] = await db.$transaction([
     guardarAntes('ProcedimentoClinico', c, usuarioDe(res).id),
     db.procedimentoClinico.update({ where: { id: c.id }, data: dados }),
@@ -559,34 +533,18 @@ rotasProntuario.delete('/procedimentos/:id', exigir('prontuario.editar'), async 
 rotasProntuario.post('/fichas/:id/itens', exigir('prontuario.editar'), async (req, res) => {
   const f = await db.fichaEspecialidade.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!f) return res.status(404).json(NAO_ACHOU)
-  const b = req.body ?? {}
-  const erros: Record<string, string> = {}
-  // R-068: o procedimento da ficha exige dente.
-  const dente = texto(b.dente)
-  if (!dente || !DENTES_VALIDOS.has(dente)) erros.dente = 'Informe o dente (numeração FDI).'
-  const procedimento = texto(b.procedimento)?.slice(0, 200)
-  if (!procedimento) erros.procedimento = 'Informe o procedimento.'
-  const status = texto(b.status) ?? STATUS_DENTE_FICHA[0]
-  if (!(STATUS_DENTE_FICHA as readonly string[]).includes(status)) erros.status = 'Status inválido.'
-  if (Object.keys(erros).length) return res.status(400).json({ erro: ERRO_CAMPOS, erros })
-  const i = await db.itemFichaEspecialidade.create({
-    data: {
-      fichaId: f.id,
-      dente: dente!,
-      procedimento: procedimento!,
-      status,
-      observacao: texto(b.observacao)?.slice(0, LIMITE_OBSERVACAO),
-    },
-  })
+  const b = lerCorpo(ItemFichaDto, req.body, res)
+  if (!b) return
+  const i = await db.itemFichaEspecialidade.create({ data: { ...b, fichaId: f.id } })
   res.status(201).json(i)
 })
 
 rotasProntuario.patch('/fichas/itens/:id', exigir('prontuario.editar'), async (req, res) => {
   const i = await db.itemFichaEspecialidade.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!i) return res.status(404).json(NAO_ACHOU)
-  const status = texto(req.body?.status) ?? i.status
-  if (!(STATUS_DENTE_FICHA as readonly string[]).includes(status))
-    return res.status(400).json({ erro: 'Status inválido.' })
+  const b = lerCorpo(StatusItemFichaDto, req.body, res, null)
+  if (!b) return
+  const status = b.status ?? i.status
   const [, novo] = await db.$transaction([
     guardarAntes('ItemFichaEspecialidade', i, usuarioDe(res).id),
     db.itemFichaEspecialidade.update({ where: { id: i.id }, data: { status } }),
@@ -625,15 +583,11 @@ rotasProntuario.get('/arquivos/:id/conteudo', async (req, res) => {
 rotasProntuario.patch('/arquivos/:id', exigir('prontuario.editar'), async (req, res) => {
   const a = await acharArquivo(req)
   if (!a) return res.status(404).json(NAO_ACHOU)
-  const rotacao = req.body?.rotacao ?? a.rotacao
-  if (![0, 90, 180, 270].includes(rotacao))
-    return res.status(400).json({ erro: 'Rotação inválida.' })
+  const b = lerCorpo(ArquivoDto, req.body, res, null)
+  if (!b) return
   const novo = await db.arquivo.update({
     where: { id: a.id },
-    data: {
-      rotacao,
-      espelhado: typeof req.body?.espelhado === 'boolean' ? req.body.espelhado : a.espelhado,
-    },
+    data: { rotacao: b.rotacao ?? a.rotacao, espelhado: b.espelhado ?? a.espelhado },
     select: semDados,
   })
   res.json(novo)
@@ -662,12 +616,11 @@ rotasProntuario.get('/documentos/:id', exigir('prontuario.ver'), async (req, res
 rotasProntuario.put('/documentos/:id', exigir('prontuario.editar'), async (req, res) => {
   const d = await db.documento.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!d) return res.status(404).json(NAO_ACHOU)
-  const t = texto(req.body?.texto)
-  if (!t || t.length > LIMITE_DOCUMENTO)
-    return res.status(400).json({ erro: 'O documento está vazio ou grande demais.' })
+  const b = lerCorpo(TextoDocumentoDto, req.body, res, null)
+  if (!b) return
   const [, novo] = await db.$transaction([
     guardarAntes('Documento', d, usuarioDe(res).id),
-    db.documento.update({ where: { id: d.id }, data: { texto: t }, include: comPessoasDoc }),
+    db.documento.update({ where: { id: d.id }, data: { texto: b.texto }, include: comPessoasDoc }),
   ])
   res.json(novo)
 })

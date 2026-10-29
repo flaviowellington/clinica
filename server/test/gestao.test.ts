@@ -1,8 +1,9 @@
-// Profissionais, financeiro (conta corrente), conta digital e relatórios.
+// Profissionais, financeiro (conta corrente) e relatórios.
 import { describe, expect, it } from 'vitest'
+import sharp from 'sharp'
 import { db } from '../src/db'
 import { entrarComo, PACIENTE, usarServidor } from './ajuda'
-import { centavosDeDigitos, cnpjValido } from '../../shared/financeiro'
+import { centavosDeDigitos } from '../../shared/financeiro'
 
 usarServidor()
 
@@ -52,6 +53,97 @@ describe('PT-24 (F-024) profissionais', () => {
     const api = await entrarComo('RECEPCAO')
     expect((await api('POST', '/api/profissionais', DENTISTA)).status).toBe(403)
     expect((await api('GET', '/api/profissionais')).status).toBe(200)
+  })
+  it('inativos vêm por último na lista', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { corpo: a } = await api('POST', '/api/profissionais', { ...DENTISTA, nome: 'Dr. Alberto' })
+    await api('POST', '/api/profissionais', { ...DENTISTA, nome: 'Dr. Bruno' })
+    await api('POST', `/api/profissionais/${a.id}/ativo`, { ativo: false })
+    const nomes = (await api('GET', '/api/profissionais')).corpo.map((p: { nome: string }) => p.nome)
+    expect(nomes).toEqual(['Dr. Bruno', 'Dr. Alberto'])
+  })
+  it('exclui só quem já está inativo; o registro fica guardado', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { corpo: p } = await api('POST', '/api/profissionais', DENTISTA)
+    const ativo = await api('DELETE', `/api/profissionais/${p.id}`)
+    expect(ativo.status).toBe(400)
+    expect(ativo.corpo.erro).toMatch(/Inative/)
+
+    await api('POST', `/api/profissionais/${p.id}/ativo`, { ativo: false })
+    expect((await (await entrarComo('RECEPCAO'))('DELETE', `/api/profissionais/${p.id}`)).status).toBe(403)
+    expect((await api('DELETE', `/api/profissionais/${p.id}`)).status).toBe(200)
+    expect((await api('GET', '/api/profissionais')).corpo).toEqual([])
+    expect((await api('DELETE', `/api/profissionais/${p.id}`)).status).toBe(404)
+    const guardado = await db.pessoa.findUnique({ where: { id: p.id } })
+    expect(guardado?.excluidoEm).toBeTruthy()
+    expect(guardado?.excluidoPorId).toBe(api.usuario.id)
+  })
+})
+
+describe('foto do profissional', () => {
+  // Imagem 1000x600: metade esquerda vermelha, metade direita azul.
+  const imagem = async () => {
+    const azul = await sharp({
+      create: { width: 500, height: 600, channels: 3, background: '#0000ff' },
+    })
+      .png()
+      .toBuffer()
+    return sharp({ create: { width: 1000, height: 600, channels: 3, background: '#ff0000' } })
+      .composite([{ input: azul, left: 500, top: 0 }])
+      .png()
+      .toBuffer()
+  }
+  const envio = (dados: Uint8Array, recorte: { x: number; y: number; tamanho: number }) => {
+    const f = new FormData()
+    f.append('foto', new Blob([dados as BlobPart], { type: 'image/png' }), 'foto.png')
+    for (const [k, v] of Object.entries(recorte)) f.append(k, String(v))
+    return f
+  }
+
+  it('recorta o quadrado escolhido, guarda 400x400 em WebP e remove', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { corpo: p } = await api('POST', '/api/profissionais', DENTISTA)
+    expect(p.fotoEm).toBeNull()
+
+    const r = await api(
+      'POST',
+      `/api/profissionais/${p.id}/foto`,
+      envio(await imagem(), { x: 550, y: 100, tamanho: 400 }),
+    )
+    expect(r.status).toBe(200)
+    expect(r.corpo.fotoEm).toBeTruthy()
+
+    const foto = await api('GET', `/api/profissionais/${p.id}/foto`)
+    expect(foto.tipo).toBe('image/webp')
+    const meta = await sharp(foto.corpo).metadata()
+    expect([meta.width, meta.height]).toEqual([400, 400])
+    // O recorte caiu todo na metade azul: o vermelho foi removido.
+    const [vermelho, , azul] = (await sharp(foto.corpo).stats()).channels
+    expect(azul.mean).toBeGreaterThan(200)
+    expect(vermelho.mean).toBeLessThan(30)
+
+    expect((await api('DELETE', `/api/profissionais/${p.id}/foto`)).status).toBe(200)
+    expect((await api('GET', `/api/profissionais/${p.id}/foto`)).status).toBe(404)
+    expect((await api('GET', '/api/profissionais')).corpo[0].fotoEm).toBeNull()
+  })
+
+  it('recusa recorte fora da imagem, arquivo que não é imagem e quem não pode editar', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { corpo: p } = await api('POST', '/api/profissionais', DENTISTA)
+    const url = `/api/profissionais/${p.id}/foto`
+    const fora = await api('POST', url, envio(await imagem(), { x: 800, y: 0, tamanho: 400 }))
+    expect(fora.status).toBe(400)
+    const falsa = await api(
+      'POST',
+      url,
+      envio(new TextEncoder().encode('não sou imagem'), { x: 0, y: 0, tamanho: 10 }),
+    )
+    expect(falsa.status).toBe(400)
+    expect(falsa.corpo.erro).toMatch(/imagem/)
+
+    const recepcao = await entrarComo('RECEPCAO')
+    const r = await recepcao('POST', url, envio(await imagem(), { x: 0, y: 0, tamanho: 400 }))
+    expect(r.status).toBe(403)
   })
 })
 
@@ -131,38 +223,6 @@ describe('PT-55 (R-055) campo de valor e conta corrente', () => {
         (await api('GET', '/api/financeiro/lancamentos?de=2026-10-20&ate=2026-10-20')).status,
       ).toBe(403)
     }
-  })
-})
-
-describe('conta digital (F-010, BR-006)', () => {
-  it('valida CNPJ', () => {
-    expect(cnpjValido('11.222.333/0001-81')).toBe(true)
-    expect(cnpjValido('11.222.333/0001-82')).toBe(false)
-  })
-  it('pedido de conta fica aguardando parceiro e pode ser cancelado', async () => {
-    const api = await entrarComo('ADMINISTRADOR')
-    const r = await api('POST', '/api/contas', {
-      tipo: 'PESSOA_JURIDICA',
-      nome: 'Clínica Fictícia Ltda',
-      documento: '11.222.333/0001-81',
-      email: 'clinica@example.com',
-      celular: '(11) 90000-0000',
-    })
-    expect(r.status).toBe(201)
-    expect(r.corpo).toMatchObject({ status: 'PENDENTE', documento: '11222333000181' })
-    expect((await api('GET', '/api/contas')).corpo).toHaveLength(1)
-    const c = await api('POST', `/api/contas/${r.corpo.id}/cancelar`)
-    expect(c.corpo.status).toBe('CANCELADA')
-  })
-  it('recusa documento inválido e perfis sem permissão', async () => {
-    const api = await entrarComo('FINANCEIRO')
-    const r = await api('POST', '/api/contas', {
-      tipo: 'PESSOA_FISICA',
-      nome: 'Fulano',
-      documento: '123',
-    })
-    expect(Object.keys(r.corpo.erros).sort()).toEqual(['celular', 'documento', 'email'])
-    expect((await (await entrarComo('RECEPCAO'))('GET', '/api/contas')).status).toBe(403)
   })
 })
 

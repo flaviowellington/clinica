@@ -317,7 +317,7 @@ function VisaoGeral({
           <Info rotulo="E-mail" valor={p.email} />
           <Info
             rotulo="Como conheceu"
-            valor={[p.comoConheceu, p.indicadoPor].filter(Boolean).join(': ')}
+            valor={[p.comoConheceu, p.indicadoPor ?? p.comoConheceuOutro].filter(Boolean).join(': ')}
           />
         </Bloco>
         <Bloco titulo="Complemento">

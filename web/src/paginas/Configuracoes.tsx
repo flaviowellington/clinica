@@ -20,6 +20,8 @@ import {
   type DadosClinica,
   type Medicamento,
 } from '../../../shared/configuracoes'
+import { CampoSelect } from '../componentes/CampoSelect'
+import { CampoEmail } from '../componentes/CampoMascara'
 
 const ABAS = [
   { id: 'clinica', rotulo: 'Clínica' },
@@ -301,18 +303,14 @@ function EditorAnamnese({ inicial }: { inicial: Pergunta[] }) {
                 onChange={(e) => mudar(i, { texto: e.target.value })}
                 required
               />
-              <select
-                className="campo w-auto"
+              <CampoSelect
+                className="w-auto"
                 value={p.tipo}
                 aria-label={`Tipo da pergunta ${i + 1}`}
                 onChange={(e) => mudar(i, { tipo: e.target.value as TipoPergunta })}
-              >
-                {Object.entries(TIPOS_PERGUNTA).map(([v, r]) => (
-                  <option key={v} value={v}>
-                    {r}
-                  </option>
-                ))}
-              </select>
+                vazio={false}
+                opcoes={TIPOS_PERGUNTA}
+              />
             </div>
             {p.tipo === 'OPCOES' && (
               <input
@@ -591,14 +589,14 @@ function Mensagens() {
             teste.mutate(String(new FormData(e.currentTarget).get('para')))
           }}
         >
-          <input
-            name="para"
-            type="email"
-            className="campo"
-            placeholder="Enviar teste para…"
-            aria-label="E-mail para o teste"
-            required
-          />
+          <div className="flex-1">
+            <CampoEmail
+              name="para"
+              placeholder="Enviar teste para…"
+              aria-label="E-mail para o teste"
+              required
+            />
+          </div>
           <button className="botao shrink-0" disabled={teste.isPending}>
             Enviar teste
           </button>

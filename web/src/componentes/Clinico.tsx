@@ -24,6 +24,8 @@ import {
 } from '../../../shared/prontuario'
 import { Dialogo } from './Dialogo'
 import { CampoData } from './CampoData'
+import { CampoSelect } from './CampoSelect'
+import { confirmar } from './Confirmar'
 
 type Status = 'A_REALIZAR' | 'EXECUTADO' | 'EXISTENTE'
 interface ItemClinico {
@@ -273,10 +275,10 @@ function TabelaProcedimentos(props: {
                     <button
                       className="ml-2 text-perigo hover:underline"
                       disabled={excluir.isPending}
-                      onClick={() =>
-                        confirm(
+                      onClick={async () =>
+                        (await confirmar(
                           `Excluir "${i.nome}" do prontuário? Ele sai da lista, mas fica no histórico.`,
-                        ) && excluir.mutate(i.id)
+                        )) && excluir.mutate(i.id)
                       }
                     >
                       Excluir
@@ -390,18 +392,11 @@ function FormProcedimento(props: {
         </label>
         <label>
           <span className="rotulo">Profissional *</span>
-          <select
-            className="campo"
+          <CampoSelect
             value={profissionalId}
             onChange={(e) => setProfissionalId(Number(e.target.value) || '')}
-          >
-            <option value="">Escolha…</option>
-            {prof?.profissionais.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nome}
-              </option>
-            ))}
-          </select>
+            opcoes={prof?.profissionais.map((p) => [p.id, p.nome] as const)}
+          />
           {erro('profissionalId')}
         </label>
       </div>
@@ -688,23 +683,16 @@ function NovaFicha(props: { paciente: Paciente; aoTerminar: () => void }) {
     >
       <label className="block">
         <span className="rotulo">Especialidade *</span>
-        <select name="especialidade" className="campo" required defaultValue="">
-          <option value="">Escolha…</option>
-          {ESPECIALIDADES_FICHA.map((e) => (
-            <option key={e}>{e}</option>
-          ))}
-        </select>
+        <CampoSelect name="especialidade" required defaultValue="" opcoes={ESPECIALIDADES_FICHA} />
       </label>
       <label className="block">
         <span className="rotulo">Profissional *</span>
-        <select name="profissionalId" className="campo" required defaultValue={prof?.meuId ?? ''}>
-          <option value="">Escolha…</option>
-          {prof?.profissionais.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nome}
-            </option>
-          ))}
-        </select>
+        <CampoSelect
+          name="profissionalId"
+          required
+          defaultValue={prof?.meuId ?? ''}
+          opcoes={prof?.profissionais.map((p) => [p.id, p.nome] as const)}
+        />
       </label>
       <label className="block">
         <span className="rotulo">Observações</span>
@@ -784,24 +772,23 @@ function FichaCartao({
                 <td className="px-3 py-2 font-medium">{i.dente}</td>
                 <td className="px-3 py-2">{i.procedimento}</td>
                 <td className="px-3 py-2">
-                  <select
-                    className="campo py-1"
+                  <CampoSelect
+                    className="py-1"
                     value={i.status}
                     disabled={!podeEditar}
                     aria-label={`Situação do dente ${i.dente}`}
                     onChange={(e) => mudarStatus.mutate({ id: i.id, status: e.target.value })}
-                  >
-                    {STATUS_DENTE_FICHA.map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
+                    vazio={false}
+                    opcoes={STATUS_DENTE_FICHA}
+                  />
                 </td>
                 <td className="px-3 py-2 text-right">
                   {podeEditar && (
                     <button
                       className="text-perigo hover:underline"
-                      onClick={() =>
-                        confirm(`Tirar o dente ${i.dente} desta ficha?`) && remover.mutate(i.id)
+                      onClick={async () =>
+                        (await confirmar(`Tirar o dente ${i.dente} desta ficha?`, { botao: 'Remover' })) &&
+                        remover.mutate(i.id)
                       }
                     >
                       Remover

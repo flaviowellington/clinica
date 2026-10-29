@@ -2,16 +2,20 @@ import { Router, type Request } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
 import {
-  CANAIS,
   COM_CHECKIN,
-  STATUS,
   fimPadrao,
   paraHora,
   paraMinutos,
   validarAgendamento,
-  type Canal,
-  type StatusAgenda,
 } from '../../shared/agenda'
+import {
+  AgendamentoDto,
+  CategoriaAgendaDto,
+  DesmarcarDto,
+  HorarioAgendaDto,
+  StatusAgendaDto,
+} from '../../shared/dtos'
+import { lerCorpo } from './dto'
 import type { Prisma } from './generated/prisma/client'
 import { lerConfig } from './configuracoes'
 import { validarConfig } from '../../shared/configuracoes'
@@ -30,9 +34,6 @@ const paraTela = ({ excluidoPorId: _e, ...a }: ComDados) => ({
 })
 
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
-const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
-const canal = (v: unknown): Canal =>
-  typeof v === 'string' && v in CANAIS ? (v as Canal) : 'NAO_ENVIAR'
 
 const acharAgendamento = (req: Request) =>
   db.agendamento.findFirst({
@@ -79,16 +80,17 @@ rotasAgenda.get('/', exigir('agenda.ver'), async (req, res) => {
 })
 
 rotasAgenda.post('/', exigir('agenda.editar'), async (req, res) => {
-  const b = req.body ?? {}
+  const b = lerCorpo(AgendamentoDto, req.body, res)
+  if (!b) return
   const compromisso = b.tipo === 'COMPROMISSO'
   const d = {
-    tipo: compromisso ? ('COMPROMISSO' as const) : ('CONSULTA' as const),
-    data: texto(b.data),
-    inicio: texto(b.inicio),
-    fim: texto(b.fim),
-    profissionalId: Number(b.profissionalId) || null,
-    pacienteId: compromisso ? null : Number(b.pacienteId) || null,
-    titulo: compromisso ? texto(b.titulo) : null,
+    tipo: b.tipo,
+    data: b.data,
+    inicio: b.inicio,
+    fim: b.fim,
+    profissionalId: b.profissionalId,
+    pacienteId: compromisso ? null : b.pacienteId,
+    titulo: compromisso ? b.titulo : null,
   }
   const erros = validarAgendamento(d)
   if (d.profissionalId && !(await ehProfissional(d.profissionalId)))
@@ -102,7 +104,7 @@ rotasAgenda.post('/', exigir('agenda.editar'), async (req, res) => {
   }
   if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
 
-  const categoria = texto(b.categoria)
+  const categoria = b.categoria
   const criado = await db.agendamento.create({
     data: {
       ...d,
@@ -111,10 +113,10 @@ rotasAgenda.post('/', exigir('agenda.editar'), async (req, res) => {
       fim: d.fim ?? fimPadrao(d.inicio!),
       profissionalId: d.profissionalId!,
       categoria: categoria && categoria in (await lerConfig('categorias')) ? categoria : null,
-      observacoes: texto(b.observacoes),
-      primeiraConsulta: b.primeiraConsulta === true,
-      confirmacao: canal(b.confirmacao),
-      alerta: canal(b.alerta),
+      observacoes: b.observacoes,
+      primeiraConsulta: b.primeiraConsulta,
+      confirmacao: b.confirmacao,
+      alerta: b.alerta,
       criadoPorId: usuarioDe(res).id,
     },
     include: comDados,
@@ -124,9 +126,11 @@ rotasAgenda.post('/', exigir('agenda.editar'), async (req, res) => {
 
 /** Nova categoria (nome e cor) direto do agendamento; quem marca consulta pode criar. */
 rotasAgenda.post('/categorias', exigir('agenda.editar'), async (req, res) => {
+  const b = lerCorpo(CategoriaAgendaDto, req.body, res)
+  if (!b) return
   const atuais = await lerConfig('categorias')
-  const nome = texto(req.body?.nome) ?? ''
-  const v = validarConfig('categorias', { ...atuais, [nome]: req.body?.cor })
+  const nome = b.nome ?? ''
+  const v = validarConfig('categorias', { ...atuais, [nome]: b.cor })
   if (v.erro !== undefined) return res.status(400).json({ erro: v.erro })
   // Repetida com o mesmo nome exato: o objeto não cresce, então recusa aqui.
   if (nome in atuais) return res.status(400).json({ erro: `Já existe a categoria "${nome}".` })
@@ -144,8 +148,9 @@ rotasAgenda.post('/categorias', exigir('agenda.editar'), async (req, res) => {
 rotasAgenda.patch('/:id/status', exigir('agenda.editar'), async (req, res) => {
   const a = await acharAgendamento(req)
   if (!a) return res.status(404).json(NAO_ACHOU)
-  const status = String(req.body?.status ?? '') as StatusAgenda
-  if (!(status in STATUS)) return res.status(400).json({ erro: 'Status inválido.' })
+  const b = lerCorpo(StatusAgendaDto, req.body, res, null)
+  if (!b) return
+  const { status } = b
 
   const agora = new Date()
   const chegou = COM_CHECKIN.includes(status)
@@ -166,11 +171,13 @@ rotasAgenda.patch('/:id/status', exigir('agenda.editar'), async (req, res) => {
 rotasAgenda.put('/:id/horario', exigir('agenda.editar'), async (req, res) => {
   const a = await acharAgendamento(req)
   if (!a) return res.status(404).json(NAO_ACHOU)
+  const b = lerCorpo(HorarioAgendaDto, req.body, res)
+  if (!b) return
   const d = {
     tipo: a.tipo,
-    data: texto(req.body?.data),
-    inicio: texto(req.body?.inicio),
-    profissionalId: Number(req.body?.profissionalId) || a.profissionalId,
+    data: b.data,
+    inicio: b.inicio,
+    profissionalId: b.profissionalId ?? a.profissionalId,
     pacienteId: a.pacienteId,
     titulo: a.titulo,
   }
@@ -217,13 +224,15 @@ rotasAgenda.post('/:id/desmarcar', exigir('agenda.editar'), async (req, res) => 
     return res
       .status(409)
       .json({ erro: 'O paciente já chegou: volte o status para "Agendado" antes de desmarcar.' })
+  const b = lerCorpo(DesmarcarDto, req.body, res)
+  if (!b) return
   const u = usuarioDe(res)
   const atualizado = await db.agendamento.update({
     where: { id: a.id },
     data: {
       desmarcadoEm: new Date(),
       desmarcadoPorId: u.id,
-      motivoDesmarcacao: texto(req.body?.motivo),
+      motivoDesmarcacao: b.motivo,
       alteradoPorId: u.id,
     },
     include: comDados,

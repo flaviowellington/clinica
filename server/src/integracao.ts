@@ -19,7 +19,9 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { db } from './db'
 import { hojeNaClinica } from '../../shared/regras'
 import { ANTECEDENCIA_RETORNO } from './tratamentos'
-import type { Canal, SituacaoRetorno } from './generated/prisma/client'
+import type { SituacaoRetorno } from './generated/prisma/client'
+import { EventoRetornoDto } from '../../shared/dtos'
+import { lerCorpo } from './dto'
 
 const resumo = (v: string) => createHash('sha256').update(v).digest()
 
@@ -65,23 +67,18 @@ rotasIntegracao.get('/retornos/pendentes', async (_req, res) => {
   )
 })
 
-const CANAIS: Canal[] = ['WHATSAPP', 'EMAIL', 'SMS']
 const FINAIS: SituacaoRetorno[] = ['CONFIRMADO', 'DESMARCADO']
-const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 2000) : null)
 
 rotasIntegracao.post('/retornos/:id/eventos', async (req, res) => {
-  const b = req.body ?? {}
-  if (!['ENVIADO', 'FALHOU', 'RESPOSTA'].includes(b.tipo))
-    return res.status(400).json({ erro: 'tipo deve ser ENVIADO, FALHOU ou RESPOSTA.' })
-  if (b.situacao !== undefined && !FINAIS.includes(b.situacao))
-    return res.status(400).json({ erro: 'situacao deve ser CONFIRMADO ou DESMARCADO.' })
+  const b = lerCorpo(EventoRetornoDto, req.body, res, null)
+  if (!b) return
   const r = await db.alertaRetorno.findFirst({
     where: { id: Number(req.params.id) || 0, excluidoEm: null },
     include: { paciente: { select: { celular: true, email: true } } },
   })
   if (!r) return res.status(404).json({ erro: 'Alerta não encontrado.' })
 
-  const canal: Canal = CANAIS.includes(b.canal) ? b.canal : 'WHATSAPP'
+  const { canal } = b
   const situacao: SituacaoRetorno =
     b.tipo === 'ENVIADO' ? 'ENVIADO' : b.tipo === 'FALHOU' ? 'FALHOU' : (b.situacao ?? 'RESPONDEU')
   await db.$transaction([
@@ -92,8 +89,8 @@ rotasIntegracao.post('/retornos/:id/eventos', async (req, res) => {
         tipo: 'retorno',
         destino: (canal === 'EMAIL' ? r.paciente.email : r.paciente.celular) ?? '',
         status: b.tipo === 'ENVIADO' ? 'ENVIADA' : b.tipo === 'FALHOU' ? 'FALHOU' : 'RECEBIDA',
-        texto: b.tipo === 'RESPOSTA' ? texto(b.texto) : null,
-        erro: b.tipo === 'FALHOU' ? (texto(b.erro) ?? 'Falha sem detalhe.') : null,
+        texto: b.tipo === 'RESPOSTA' ? b.texto : null,
+        erro: b.tipo === 'FALHOU' ? (b.erro ?? 'Falha sem detalhe.') : null,
       },
     }),
     db.alertaRetorno.update({

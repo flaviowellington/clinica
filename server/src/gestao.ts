@@ -1,5 +1,7 @@
-// Profissionais, conta corrente, conta digital e relatórios.
+// Profissionais, conta corrente e relatórios.
 import { Router, type Request } from 'express'
+import multer from 'multer'
+import sharp from 'sharp'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
 import { normalizar } from '../../shared/regras'
@@ -8,16 +10,15 @@ import {
   CATEGORIAS,
   CATEGORIA_PADRAO_ENTRADA,
   TIPOS_LANCAMENTO,
-  validarConta,
-  validarLancamento,
   type TipoLancamento,
 } from '../../shared/financeiro'
 import { acharRelatorio } from '../../shared/relatorios'
 import { STATUS } from '../../shared/agenda'
 import { GERADORES_FINANCEIRO } from './financeiro'
 import { GERADORES_EXTRA } from './relatorios'
+import { AtivoDto, LancamentoDto, ProfissionalDto } from '../../shared/dtos'
+import { lerCorpo } from './dto'
 
-const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
 const isoDe = (d: Date) => d.toISOString().slice(0, 10)
 const id = (req: Request) => Number(req.params.id) || 0
@@ -42,23 +43,8 @@ const camposProfissional = {
   celular: true,
   corAgenda: true,
   ativo: true,
+  fotoEm: true,
 } as const
-
-function lerProfissional(b: Record<string, unknown>) {
-  const d = {
-    nome: texto(b?.nome),
-    cro: texto(b?.cro),
-    especialidade: texto(b?.especialidade),
-    email: texto(b?.email),
-    celular: texto(b?.celular),
-    corAgenda: texto(b?.corAgenda),
-  }
-  const erros: Record<string, string> = {}
-  if (!d.nome) erros.nome = 'Informe o nome.'
-  if (d.corAgenda && !/^#[0-9a-f]{6}$/i.test(d.corAgenda)) erros.corAgenda = 'Cor inválida.'
-  if (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) erros.email = 'E-mail inválido.'
-  return { d, erros }
-}
 
 rotasProfissionais.get('/', exigir('profissional.ver'), async (req, res) => {
   const termo = normalizar(String(req.query.busca ?? ''))
@@ -70,20 +56,20 @@ rotasProfissionais.get('/', exigir('profissional.ver'), async (req, res) => {
       ...(req.query.ativos === '1' && { ativo: true }),
     },
     select: camposProfissional,
-    orderBy: { nomeBusca: 'asc' },
+    // Ativos primeiro; os inativos ficam no fim da lista.
+    orderBy: [{ ativo: 'desc' }, { nomeBusca: 'asc' }],
   })
   res.json(lista)
 })
 
 rotasProfissionais.post('/', exigir('profissional.editar'), async (req, res) => {
-  const { d, erros } = lerProfissional(req.body)
-  if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
+  const d = lerCorpo(ProfissionalDto, req.body, res)
+  if (!d) return
   const u = usuarioDe(res)
   const p = await db.pessoa.create({
     data: {
       ...d,
-      nome: d.nome!,
-      nomeBusca: normalizar(d.nome!),
+      nomeBusca: normalizar(d.nome),
       tipo: 'PROFISSIONAL',
       criadoPorId: u.id,
       alteradoPorId: u.id,
@@ -99,11 +85,11 @@ const acharProfissional = (req: Request) =>
 rotasProfissionais.put('/:id', exigir('profissional.editar'), async (req, res) => {
   if (!(await acharProfissional(req)))
     return res.status(404).json({ erro: 'Profissional não encontrado.' })
-  const { d, erros } = lerProfissional(req.body)
-  if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
+  const d = lerCorpo(ProfissionalDto, req.body, res)
+  if (!d) return
   const p = await db.pessoa.update({
     where: { id: id(req) },
-    data: { ...d, nome: d.nome!, nomeBusca: normalizar(d.nome!), alteradoPorId: usuarioDe(res).id },
+    data: { ...d, nomeBusca: normalizar(d.nome), alteradoPorId: usuarioDe(res).id },
     select: camposProfissional,
   })
   res.json(p)
@@ -112,9 +98,118 @@ rotasProfissionais.put('/:id', exigir('profissional.editar'), async (req, res) =
 rotasProfissionais.post('/:id/ativo', exigir('profissional.editar'), async (req, res) => {
   if (!(await acharProfissional(req)))
     return res.status(404).json({ erro: 'Profissional não encontrado.' })
+  const b = lerCorpo(AtivoDto, req.body, res)
+  if (!b) return
   const p = await db.pessoa.update({
     where: { id: id(req) },
-    data: { ativo: req.body?.ativo === true, alteradoPorId: usuarioDe(res).id },
+    data: { ativo: b.ativo, alteradoPorId: usuarioDe(res).id },
+    select: camposProfissional,
+  })
+  res.json(p)
+})
+
+// R-057: exclusão lógica. Só de quem já foi inativado; o histórico (agenda, prontuário) fica.
+rotasProfissionais.delete('/:id', exigir('profissional.editar'), async (req, res) => {
+  const p = await acharProfissional(req)
+  if (!p) return res.status(404).json({ erro: 'Profissional não encontrado.' })
+  if (p.ativo)
+    return res.status(400).json({ erro: 'Inative o profissional antes de excluir.' })
+  await db.pessoa.update({
+    where: { id: p.id },
+    data: { excluidoEm: new Date(), excluidoPorId: usuarioDe(res).id },
+  })
+  res.json({ mensagem: 'Profissional excluído.' })
+})
+
+// ── Foto do profissional ────────────────────────────────────────────────────
+const FOTO_LADO = 400
+const FOTO_MAXIMO_MB = 10
+const FORMATOS_FOTO = ['jpeg', 'png', 'webp', 'gif', 'tiff']
+// Em memória: a foto vai para o banco já tratada, nada fica em disco.
+const receberFoto = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: FOTO_MAXIMO_MB * 1024 * 1024, files: 1 },
+}).single('foto')
+
+/**
+ * Recebe a foto e o quadrado escolhido na tela (x, y, tamanho em pixels da imagem original):
+ * corta o resto, reduz para 400x400 e guarda em WebP.
+ */
+rotasProfissionais.post(
+  '/:id/foto',
+  exigir('profissional.editar'),
+  (req, res, next) =>
+    receberFoto(req, res, (e: unknown) => {
+      if (!e) return next()
+      const grande = e instanceof multer.MulterError && e.code === 'LIMIT_FILE_SIZE'
+      res.status(400).json({
+        erro: grande
+          ? `A foto pode ter no máximo ${FOTO_MAXIMO_MB} MB.`
+          : 'Não foi possível receber a foto.',
+      })
+    }),
+  async (req, res) => {
+    if (!(await acharProfissional(req)))
+      return res.status(404).json({ erro: 'Profissional não encontrado.' })
+    if (!req.file) return res.status(400).json({ erro: 'Escolha uma foto.' })
+
+    const erroImagem = { erro: 'Envie uma imagem JPEG, PNG ou WEBP.' }
+    const meta = await sharp(req.file.buffer)
+      .metadata()
+      .catch(() => null)
+    if (!meta?.width || !meta.height || !FORMATOS_FOTO.includes(meta.format ?? ''))
+      return res.status(400).json(erroImagem)
+    // Foto de celular deitada pelo EXIF: a tela mostrou já em pé, então as medidas trocam.
+    const deitada = (meta.orientation ?? 1) >= 5
+    const largura = deitada ? meta.height : meta.width
+    const altura = deitada ? meta.width : meta.height
+
+    const [x, y, tamanho] = ['x', 'y', 'tamanho'].map((k) => Math.round(Number(req.body?.[k])))
+    if (
+      ![x, y, tamanho].every(Number.isFinite) ||
+      x < 0 ||
+      y < 0 ||
+      tamanho < 1 ||
+      x + tamanho > largura ||
+      y + tamanho > altura
+    )
+      return res.status(400).json({ erro: 'Recorte fora da imagem.' })
+
+    const foto = await sharp(req.file.buffer)
+      .rotate() // endireita pelo EXIF antes de cortar
+      .extract({ left: x, top: y, width: tamanho, height: tamanho })
+      .resize(FOTO_LADO, FOTO_LADO)
+      .webp({ quality: 82 })
+      .toBuffer()
+      .catch(() => null)
+    if (!foto) return res.status(400).json(erroImagem)
+
+    const p = await db.pessoa.update({
+      where: { id: id(req) },
+      data: { foto: new Uint8Array(foto), fotoEm: new Date(), alteradoPorId: usuarioDe(res).id },
+      select: camposProfissional,
+    })
+    res.json(p)
+  },
+)
+
+rotasProfissionais.get('/:id/foto', exigir('profissional.ver'), async (req, res) => {
+  const p = await db.pessoa.findFirst({
+    where: { id: id(req), tipo: 'PROFISSIONAL', excluidoEm: null },
+    select: { foto: true },
+  })
+  if (!p?.foto) return res.status(404).json({ erro: 'Sem foto.' })
+  // A URL muda a cada foto nova (?v=fotoEm), então pode guardar em cache à vontade.
+  res.type('image/webp').set('Cache-Control', 'private, max-age=31536000, immutable')
+  res.send(Buffer.from(p.foto))
+})
+
+rotasProfissionais.delete('/:id/foto', exigir('profissional.editar'), async (req, res) => {
+  if (!(await acharProfissional(req)))
+    return res.status(404).json({ erro: 'Profissional não encontrado.' })
+  const p = await db.pessoa.update({
+    where: { id: id(req) },
+    data: { foto: null, fotoEm: null, alteradoPorId: usuarioDe(res).id },
     select: camposProfissional,
   })
   res.json(p)
@@ -168,28 +263,23 @@ rotasFinanceiro.get('/lancamentos', exigir('financeiro.ver'), async (req, res) =
 })
 
 rotasFinanceiro.post('/lancamentos', exigir('financeiro.editar'), async (req, res) => {
-  const b = req.body ?? {}
-  const d = {
-    data: texto(b.data),
-    tipo: texto(b.tipo),
-    valorCentavos: Number.isInteger(b.valorCentavos) ? b.valorCentavos : 0,
-    descricao: texto(b.descricao),
-  }
-  const erros = validarLancamento(d)
-  const categoria = texto(b.categoria) ?? (d.tipo === 'ENTRADA' ? CATEGORIA_PADRAO_ENTRADA : null)
+  const d = lerCorpo(LancamentoDto, req.body, res)
+  if (!d) return
+  const erros: Record<string, string> = {}
+  const categoria = d.categoria ?? (d.tipo === 'ENTRADA' ? CATEGORIA_PADRAO_ENTRADA : null)
   if (categoria && !CATEGORIAS.includes(categoria))
     erros.categoria = 'Conta do plano de contas inválida.'
-  const pacienteId = Number(b.pacienteId) || null
+  const { pacienteId } = d
   if (pacienteId && !(await db.pessoa.findFirst({ where: { id: pacienteId, tipo: 'PACIENTE' } })))
     erros.pacienteId = 'Paciente não encontrado.'
   if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
   const l = await db.lancamento.create({
     data: {
-      data: dia(d.data!),
-      tipo: d.tipo as TipoLancamento,
+      data: dia(d.data),
+      tipo: d.tipo,
       valorCentavos: d.valorCentavos,
-      descricao: d.descricao!,
-      forma: texto(b.forma),
+      descricao: d.descricao,
+      forma: d.forma,
       categoria,
       pacienteId,
       criadoPorId: usuarioDe(res).id,
@@ -206,45 +296,6 @@ rotasFinanceiro.delete('/lancamentos/:id', exigir('financeiro.editar'), async (r
     data: { excluidoEm: new Date(), excluidoPorId: usuarioDe(res).id },
   })
   res.json({ ok: true })
-})
-
-// ── Conta digital (F-010) ───────────────────────────────────────────────────
-// ponytail: só guarda o pedido; abrir a conta de verdade exige um parceiro de
-// pagamentos autorizado pelo Banco Central (BR-006). A integração entra aqui.
-export const rotasContas = Router()
-
-rotasContas.get('/', exigir('conta.gerenciar'), async (_req, res) => {
-  res.json(await db.contaDigital.findMany({ orderBy: { id: 'desc' } }))
-})
-
-rotasContas.post('/', exigir('conta.gerenciar'), async (req, res) => {
-  const b = req.body ?? {}
-  const d = {
-    tipo: texto(b.tipo),
-    nome: texto(b.nome),
-    documento: String(b.documento ?? '').replace(/\D/g, ''),
-    email: texto(b.email),
-    celular: texto(b.celular),
-  }
-  const erros = validarConta(d)
-  if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
-  const c = await db.contaDigital.create({
-    data: {
-      tipo: d.tipo as 'PESSOA_FISICA' | 'PESSOA_JURIDICA',
-      nome: d.nome!,
-      documento: d.documento,
-      email: d.email!,
-      celular: d.celular!,
-      criadoPorId: usuarioDe(res).id,
-    },
-  })
-  res.status(201).json(c)
-})
-
-rotasContas.post('/:id/cancelar', exigir('conta.gerenciar'), async (req, res) => {
-  const c = await db.contaDigital.findUnique({ where: { id: id(req) } })
-  if (!c) return res.status(404).json({ erro: 'Conta não encontrada.' })
-  res.json(await db.contaDigital.update({ where: { id: c.id }, data: { status: 'CANCELADA' } }))
 })
 
 // ── Relatórios ──────────────────────────────────────────────────────────────

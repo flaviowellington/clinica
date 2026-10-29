@@ -14,6 +14,7 @@ import { avisar } from '../estado'
 import { BuscaPaciente } from './BuscaPaciente'
 import { CampoData } from './CampoData'
 import { Dialogo } from './Dialogo'
+import { CampoSelect } from './CampoSelect'
 
 export interface MensagemRetorno {
   id: number
@@ -182,8 +183,7 @@ function DetalheRetorno({ r, hoje }: { r: Retorno; hoje: string }) {
           )}
           {r.situacao === 'FALHOU' && (
             <p className="text-perigo">
-              {r.mensagens.find((m) => m.status === 'FALHOU')?.erro} Entre em contato
-              manualmente.
+              {r.mensagens.find((m) => m.status === 'FALHOU')?.erro} Entre em contato manualmente.
             </p>
           )}
           {resposta?.texto && (
@@ -257,18 +257,11 @@ export function NovoRetorno(props: { paciente?: Paciente; aoTerminar: () => void
         </label>
         <label>
           <span className="rotulo">Profissional</span>
-          <select
-            className="campo"
+          <CampoSelect
             value={profissionalId}
             onChange={(e) => setProfissionalId(Number(e.target.value) || '')}
-          >
-            <option value="">Escolha…</option>
-            {prof?.profissionais.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nome}
-              </option>
-            ))}
-          </select>
+            opcoes={prof?.profissionais.map((p) => [p.id, p.nome] as const)}
+          />
           {erro('profissionalId')}
         </label>
       </div>

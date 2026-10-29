@@ -146,7 +146,6 @@ export function FinanceiroPaciente({ paciente }: { paciente: Paciente }) {
             aoTerminar={() => {
               setBaixar(null)
               qc.invalidateQueries({ queryKey: ['financeiro-paciente', paciente.id] })
-              qc.invalidateQueries({ queryKey: ['caixa'] })
             }}
           />
         )}

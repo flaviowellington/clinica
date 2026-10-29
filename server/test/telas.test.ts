@@ -1,4 +1,4 @@
-// Telas de gestão: usuários, configurações, caixa, protético, confirmações, painel e importação.
+// Telas de gestão: usuários, configurações, protético, confirmações, painel e importação.
 import { beforeAll, describe, expect, it } from 'vitest'
 import { db } from '../src/db'
 import { cliente, entrarComo, PACIENTE, usarServidor, type Cliente } from './ajuda'
@@ -179,8 +179,8 @@ describe('configurações', () => {
   })
 })
 
-// ── Caixa (F-031) ───────────────────────────────────────────────────────────
-describe('caixa', () => {
+// ── Recebimento no balcão ───────────────────────────────────────────────────
+describe('recebimento', () => {
   async function parcela(api: Cliente) {
     const pac = await pacienteCom(api)
     const [c] = (
@@ -196,51 +196,19 @@ describe('caixa', () => {
     return c
   }
 
-  it('Recepção recebe só com o caixa aberto; o recebimento entra no caixa; fecha com senha e confere', async () => {
-    const admin = await entrarComo('ADMINISTRADOR')
-    const conta = await parcela(admin)
+  it('Recepção recebe a parcela', async () => {
+    const conta = await parcela(await entrarComo('ADMINISTRADOR'))
     const recepcao = await entrarComo('RECEPCAO')
-    expect((await recepcao('POST', `/api/financeiro/contas/${conta.id}/baixar`, {})).status).toBe(
-      409,
-    )
-
-    expect(
-      (await recepcao('POST', '/api/caixa/abrir', { saldoInicialCentavos: 5000 })).status,
-    ).toBe(201)
-    expect((await recepcao('POST', '/api/caixa/abrir', { saldoInicialCentavos: 0 })).status).toBe(
-      409,
-    )
     expect(
       (await recepcao('POST', `/api/financeiro/contas/${conta.id}/baixar`, { forma: 'Dinheiro' }))
         .status,
     ).toBe(200)
-
-    const aberto = (await recepcao('GET', '/api/caixa')).corpo.aberto
-    expect(aberto.esperado).toEqual({ Dinheiro: 20000 })
-
-    expect(
-      (
-        await recepcao('POST', '/api/caixa/fechar', {
-          senha: 'errada',
-          contado: { Dinheiro: 19000 },
-        })
-      ).status,
-    ).toBe(401)
-    const f = await recepcao('POST', '/api/caixa/fechar', {
-      senha: 'senha-de-teste',
-      contado: { Dinheiro: 19000 },
-    })
-    expect(f.status).toBe(200)
-    expect(f.corpo.conferencia).toEqual({ Dinheiro: { esperado: 20000, contado: 19000 } })
-    expect((await recepcao('GET', '/api/caixa')).corpo.aberto).toBeNull()
   })
 
-  it('Profissional não recebe nem abre caixa', async () => {
-    const admin = await entrarComo('ADMINISTRADOR')
-    const conta = await parcela(admin)
+  it('Profissional não recebe', async () => {
+    const conta = await parcela(await entrarComo('ADMINISTRADOR'))
     const prof = await entrarComo('PROFISSIONAL')
     expect((await prof('POST', `/api/financeiro/contas/${conta.id}/baixar`, {})).status).toBe(403)
-    expect((await prof('POST', '/api/caixa/abrir', { saldoInicialCentavos: 0 })).status).toBe(403)
   })
 })
 

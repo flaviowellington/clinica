@@ -1,9 +1,22 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { COMO_CONHECEU, podeCadastrar } from '../../../shared/regras'
-import { cpfBR, type Paciente } from '../api'
+import { mascaraRg } from '../../../shared/mascaras'
+import type { Paciente } from '../api'
 import { CampoData } from './CampoData'
+import { CampoCelular, CampoCpf, CampoEmail, CampoMascara } from './CampoMascara'
+import { CampoSelect } from './CampoSelect'
 
-const ABAS = ['Dados cadastrais', 'Contato', 'Dados complementares'] as const
+/** Bloco do formulário com título; tudo fica numa página só, sem abas. */
+function Secao(props: { titulo: string; children: ReactNode }) {
+  return (
+    <fieldset className="grid gap-x-3 gap-y-4 sm:grid-cols-2">
+      <legend className="mb-3 flex w-full items-center gap-3 text-xs font-bold tracking-wide text-suave uppercase after:h-px after:flex-1 after:bg-borda">
+        {props.titulo}
+      </legend>
+      {props.children}
+    </fieldset>
+  )
+}
 
 /**
  * Cadastro e edição do paciente (R-001 e R-067).
@@ -17,62 +30,41 @@ export function FormPaciente(props: {
   aoEnviar: (dados: Record<string, string>) => void
 }) {
   const p = props.inicial ?? {}
-  const [aba, setAba] = useState(0)
   const [nome, setNome] = useState(p.nome ?? '')
   const [nascimento, setNascimento] = useState(p.nascimento ?? '')
   const [comoConheceu, setComoConheceu] = useState(p.comoConheceu ?? '')
 
   function enviar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    props.aoEnviar(Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>)
+    const form = e.currentTarget
+    // CPF incompleto ou inválido: mostra o aviso no campo e não envia.
+    if (!form.checkValidity()) {
+      form.querySelector<HTMLInputElement>(':invalid')?.focus()
+      return
+    }
+    // Só o "+55 " no celular conta como vazio: o DTO da API trata.
+    props.aoEnviar(Object.fromEntries(new FormData(form)) as Record<string, string>)
   }
+
+  const erro = (c: string) => props.erros[c] && <span className="erro-campo">{props.erros[c]}</span>
 
   const campo = (nomeCampo: keyof Paciente, rotulo: string, extra: object = {}) => (
     <label className="block">
       <span className="rotulo">{rotulo}</span>
       <input
         name={nomeCampo}
-        defaultValue={
-          nomeCampo === 'cpf' || nomeCampo === 'responsavelCpf'
-            ? cpfBR(p[nomeCampo] ?? null)
-            : String(p[nomeCampo] ?? '')
-        }
+        defaultValue={String(p[nomeCampo] ?? '')}
         className="campo"
         aria-invalid={!!props.erros[nomeCampo]}
         {...extra}
       />
-      {props.erros[nomeCampo] && <span className="text-perigo">{props.erros[nomeCampo]}</span>}
+      {erro(nomeCampo)}
     </label>
   )
 
-  const opcoes = (lista: readonly string[]) => (
-    <>
-      <option value="">—</option>
-      {lista.map((o) => (
-        <option key={o}>{o}</option>
-      ))}
-    </>
-  )
-
   return (
-    <form onSubmit={enviar} className="space-y-4" noValidate>
-      <div role="tablist" className="flex gap-1 border-b border-borda">
-        {ABAS.map((t, i) => (
-          <button
-            key={t}
-            type="button"
-            role="tab"
-            aria-selected={aba === i}
-            onClick={() => setAba(i)}
-            className={`-mb-px border-b-2 px-3 py-2 ${aba === i ? 'border-primaria font-medium text-primaria' : 'border-transparent text-suave'}`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {/* As três abas ficam sempre no formulário (só escondidas), para o FormData levar tudo. */}
-      <div hidden={aba !== 0} className="grid gap-3 sm:grid-cols-2">
+    <form onSubmit={enviar} className="space-y-6" noValidate>
+      <Secao titulo="Dados pessoais">
         <label className="block sm:col-span-2">
           <span className="rotulo">Nome *</span>
           <input
@@ -80,69 +72,105 @@ export function FormPaciente(props: {
             value={nome}
             onChange={(e) => setNome(e.target.value)}
             className="campo"
+            aria-invalid={!!props.erros.nome}
             autoFocus
           />
-          {props.erros.nome && <span className="text-perigo">{props.erros.nome}</span>}
+          {erro('nome')}
         </label>
         <label className="block">
           <span className="rotulo">Data de nascimento *</span>
           <CampoData name="nascimento" value={nascimento} onChange={setNascimento} />
-          {props.erros.nascimento && <span className="text-perigo">{props.erros.nascimento}</span>}
+          {erro('nascimento')}
         </label>
         {campo('apelido', 'Apelido')}
-        {campo('cpf', 'CPF', { inputMode: 'numeric', placeholder: '000.000.000-00' })}
-        {campo('rg', 'RG')}
+        <label className="block">
+          <span className="rotulo">CPF</span>
+          <CampoCpf name="cpf" defaultValue={p.cpf ?? ''} erro={props.erros.cpf} />
+        </label>
+        <label className="block">
+          <span className="rotulo">RG</span>
+          <CampoMascara
+            name="rg"
+            mascara={mascaraRg}
+            defaultValue={p.rg ?? ''}
+            maxLength={20}
+            placeholder="00.000.000"
+            erro={props.erros.rg}
+          />
+        </label>
         <label className="block">
           <span className="rotulo">Sexo</span>
-          <select name="sexo" defaultValue={p.sexo ?? ''} className="campo">
-            {opcoes(['Feminino', 'Masculino', 'Outro'])}
-          </select>
+          <CampoSelect
+            name="sexo"
+            defaultValue={p.sexo ?? ''}
+            opcoes={['Feminino', 'Masculino', 'Outro']}
+          />
         </label>
         <label className="block">
           <span className="rotulo">Estado civil</span>
-          <select name="estadoCivil" defaultValue={p.estadoCivil ?? ''} className="campo">
-            {opcoes(['Solteiro(a)', 'Casado(a)', 'União estável', 'Divorciado(a)', 'Viúvo(a)'])}
-          </select>
+          <CampoSelect
+            name="estadoCivil"
+            defaultValue={p.estadoCivil ?? ''}
+            opcoes={['Solteiro(a)', 'Casado(a)', 'União estável', 'Divorciado(a)', 'Viúvo(a)']}
+          />
         </label>
-      </div>
+      </Secao>
 
-      <div hidden={aba !== 1} className="grid gap-3 sm:grid-cols-2">
-        {campo('celular', 'Celular / WhatsApp', { type: 'tel', placeholder: '+55 ' })}
+      <Secao titulo="Contato">
+        <label className="block">
+          <span className="rotulo">Celular / WhatsApp</span>
+          <CampoCelular name="celular" defaultValue={p.celular ?? ''} erro={props.erros.celular} />
+        </label>
         {campo('telefone', 'Telefone fixo', { type: 'tel' })}
-        <div className="sm:col-span-2">{campo('email', 'E-mail', { type: 'email' })}</div>
+        <label className="block sm:col-span-2">
+          <span className="rotulo">E-mail</span>
+          <CampoEmail name="email" defaultValue={p.email ?? ''} erro={props.erros.email} />
+        </label>
         <label className="block">
           <span className="rotulo">Como conheceu a clínica?</span>
-          <select
+          <CampoSelect
             name="comoConheceu"
             value={comoConheceu}
             onChange={(e) => setComoConheceu(e.target.value)}
-            className="campo"
-          >
-            {opcoes(COMO_CONHECEU)}
-          </select>
+            opcoes={COMO_CONHECEU}
+          />
         </label>
-        <div hidden={comoConheceu !== 'Indicado por'}>{campo('indicadoPor', 'Indicado por')}</div>
-      </div>
+        {/* Só vai no formulário o campo visível; os outros chegam vazios e são limpos. */}
+        {comoConheceu === 'Indicado por' && campo('indicadoPor', 'Quem indicou?')}
+        {comoConheceu === 'Outros' && campo('comoConheceuOutro', 'Como foi?', { maxLength: 150 })}
+      </Secao>
 
-      <div hidden={aba !== 2} className="grid gap-3 sm:grid-cols-2">
+      <Secao titulo="Família e responsável">
         {campo('nomeMae', 'Nome da mãe')}
         {campo('nomePai', 'Nome do pai')}
         {campo('responsavelNome', 'Responsável legal')}
         {campo('responsavelParentesco', 'Parentesco do responsável')}
-        {campo('responsavelCpf', 'CPF do responsável', { inputMode: 'numeric' })}
+        <label className="block">
+          <span className="rotulo">CPF do responsável</span>
+          <CampoCpf
+            name="responsavelCpf"
+            defaultValue={p.responsavelCpf ?? ''}
+            erro={props.erros.responsavelCpf}
+          />
+        </label>
+      </Secao>
+
+      <Secao titulo="Observações">
         <label className="block sm:col-span-2">
-          <span className="rotulo">Observações</span>
+          <span className="sr-only">Observações</span>
           <textarea
             name="observacoes"
             defaultValue={p.observacoes ?? ''}
             rows={3}
             className="campo"
+            placeholder="Algo importante sobre o paciente"
           />
         </label>
-      </div>
+      </Secao>
 
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-suave">* obrigatórios</span>
+      {/* Rodapé fixo: o botão de salvar fica sempre à vista enquanto rola o formulário. */}
+      <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-between gap-3 border-t border-borda bg-superficie px-5 py-3">
+        <span className="text-xs text-suave">* obrigatórios</span>
         <button className="botao" disabled={!podeCadastrar({ nome, nascimento }) || props.enviando}>
           {props.enviando ? 'Salvando…' : props.textoBotao}
         </button>

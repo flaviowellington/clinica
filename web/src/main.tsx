@@ -15,12 +15,14 @@ import {
   redirect,
   RouterProvider,
 } from '@tanstack/react-router'
-import '@fontsource/m-plus-rounded-1c/latin-400.css'
-import '@fontsource/m-plus-rounded-1c/latin-500.css'
-import '@fontsource/m-plus-rounded-1c/latin-700.css'
-import '@fontsource/m-plus-rounded-1c/latin-800.css'
+import '@fontsource/nunito/latin-400.css'
+import '@fontsource/nunito/latin-500.css'
+import '@fontsource/nunito/latin-600.css'
+import '@fontsource/nunito/latin-700.css'
+import '@fontsource/nunito/latin-800.css'
 import './index.css'
 import { api, consultaEu } from './api'
+import { Confirmacao } from './componentes/Confirmar'
 import { PALETAS, useAvisos, useTema, type Paleta } from './estado'
 import { pode } from '../../shared/permissoes'
 import { Entrar } from './paginas/Entrar'
@@ -32,18 +34,17 @@ import { Inicio } from './paginas/Inicio'
 import { Profissionais } from './paginas/Profissionais'
 import { Financeiro } from './paginas/Financeiro'
 import { Relatorios } from './paginas/Relatorios'
-import { Contas } from './paginas/Contas'
 import { Recibo } from './paginas/Recibo'
 import { DocumentoImpresso } from './paginas/DocumentoImpresso'
 import { TrocarMinhaSenha, Usuarios } from './paginas/Usuarios'
 import { Configuracoes } from './paginas/Configuracoes'
-import { CaixaTela } from './paginas/Caixa'
 import { Protetico } from './paginas/Protetico'
 import { Confirmacoes } from './paginas/Confirmacoes'
 import { ConfirmarPresenca } from './paginas/ConfirmarPresenca'
 import { Painel } from './paginas/Painel'
 import { Importacao } from './paginas/Importacao'
 import { Estilos } from './paginas/Estilos'
+import { Fontes } from './paginas/Fontes'
 import { Dialogo } from './componentes/Dialogo'
 import { ABAS } from './abas'
 import { Icone } from './componentes/Icones'
@@ -64,6 +65,7 @@ function Raiz() {
     <>
       <Outlet />
       <SeletorPaleta />
+      <Confirmacao />
       <div aria-live="polite" className="fixed right-4 bottom-4 space-y-2">
         {avisos.map((a) => (
           <div
@@ -325,7 +327,6 @@ const configuracoes = createRoute({
   validateSearch: comAba,
   component: Configuracoes,
 })
-const caixa = pagina('/caixa', CaixaTela)
 const protetico = pagina('/protetico', Protetico)
 const confirmacoes = pagina('/confirmacoes', Confirmacoes)
 const painel = pagina('/painel', Painel)
@@ -340,6 +341,15 @@ const estilos = createRoute({
     </main>
   ),
 })
+const fontes = createRoute({
+  getParentRoute: () => raiz,
+  path: '/fonts',
+  component: () => (
+    <main className="mx-auto max-w-6xl p-4">
+      <Fontes />
+    </main>
+  ),
+})
 // Pública: o paciente abre pelo link do e-mail, sem login.
 const confirmar = createRoute({
   getParentRoute: () => raiz,
@@ -347,18 +357,12 @@ const confirmar = createRoute({
   component: ConfirmarPresenca,
 })
 
-const contas = createRoute({
-  getParentRoute: () => logado,
-  path: '/contas',
-  validateSearch: comAba,
-  component: Contas,
-})
-
 const router = createRouter({
   routeTree: raiz.addChildren([
     entrar,
     confirmar,
     estilos,
+    fontes,
     logado.addChildren([
       inicio,
       agenda,
@@ -369,12 +373,10 @@ const router = createRouter({
       financeiro,
       profissionais,
       relatorios,
-      contas,
       recibo,
       documento,
       usuarios,
       configuracoes,
-      caixa,
       protetico,
       confirmacoes,
       painel,
@@ -390,6 +392,13 @@ declare module '@tanstack/react-router' {
     router: typeof router
   }
 }
+
+// Sem sugestões do navegador nos campos; quem define autoComplete (login, senha) mantém o seu.
+document.addEventListener('focusin', (e) => {
+  const el = e.target
+  if ((el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && !el.hasAttribute('autocomplete'))
+    el.setAttribute('autocomplete', 'off')
+})
 
 createRoot(document.getElementById('app')!).render(
   <StrictMode>

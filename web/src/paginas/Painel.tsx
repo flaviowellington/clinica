@@ -37,7 +37,6 @@ interface Dados {
     porEspecialidade: Item[]
   }
   pacientesNovos: number
-  caixa: { fechados: number; diferenca: number }
 }
 
 const pct = (v: number) => `${Math.round(v * 100)}%`
@@ -107,11 +106,6 @@ export function Painel() {
               rotulo="Inadimplência hoje"
               valor={reais(d.inadimplencia.valor)}
               nota={`${d.inadimplencia.parcelas} parcela(s) de ${d.inadimplencia.pacientes} paciente(s)`}
-            />
-            <Numero
-              rotulo="Diferença nos caixas"
-              valor={d.caixa.diferenca ? reais(d.caixa.diferenca) : 'Nenhuma'}
-              nota={`${d.caixa.fechados} caixa(s) fechado(s)`}
             />
           </Grupo>
 

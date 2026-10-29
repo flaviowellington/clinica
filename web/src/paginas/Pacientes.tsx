@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { keepPreviousData, useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { api, consultaEu, dataBR, errosDosCampos, mensagemDeErro, type Paciente } from '../api'
@@ -6,6 +6,8 @@ import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import { Dialogo } from '../componentes/Dialogo'
 import { FormPaciente } from '../componentes/FormPaciente'
+import { Icone } from '../componentes/Icones'
+import { CampoSelect } from '../componentes/CampoSelect'
 
 interface Resultado {
   total: number
@@ -39,48 +41,69 @@ export function Pacientes() {
 
   const total = lista.data?.total ?? 0
   const paginas = Math.ceil(total / (lista.data?.porPagina ?? 10))
+  const ir = (s: { busca?: string; pagina?: number; linhas?: number }, replace = false) =>
+    navegar({
+      replace,
+      search: {
+        busca: (s.busca ?? busca) || undefined,
+        pagina: s.pagina && s.pagina > 1 ? s.pagina : undefined,
+        linhas: (s.linhas ?? linhas) === 10 ? undefined : (s.linhas ?? linhas),
+      },
+    })
+
+  // Busca em tempo real: espera a pessoa parar de digitar um instante e atualiza a lista.
+  const [termo, setTermo] = useState(busca)
+  const [buscaAnterior, setBuscaAnterior] = useState(busca)
+  if (busca !== buscaAnterior) {
+    setBuscaAnterior(busca)
+    if (busca !== termo.trim()) setTermo(busca)
+  }
+  useEffect(() => {
+    if (termo.trim() === busca) return
+    const t = setTimeout(() => ir({ busca: termo.trim() }, true), 300)
+    return () => clearTimeout(t)
+  })
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Pacientes</h1>
-          <p className="text-suave">Busque, cadastre e abra a ficha dos pacientes.</p>
+          <h1 className="titulo">Pacientes</h1>
+          <p className="subtitulo">Busque, cadastre e abra a ficha dos pacientes.</p>
         </div>
         {pode(eu.perfis, 'paciente.editar') && (
           <button className="botao" onClick={() => setNovo(true)}>
+            <span aria-hidden className="text-lg leading-none">
+              +
+            </span>{' '}
             Novo paciente
           </button>
         )}
       </header>
 
-      {/* R-004: a busca só roda com ENTER (envio do formulário). */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          const termo = String(new FormData(e.currentTarget).get('busca') ?? '')
-          navegar({
-            search: { busca: termo || undefined, linhas: linhas === 10 ? undefined : linhas },
-          })
-        }}
-      >
+      <label className="relative block max-w-xl">
+        <span className="sr-only">Buscar paciente</span>
+        <Icone
+          nome="busca"
+          className="pointer-events-none absolute top-5 left-3 h-5 w-5 -translate-y-1/2 text-suave"
+        />
         <input
-          name="busca"
           type="search"
-          defaultValue={busca}
+          value={termo}
+          onChange={(e) => setTermo(e.target.value)}
           placeholder="Nome do paciente"
           aria-describedby="ajuda-busca"
-          className="campo"
+          className="campo pl-10"
           autoFocus
         />
-        <p id="ajuda-busca" className="mt-1 text-suave">
-          Tecle ENTER para buscar por nome ou sobrenome.
-        </p>
-      </form>
+        <span id="ajuda-busca" className="ajuda">
+          A lista atualiza enquanto você digita o nome ou sobrenome.
+        </span>
+      </label>
 
       <div className="cartao overflow-x-auto p-0">
-        <table className="w-full text-left">
-          <thead className="border-b border-borda text-suave">
+        <table className="w-full min-w-[46rem] text-left">
+          <thead>
             <tr>
               {[
                 'Nome',
@@ -90,28 +113,37 @@ export function Pacientes() {
                 'Como conheceu',
                 'Status',
               ].map((t) => (
-                <th key={t} className="px-4 py-2 font-medium">
+                <th
+                  key={t}
+                  className="border-b border-borda px-4 py-2.5 text-xs font-bold tracking-wide text-suave uppercase"
+                >
                   {t}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody className={lista.isFetching ? 'opacity-60' : ''}>
             {lista.data?.itens.map((p) => (
               <tr
                 key={p.id}
                 className="border-b border-borda last:border-0 hover:bg-primaria-clara"
               >
-                <td className="px-4 py-2">
+                <td className="px-4 py-2.5">
                   <Link
                     to="/pacientes/$id"
                     params={{ id: String(p.id) }}
-                    className="font-medium text-primaria"
+                    className="flex items-center gap-3 font-bold text-primaria hover:underline"
                   >
+                    <span
+                      aria-hidden
+                      className="grid size-8 shrink-0 place-items-center rounded-full bg-primaria/15 text-xs"
+                    >
+                      {iniciais(p.nome)}
+                    </span>
                     {p.nome}
                   </Link>
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2.5 whitespace-nowrap">
                   {p.celular && (
                     <a
                       href={whatsapp(p.celular)}
@@ -124,40 +156,46 @@ export function Pacientes() {
                     </a>
                   )}
                 </td>
-                <td className="px-4 py-2">{dataBR(p.nascimento)}</td>
-                <td className="px-4 py-2">{p.email}</td>
-                <td className="px-4 py-2">{p.comoConheceu}</td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2.5 tabular-nums">{dataBR(p.nascimento)}</td>
+                <td className="px-4 py-2.5">{p.email}</td>
+                <td className="px-4 py-2.5">{p.comoConheceu}</td>
+                <td className="px-4 py-2.5">
                   <Situacao ativo={p.ativo} />
                 </td>
               </tr>
             ))}
+            {lista.data?.itens.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center text-suave">
+                  Nenhum paciente encontrado{busca && <> para “{busca}”</>}.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 text-suave">
-          <span className="flex items-center gap-3">
-            {lista.isFetching ? 'Buscando…' : `${total} ${total === 1 ? 'registro' : 'registros'}`}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-borda px-4 py-2.5 text-sm text-suave">
+          <span className="flex items-center gap-4">
+            <span className="font-bold">
+              {lista.isFetching
+                ? 'Buscando…'
+                : `${total} ${total === 1 ? 'registro' : 'registros'}`}
+            </span>
             <label className="flex items-center gap-2">
               Linhas por página
-              <select
-                className="campo w-auto py-1"
+              <CampoSelect
+                className="w-auto py-1"
                 value={linhas}
-                onChange={(e) => {
-                  const n = Number(e.target.value)
-                  navegar({
-                    search: { busca: busca || undefined, linhas: n === 10 ? undefined : n },
-                  })
-                }}
-              >
-                {[10, 25, 50].map((n) => (
-                  <option key={n}>{n}</option>
-                ))}
-              </select>
+                onChange={(e) => ir({ linhas: Number(e.target.value) })}
+                vazio={false}
+                opcoes={[10, 25, 50]}
+              />
             </label>
           </span>
           {paginas > 1 && (
             <span className="flex items-center gap-1">
-              Página {pagina} de {paginas}
+              <span className="mr-2">
+                Página {pagina} de {paginas}
+              </span>
               {(
                 [
                   ['«', 1, 'Primeira página'],
@@ -168,18 +206,10 @@ export function Pacientes() {
               ).map(([simbolo, destino, rotulo]) => (
                 <button
                   key={rotulo}
-                  className="botao-leve px-2.5 py-1"
+                  className="botao-leve botao-pequeno"
                   aria-label={rotulo}
                   disabled={destino < 1 || destino > paginas || destino === pagina}
-                  onClick={() =>
-                    navegar({
-                      search: {
-                        busca: busca || undefined,
-                        pagina: destino > 1 ? destino : undefined,
-                        linhas: linhas === 10 ? undefined : linhas,
-                      },
-                    })
-                  }
+                  onClick={() => ir({ pagina: destino })}
                 >
                   {simbolo}
                 </button>
@@ -203,9 +233,7 @@ export function Pacientes() {
 
 export function Situacao({ ativo }: { ativo: boolean }) {
   return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-xs font-medium ${ativo ? 'bg-sucesso/15 text-sucesso' : 'bg-suave/15 text-suave'}`}
-    >
+    <span className={`etiqueta ${ativo ? 'etiqueta-sucesso' : ''}`}>
       {ativo ? 'Ativo' : 'Inativo'}
     </span>
   )
@@ -215,4 +243,9 @@ export function Situacao({ ativo }: { ativo: boolean }) {
 export function whatsapp(celular: string) {
   const n = celular.replace(/\D/g, '')
   return `https://wa.me/${n.length <= 11 ? `55${n}` : n}`
+}
+
+function iniciais(nome: string) {
+  const p = nome.trim().split(/\s+/)
+  return ((p[0]?.[0] ?? '') + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase()
 }

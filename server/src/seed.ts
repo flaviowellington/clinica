@@ -13,6 +13,9 @@ if (!senha) throw new Error('Defina SEED_SENHA em server/.env')
 const senhaHash = await gerarHash(senha)
 
 const data = (iso: string) => new Date(`${iso}T00:00:00Z`)
+/** Todas as datas do seed partem de hoje (fuso local): dias(-3) = 3 dias atrás, dias(5) = daqui a 5. */
+const hoje = data(new Date().toLocaleDateString('sv'))
+const dias = (n: number) => new Date(hoje.getTime() + n * 86_400_000)
 
 /** PNG de uma cor só, para as fotos fictícias (sem precisar de arquivo de imagem). */
 function pngLiso(largura: number, altura: number, [r, g, b]: readonly number[]) {
@@ -226,11 +229,11 @@ for (const p of pacientes) {
 // Gera só para quem ainda não tem nada de hoje em diante (profissional novo ganha agenda).
 let consultas = 0
 const agora = new Date()
-const hojeIso = agora.toLocaleDateString('sv') // aaaa-mm-dd no fuso local
+const hojeIso = hoje.toISOString().slice(0, 10)
 const dentistas = Object.values(pessoaDe)
 const gerar: number[] = []
 for (const [prof, id] of dentistas.entries())
-  if (!(await db.agendamento.count({ where: { profissionalId: id, data: { gte: data(hojeIso) } } })))
+  if (!(await db.agendamento.count({ where: { profissionalId: id, data: { gte: hoje } } })))
     gerar.push(prof)
 if (gerar.length) {
   const ativos = await db.pessoa.findMany({
@@ -295,7 +298,7 @@ if (gerar.length) {
   }
 
   for (let n = 0; n <= 60; n++) {
-    const dia = new Date(data(hojeIso).getTime() + n * 86_400_000)
+    const dia = dias(n)
     const semana = dia.getUTCDay()
     if (semana === 0) continue // domingo fechado
 
@@ -359,10 +362,8 @@ if (!(await db.lancamento.count())) {
     take: 6,
   })
   const formas = ['Pix', 'Cartão de crédito', 'Dinheiro', 'Cartão de débito']
-  const hoje = new Date()
-  hoje.setUTCHours(0, 0, 0, 0)
   for (let i = 0; i < alguns.length; i++) {
-    const data = new Date(hoje.getTime() - i * 86_400_000)
+    const data = dias(-i)
     const valor = (3 + i) * 15000
     await db.lancamento.create({
       data: {
@@ -439,9 +440,6 @@ if (!(await db.orcamento.count())) {
   })
   const procs = await db.procedimento.findMany({ orderBy: { id: 'asc' } })
   const dentistas = Object.values(pessoaDe)
-  const hoje = new Date()
-  hoje.setUTCHours(0, 0, 0, 0)
-  const dias = (n: number) => new Date(hoje.getTime() + n * 86_400_000)
   const item = (p: (typeof procs)[number], dente: string | null = null) => ({
     procedimentoId: p.id,
     nome: p.nome,
@@ -606,13 +604,11 @@ if (!(await db.orcamento.count())) {
 // ── Casos para os relatórios: faltas, atendidas, primeira consulta, desmarcações,
 // retornos, parcela atrasada e acessos a fichas, todos dentro do mês atual ──
 if (!(await db.agendamento.count({ where: { status: 'FALTOU' } }))) {
-  const hoje = new Date()
-  hoje.setUTCHours(0, 0, 0, 0)
   const primeiro = Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), 1)
   const ultimo = Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() + 1, 0)
   /** Hoje + n dias, sem sair do mês atual e sem cair no domingo. */
   const noMes = (n: number) => {
-    let t = Math.min(ultimo, Math.max(primeiro, hoje.getTime() + n * 86_400_000))
+    let t = Math.min(ultimo, Math.max(primeiro, dias(n).getTime()))
     if (new Date(t).getUTCDay() === 0) t += t + 86_400_000 <= ultimo ? 86_400_000 : -86_400_000
     return new Date(t)
   }
@@ -761,9 +757,6 @@ await db.usuario.upsert({
 })
 
 // ── Prontuário completo de um paciente: anamnese, odontograma, ficha, documentos, fotos ──
-const hojeSeed = new Date()
-hojeSeed.setUTCHours(0, 0, 0, 0)
-const diasAtras = (n: number) => new Date(hojeSeed.getTime() - n * 86_400_000)
 const completo = await db.pessoa.findFirstOrThrow({
   where: { tipo: 'PACIENTE', nome: 'Paciente Fictício Completo' },
 })
@@ -788,7 +781,7 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
       pacienteId: completo.id,
       respondente: 'PACIENTE',
       perguntas: responder(null),
-      criadoEm: diasAtras(400),
+      criadoEm: dias(-400),
       criadoPorId: adminId,
     },
   })
@@ -813,7 +806,7 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
       dente: '16',
       faces: 'MO',
       status: 'EXECUTADO' as const,
-      data: diasAtras(30),
+      data: dias(-30),
       obs: 'Resina cor A2',
       obsPac: 'Evitar alimentos duros por 24 horas',
     },
@@ -823,7 +816,7 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
       dente: null,
       faces: null,
       status: 'EXECUTADO' as const,
-      data: diasAtras(30),
+      data: dias(-30),
       obs: null,
       obsPac: null,
     },
@@ -833,7 +826,7 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
       dente: '26',
       faces: 'O',
       status: 'EXISTENTE' as const,
-      data: diasAtras(400),
+      data: dias(-400),
       obs: 'Feita em outra clínica',
       obsPac: null,
     },
@@ -843,7 +836,7 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
       dente: '46',
       faces: null,
       status: 'EXISTENTE' as const,
-      data: diasAtras(400),
+      data: dias(-400),
       obs: null,
       obsPac: null,
     },
@@ -886,7 +879,7 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
     cpf: completo.cpf?.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'),
     profissional: 'Dra. Fictícia Andrade',
     cro: 'CRO-XX 10001',
-    data: diasAtras(30).toISOString().slice(0, 10).split('-').reverse().join('/'),
+    data: dias(-30).toISOString().slice(0, 10).split('-').reverse().join('/'),
     cidade: 'Cidade Fictícia',
     horario: '14:00',
     dias: '1 dia',
@@ -898,7 +891,7 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
       modelo: 'atestado',
       titulo: MODELOS_DOCUMENTO.atestado.titulo,
       texto: docAtestado,
-      criadoEm: diasAtras(30),
+      criadoEm: dias(-30),
       criadoPorId: adminId,
     },
   })
@@ -952,52 +945,6 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
   console.log(`Prontuário completo criado para "${completo.nome}".`)
 }
 
-// ── Caixa: um caixa fechado ontem, com os recebimentos dele e uma diferença ──
-if (!(await db.caixa.count())) {
-  const recepcao = await db.usuario.findUniqueOrThrow({ where: { login: 'recepcao1' } })
-  const ontem = diasAtras(1)
-  const caixa = await db.caixa.create({
-    data: {
-      abertoEm: new Date(ontem.getTime() + 11 * 3_600_000),
-      abertoPorId: recepcao.id,
-      saldoInicialCentavos: 10000,
-      fechadoEm: new Date(ontem.getTime() + 21 * 3_600_000),
-      fechadoPorId: recepcao.id,
-      conferencia: {
-        Dinheiro: { esperado: 25000, contado: 24500 },
-        Pix: { esperado: 30000, contado: 30000 },
-      },
-      observacoes: 'Faltaram R$ 5,00 no troco (fictício).',
-    },
-  })
-  const pacs = await db.pessoa.findMany({
-    where: { tipo: 'PACIENTE', ativo: true, excluidoEm: null },
-    orderBy: { id: 'asc' },
-    skip: 3,
-    take: 2,
-  })
-  for (const [i, [valor, forma]] of (
-    [
-      [15000, 'Dinheiro'],
-      [30000, 'Pix'],
-    ] as const
-  ).entries())
-    await db.lancamento.create({
-      data: {
-        data: ontem,
-        tipo: 'ENTRADA',
-        valorCentavos: valor,
-        descricao: 'Recebimento no balcão',
-        forma,
-        categoria: 'Receita de tratamentos',
-        pacienteId: pacs[i].id,
-        caixaId: caixa.id,
-        criadoPorId: recepcao.id,
-      },
-    })
-  console.log('Caixa fechado de ontem criado.')
-}
-
 // ── Controle Protético: um trabalho em cada coluna, um deles atrasado ───────
 if (!(await db.trabalhoProtetico.count())) {
   const pacs = await db.pessoa.findMany({
@@ -1006,50 +953,49 @@ if (!(await db.trabalhoProtetico.count())) {
     skip: 5,
     take: 5,
   })
-  const emDias = (n: number) => new Date(hojeSeed.getTime() + n * 86_400_000)
   const trabalhos = [
     {
       etapa: 'PRE_ENVIO',
       trabalho: 'Coroa em porcelana',
       dentes: '11',
       cor: 'A2',
-      prazo: emDias(15),
+      prazo: dias(15),
     },
     {
       etapa: 'EM_LABORATORIO',
       trabalho: 'Prótese parcial removível',
       dentes: 'Arcada superior',
       cor: 'A3',
-      prazo: emDias(-2),
-      enviadoEm: emDias(-12),
+      prazo: dias(-2),
+      enviadoEm: dias(-12),
     },
     {
       etapa: 'RETORNO',
       trabalho: 'Placa de bruxismo',
       dentes: null,
       cor: null,
-      prazo: emDias(3),
-      enviadoEm: emDias(-10),
-      retornoEm: emDias(-1),
+      prazo: dias(3),
+      enviadoEm: dias(-10),
+      retornoEm: dias(-1),
     },
     {
       etapa: 'AGENDAMENTO',
       trabalho: 'Faceta em resina',
       dentes: '21, 22',
       cor: 'BL2',
-      prazo: emDias(1),
-      enviadoEm: emDias(-15),
-      retornoEm: emDias(-3),
+      prazo: dias(1),
+      enviadoEm: dias(-15),
+      retornoEm: dias(-3),
     },
     {
       etapa: 'INSTALADO',
       trabalho: 'Coroa metalocerâmica',
       dentes: '46',
       cor: 'A3',
-      prazo: emDias(-20),
-      enviadoEm: emDias(-35),
-      retornoEm: emDias(-22),
-      instaladoEm: emDias(-18),
+      prazo: dias(-20),
+      enviadoEm: dias(-35),
+      retornoEm: dias(-22),
+      instaladoEm: dias(-18),
     },
   ] as const
   for (const [i, t] of trabalhos.entries())
@@ -1073,7 +1019,7 @@ if (!(await db.mensagem.count())) {
       tipo: 'CONSULTA',
       excluidoEm: null,
       desmarcadoEm: null,
-      data: { gte: hojeSeed },
+      data: { gte: hoje },
       paciente: { email: { not: null } },
     },
     include: { paciente: true },

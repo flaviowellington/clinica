@@ -20,6 +20,8 @@ import {
   type ModeloDocumento,
 } from '../../../shared/prontuario'
 import { Dialogo } from './Dialogo'
+import { CampoSelect } from './CampoSelect'
+import { confirmar } from './Confirmar'
 
 export interface Documento {
   id: number
@@ -99,10 +101,10 @@ export function Documentos({ paciente }: { paciente: Paciente }) {
                   {podeEditar && (
                     <button
                       className="ml-3 text-perigo hover:underline"
-                      onClick={() =>
-                        confirm(
+                      onClick={async () =>
+                        (await confirmar(
                           `Excluir o documento "${d.titulo}"? Ele fica guardado no histórico.`,
-                        ) && excluir.mutate(d.id)
+                        )) && excluir.mutate(d.id)
                       }
                     >
                       Excluir
@@ -189,8 +191,7 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
         {modelo === 'receita' && medicamentos.length > 0 && (
           <label className="block">
             <span className="rotulo">Inserir medicamento</span>
-            <select
-              className="campo"
+            <CampoSelect
               value=""
               onChange={(e) => {
                 const m = medicamentos[Number(e.target.value)]
@@ -205,14 +206,9 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
                     : texto.replace(/\n\n\n/, `\n${n + 1}. ${linha}\n\n\n`),
                 )
               }}
-            >
-              <option value="">Escolha para inserir na receita…</option>
-              {medicamentos.map((m, i) => (
-                <option key={i} value={i}>
-                  {m.nome}
-                </option>
-              ))}
-            </select>
+              vazio="Escolha para inserir na receita…"
+              opcoes={medicamentos.map((m, i) => [i, m.nome] as const)}
+            />
           </label>
         )}
         <p className="text-suave">
@@ -244,32 +240,20 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
       <div className="grid gap-3 sm:grid-cols-2">
         <label>
           <span className="rotulo">Modelo</span>
-          <select
-            className="campo"
+          <CampoSelect
             value={modelo}
             onChange={(e) => setModelo(e.target.value as ModeloDocumento)}
-          >
-            {Object.entries(MODELOS_DOCUMENTO).map(([id, m]) => (
-              <option key={id} value={id}>
-                {m.titulo}
-              </option>
-            ))}
-          </select>
+            vazio={false}
+            opcoes={Object.entries(MODELOS_DOCUMENTO).map(([id, m]) => [id, m.titulo] as const)}
+          />
         </label>
         <label>
           <span className="rotulo">Profissional</span>
-          <select
-            className="campo"
+          <CampoSelect
             value={profissionalId}
             onChange={(e) => setProfissionalId(Number(e.target.value) || '')}
-          >
-            <option value="">Escolha…</option>
-            {profissionais.data?.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nome}
-              </option>
-            ))}
-          </select>
+            opcoes={profissionais.data?.map((p) => [p.id, p.nome] as const)}
+          />
         </label>
         {MODELOS_DOCUMENTO[modelo].variaveis.map((v) => (
           <label key={v}>
