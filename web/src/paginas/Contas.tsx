@@ -65,7 +65,7 @@ export function Contas() {
             <button
               key={c.id}
               onClick={() => ir(c.id)}
-              className="cartao space-y-2 p-5 text-left transition hover:border-primaria hover:shadow-md"
+              className="cartao space-y-2 p-5 text-left hover:border-primaria hover:shadow-md"
             >
               <p className="text-base font-semibold">{c.titulo}</p>
               <p className="text-suave">{c.texto}</p>

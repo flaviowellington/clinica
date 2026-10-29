@@ -21,7 +21,7 @@ export function Inicio() {
           <Link
             key={a.para}
             to={a.para}
-            className="cartao space-y-3 p-5 transition hover:border-primaria hover:shadow-md"
+            className="cartao space-y-3 p-5 hover:border-primaria hover:shadow-md"
           >
             <span className="inline-flex rounded-lg bg-primaria-clara p-2.5 text-primaria">
               <Icone nome={a.icone} />

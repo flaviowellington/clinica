@@ -137,7 +137,7 @@ export function Relatorios() {
             {r.isPlaceholderData && <p className="text-suave">Atualizando…</p>}
             {r.data && (
               <div
-                className={`overflow-x-auto transition-opacity ${r.isPlaceholderData ? 'opacity-40' : ''}`}
+                className={`overflow-x-auto ${r.isPlaceholderData ? 'opacity-40' : ''}`}
               >
                 <table className="w-full text-left">
                   <thead className="border-b border-borda text-suave">

@@ -67,7 +67,7 @@ interface Procedimento {
 }
 
 const COR_STATUS: Record<StatusOrcamento, string> = {
-  ABERTO: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
+  ABERTO: 'bg-info/15 text-info',
   APROVADO: 'bg-sucesso/15 text-sucesso',
   REPROVADO: 'bg-suave/15 text-suave',
   CANCELADO: 'bg-perigo/15 text-perigo',

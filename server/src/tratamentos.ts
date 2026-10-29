@@ -19,20 +19,33 @@ const hojeIso = () => hojeNaClinica()
 export const rotasRetornos = Router()
 
 const comPessoas = {
-  paciente: { select: { id: true, nome: true, celular: true } },
+  paciente: { select: { id: true, nome: true, celular: true, telefone: true, email: true } },
   profissional: { select: { id: true, nome: true } },
 } as const
 
-/** Abertos no período (padrão: de hoje a 60 dias). */
+// ponytail: antecedência fixa; vira configuração se a clínica pedir.
+/** O aviso automático do retorno sai esta quantidade de dias antes da data. */
+export const ANTECEDENCIA_RETORNO = 7
+/** Dia (aaaa-mm-dd) em que o aviso deve sair. */
+export const envioPrevisto = (data: Date) =>
+  isoDe(new Date(data.getTime() - ANTECEDENCIA_RETORNO * 86_400_000))
+
+/**
+ * Abertos até a data final (padrão: daqui a 60 dias). Sem "de", inclui os atrasados:
+ * o alerta só sai da lista quando o paciente confirma ou desmarca.
+ */
 rotasRetornos.get('/', exigir('agenda.ver'), async (req, res) => {
-  const de = dataIso(req.query.de) ? req.query.de : hojeIso()
   const ate = dataIso(req.query.ate) ? req.query.ate : isoDe(new Date(Date.now() + 60 * 86_400_000))
   const lista = await db.alertaRetorno.findMany({
-    where: { excluidoEm: null, concluidoEm: null, data: { gte: dia(de), lte: dia(ate) } },
-    include: comPessoas,
+    where: {
+      excluidoEm: null,
+      concluidoEm: null,
+      data: { gte: dataIso(req.query.de) ? dia(req.query.de) : undefined, lte: dia(ate) },
+    },
+    include: { ...comPessoas, mensagens: { orderBy: { id: 'desc' }, take: 20 } },
     orderBy: { data: 'asc' },
   })
-  res.json(lista.map((r) => ({ ...r, data: isoDe(r.data) })))
+  res.json(lista.map((r) => ({ ...r, data: isoDe(r.data), envioPrevisto: envioPrevisto(r.data) })))
 })
 
 rotasRetornos.post('/', exigir('agenda.editar'), async (req, res) => {
@@ -63,13 +76,6 @@ rotasRetornos.post('/', exigir('agenda.editar'), async (req, res) => {
     include: comPessoas,
   })
   res.status(201).json({ ...r, data: isoDe(r.data) })
-})
-
-rotasRetornos.post('/:id/concluir', exigir('agenda.editar'), async (req, res) => {
-  const r = await db.alertaRetorno.findFirst({ where: { id: id(req), excluidoEm: null } })
-  if (!r) return res.status(404).json({ erro: 'Alerta não encontrado.' })
-  await db.alertaRetorno.update({ where: { id: r.id }, data: { concluidoEm: new Date() } })
-  res.json({ ok: true })
 })
 
 rotasRetornos.delete('/:id', exigir('agenda.editar'), async (req, res) => {

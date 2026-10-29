@@ -3,7 +3,6 @@ import { db } from './db'
 import { exigir, usuarioDe } from './auth'
 import {
   CANAIS,
-  CATEGORIAS,
   COM_CHECKIN,
   STATUS,
   fimPadrao,
@@ -14,6 +13,8 @@ import {
   type StatusAgenda,
 } from '../../shared/agenda'
 import type { Prisma } from './generated/prisma/client'
+import { lerConfig } from './configuracoes'
+import { validarConfig } from '../../shared/configuracoes'
 
 const comDados = {
   paciente: { select: { id: true, nome: true, celular: true } },
@@ -109,7 +110,7 @@ rotasAgenda.post('/', exigir('agenda.editar'), async (req, res) => {
       inicio: d.inicio!,
       fim: d.fim ?? fimPadrao(d.inicio!),
       profissionalId: d.profissionalId!,
-      categoria: categoria && categoria in CATEGORIAS ? categoria : null,
+      categoria: categoria && categoria in (await lerConfig('categorias')) ? categoria : null,
       observacoes: texto(b.observacoes),
       primeiraConsulta: b.primeiraConsulta === true,
       confirmacao: canal(b.confirmacao),
@@ -119,6 +120,24 @@ rotasAgenda.post('/', exigir('agenda.editar'), async (req, res) => {
     include: comDados,
   })
   res.status(201).json(paraTela(criado))
+})
+
+/** Nova categoria (nome e cor) direto do agendamento; quem marca consulta pode criar. */
+rotasAgenda.post('/categorias', exigir('agenda.editar'), async (req, res) => {
+  const atuais = await lerConfig('categorias')
+  const nome = texto(req.body?.nome) ?? ''
+  const v = validarConfig('categorias', { ...atuais, [nome]: req.body?.cor })
+  if (v.erro !== undefined) return res.status(400).json({ erro: v.erro })
+  // Repetida com o mesmo nome exato: o objeto não cresce, então recusa aqui.
+  if (nome in atuais) return res.status(400).json({ erro: `Já existe a categoria "${nome}".` })
+  const valor = v.valor as Record<string, string>
+  const alteradoPorId = usuarioDe(res).id
+  await db.configuracao.upsert({
+    where: { chave: 'categorias' },
+    create: { chave: 'categorias', valor, alteradoPorId },
+    update: { valor, alteradoPorId },
+  })
+  res.status(201).json(valor)
 })
 
 /** Troca o status; "Em espera" grava o check-in (R-031). Voltar antes da chegada limpa. */

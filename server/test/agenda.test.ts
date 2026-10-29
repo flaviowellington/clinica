@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { db } from '../src/db'
-import { entrarComo, PACIENTE, usarServidor, type Cliente } from './ajuda'
+import { entrarComo, PACIENTE, urlBase, usarServidor, type Cliente } from './ajuda'
 import { HORARIOS } from '../../shared/agenda'
 
 usarServidor()
@@ -186,5 +186,48 @@ describe('permissões da agenda', () => {
     expect(
       (await fin('PATCH', `/api/agenda/${c.id}/status`, { status: 'CONFIRMADO' })).status,
     ).toBe(403)
+  })
+})
+
+describe('tempo real', () => {
+  it('quem está ouvindo recebe o aviso quando outro marca uma consulta', async () => {
+    const api = await entrarComo('RECEPCAO')
+    expect((await fetch(urlBase() + '/api/eventos')).status).toBe(401) // só logado
+    const ouvindo = await fetch(urlBase() + '/api/eventos', { headers: { cookie: api.cookie } })
+    const leitor = ouvindo.body!.getReader()
+    await leitor.read() // "retry" inicial: a conexão está aberta
+
+    const { marcar } = await preparar(api)
+    expect((await marcar()).status).toBe(201)
+    const { value } = await leitor.read()
+    expect(new TextDecoder().decode(value)).toContain('"assunto":"agenda"')
+    await leitor.cancel()
+  })
+})
+
+describe('categorias da agenda criadas pela clínica', () => {
+  it('quem marca consulta cria categoria com nome e cor e já pode usá-la', async () => {
+    const api = await entrarComo('RECEPCAO')
+    const r = await api('POST', '/api/agenda/categorias', { nome: ' Clareamento ', cor: '#FF00AA' })
+    expect(r.status).toBe(201)
+    expect(r.corpo).toMatchObject({ Avaliação: '#0ea5e9', Clareamento: '#ff00aa' })
+    const lidas = await api('GET', '/api/configuracoes/categorias')
+    expect(lidas.corpo.Clareamento).toBe('#ff00aa')
+    const { marcar } = await preparar(api)
+    expect((await marcar({ categoria: 'Clareamento' })).corpo.categoria).toBe('Clareamento')
+  })
+  it('recusa nome repetido (sem olhar acento e maiúsculas), vazio e cor inválida', async () => {
+    const api = await entrarComo('RECEPCAO')
+    for (const corpo of [
+      { nome: 'avaliacao', cor: '#123456' },
+      { nome: '  ', cor: '#123456' },
+      { nome: 'Nova', cor: 'vermelho' },
+    ])
+      expect((await api('POST', '/api/agenda/categorias', corpo)).status).toBe(400)
+  })
+  it('categoria que não existe não é gravada na consulta', async () => {
+    const api = await entrarComo('RECEPCAO')
+    const { marcar } = await preparar(api)
+    expect((await marcar({ categoria: 'Inventada' })).corpo.categoria).toBeNull()
   })
 })

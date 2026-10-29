@@ -19,8 +19,12 @@ export function CartaoConsulta(props: {
 
   const status = useMutation({
     mutationFn: async (s: StatusAgenda) =>
-      (await api.patch(`/agenda/${a.id}/status`, { status: s })).data,
-    onSuccess: () => {
+      (await api.patch<Agendamento>(`/agenda/${a.id}/status`, { status: s })).data,
+    onSuccess: (novo) => {
+      // Já troca na lista em memória: reabrir antes de a agenda recarregar mostra o status novo.
+      qc.setQueriesData<unknown>({ queryKey: ['agenda'] }, (l: unknown) =>
+        Array.isArray(l) ? l.map((x: Agendamento) => (x.id === novo.id ? novo : x)) : l,
+      )
       avisar('Status atualizado')
       atualizar()
       props.aoFechar()

@@ -1,7 +1,7 @@
 // Alerta de retorno, desmarcação, orçamentos e o financeiro que sai deles.
 import { describe, expect, it } from 'vitest'
 import { db } from '../src/db'
-import { entrarComo, PACIENTE, usarServidor, type Cliente } from './ajuda'
+import { entrarComo, PACIENTE, urlBase, usarServidor, type Cliente } from './ajuda'
 import { dividirParcelas, vencimentos } from '../../shared/orcamentos'
 
 usarServidor()
@@ -27,7 +27,7 @@ async function base(api: Cliente) {
 }
 
 describe('PT-20 e E-008 alerta de retorno', () => {
-  it('cria, lista os abertos do período e conclui', async () => {
+  it('cria e lista os abertos, com contatos e situação do aviso', async () => {
     const api = await entrarComo('RECEPCAO')
     const { dentista, paciente } = await base(api)
     const r = await api('POST', '/api/retornos', {
@@ -38,9 +38,83 @@ describe('PT-20 e E-008 alerta de retorno', () => {
     })
     expect(r.status).toBe(201)
     const lista = await api('GET', '/api/retornos?de=2026-11-01&ate=2026-11-30')
-    expect(lista.corpo).toMatchObject([{ data: '2026-11-20', paciente: { nome: PACIENTE.nome } }])
-    await api('POST', `/api/retornos/${r.corpo.id}/concluir`)
-    expect((await api('GET', '/api/retornos?de=2026-11-01&ate=2026-11-30')).corpo).toEqual([])
+    expect(lista.corpo).toMatchObject([
+      {
+        data: '2026-11-20',
+        situacao: 'AGUARDANDO_ENVIO',
+        envioPrevisto: '2026-11-13',
+        paciente: { nome: PACIENTE.nome },
+        mensagens: [],
+      },
+    ])
+    // Sem botão "Feito": quem tira da lista é a resposta do paciente.
+    expect((await api('POST', `/api/retornos/${r.corpo.id}/concluir`)).status).toBe(404)
+  })
+})
+
+describe('integração do aviso de retorno (n8n)', () => {
+  const TOKEN = 'token-de-teste-da-integracao'
+  const n8n = async (metodo: string, caminho: string, corpo?: unknown, token = TOKEN) => {
+    const r = await fetch(urlBase() + '/api/integracao' + caminho, {
+      method: metodo,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: corpo === undefined ? undefined : JSON.stringify(corpo),
+    })
+    return { status: r.status, corpo: await r.json() }
+  }
+
+  it('sem o token certo não entra', async () => {
+    process.env.INTEGRACAO_TOKEN = TOKEN
+    expect((await n8n('GET', '/retornos/pendentes', undefined, 'errado')).status).toBe(401)
+    delete process.env.INTEGRACAO_TOKEN
+    expect((await n8n('GET', '/retornos/pendentes')).status).toBe(503)
+  })
+
+  it('entrega os pendentes, registra envio e resposta, e tira da lista ao confirmar', async () => {
+    process.env.INTEGRACAO_TOKEN = TOKEN
+    const api = await entrarComo('RECEPCAO')
+    const { dentista, paciente } = await base(api)
+    await db.pessoa.update({ where: { id: paciente.id }, data: { celular: '(11) 99999-0000' } })
+    const hoje = new Date().toISOString().slice(0, 10)
+    const longe = '2099-01-10'
+    const { corpo: perto } = await api('POST', '/api/retornos', {
+      pacienteId: paciente.id,
+      profissionalId: dentista.id,
+      data: hoje,
+    })
+    await api('POST', '/api/retornos', {
+      pacienteId: paciente.id,
+      profissionalId: dentista.id,
+      data: longe,
+    })
+
+    // Só o que já está na hora de avisar.
+    const pend = await n8n('GET', '/retornos/pendentes')
+    expect(pend.corpo).toMatchObject([
+      { id: perto.id, paciente: { nome: PACIENTE.nome, celular: '(11) 99999-0000' } },
+    ])
+
+    expect((await n8n('POST', `/retornos/${perto.id}/eventos`, { tipo: 'ENVIADO' })).status).toBe(
+      200,
+    )
+    expect((await n8n('GET', '/retornos/pendentes')).corpo).toEqual([])
+
+    await n8n('POST', `/retornos/${perto.id}/eventos`, { tipo: 'RESPOSTA', texto: 'Qual horário?' })
+    let [r] = (await api('GET', '/api/retornos')).corpo
+    expect(r).toMatchObject({ id: perto.id, situacao: 'RESPONDEU' })
+    expect(r.mensagens.map((m: { status: string }) => m.status)).toEqual(['RECEBIDA', 'ENVIADA'])
+
+    const ruim = await n8n('POST', `/retornos/${perto.id}/eventos`, { tipo: 'QUALQUER' })
+    expect(ruim.status).toBe(400)
+
+    await n8n('POST', `/retornos/${perto.id}/eventos`, {
+      tipo: 'RESPOSTA',
+      texto: 'Pode marcar',
+      situacao: 'CONFIRMADO',
+    })
+    const abertos = (await api('GET', '/api/retornos?ate=2099-12-31')).corpo
+    expect(abertos.map((x: { data: string }) => x.data)).toEqual([longe])
+    delete process.env.INTEGRACAO_TOKEN
   })
 })
 

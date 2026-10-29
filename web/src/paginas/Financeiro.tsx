@@ -57,9 +57,9 @@ export function Financeiro() {
             <button
               key={a.id}
               onClick={() => ir(a.id)}
-              className="cartao space-y-3 text-left transition hover:border-primaria hover:shadow-md"
+              className="cartao space-y-3 text-left hover:border-primaria hover:shadow-md"
             >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primaria font-semibold text-white dark:text-black">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primaria font-semibold text-sobre-primaria">
                 {i + 1}
               </span>
               <p className="text-base font-medium">{a.rotulo}</p>
@@ -133,7 +133,7 @@ interface Resposta {
 }
 
 const COR: Record<TipoLancamento, string> = {
-  VENDA: 'text-sky-600 dark:text-sky-400',
+  VENDA: 'text-info',
   CANCELAMENTO: 'text-suave',
   ENTRADA: 'text-sucesso',
   SAIDA: 'text-perigo',

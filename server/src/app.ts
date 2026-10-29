@@ -11,6 +11,8 @@ import { rotasAgenda } from './agenda'
 import { rotasContas, rotasFinanceiro, rotasProfissionais, rotasRelatorios } from './gestao'
 import { rotasFinanceiroContas } from './financeiro'
 import { rotasOrcamentos, rotasProcedimentos, rotasRetornos } from './tratamentos'
+import { rotasIntegracao } from './integracao'
+import { abrirEventos, avisarAoMudar } from './tempoReal'
 import { rotasFichaPaciente, rotasProntuario } from './prontuario'
 import { rotasEu, rotasUsuarios } from './usuarios'
 import { rotasConfiguracoes, rotasTabelaProcedimentos } from './configuracoes'
@@ -52,7 +54,8 @@ export function criarApp() {
   })
 
   // Sem login: a página em que o paciente confirma a consulta pelo link do e-mail.
-  app.use('/api/publico', rotasPublicas)
+  app.use('/api/publico', avisarAoMudar('agenda'), rotasPublicas)
+  app.use('/api/integracao', avisarAoMudar('retornos'), rotasIntegracao) // n8n: entra por token, não por login
 
   app.get('/api/eu', exigirLogin, (_req, res) => {
     const { id, nome, login, perfis } = usuarioDe(res)
@@ -62,10 +65,12 @@ export function criarApp() {
   app.use('/api/pacientes', exigirLogin, rotasPacientes, rotasFichaPaciente)
   app.use('/api/prontuario', exigirLogin, rotasProntuario)
   app.use('/api/lixeira', exigirLogin, rotasLixeira)
-  app.use('/api/agenda', exigirLogin, rotasAgenda)
-  app.use('/api/profissionais', exigirLogin, rotasProfissionais)
+  // Tempo real: o navegador fica ouvindo; alterações abaixo avisam todos (tempoReal.ts).
+  app.get('/api/eventos', exigirLogin, abrirEventos)
+  app.use('/api/agenda', exigirLogin, avisarAoMudar('agenda'), rotasAgenda)
+  app.use('/api/profissionais', exigirLogin, avisarAoMudar('agenda'), rotasProfissionais)
   app.use('/api/financeiro', exigirLogin, rotasFinanceiro, rotasFinanceiroContas)
-  app.use('/api/retornos', exigirLogin, rotasRetornos)
+  app.use('/api/retornos', exigirLogin, avisarAoMudar('retornos'), rotasRetornos)
   app.use('/api/procedimentos', exigirLogin, rotasProcedimentos, rotasTabelaProcedimentos)
   app.use('/api/orcamentos', exigirLogin, rotasOrcamentos)
   app.use('/api/contas', exigirLogin, rotasContas)
@@ -75,7 +80,7 @@ export function criarApp() {
   app.use('/api/configuracoes', exigirLogin, rotasConfiguracoes)
   app.use('/api/caixa', exigirLogin, rotasCaixa)
   app.use('/api/protetico', exigirLogin, rotasProtetico)
-  app.use('/api/confirmacoes', exigirLogin, rotasConfirmacoes)
+  app.use('/api/confirmacoes', exigirLogin, avisarAoMudar('agenda'), rotasConfirmacoes)
   app.use('/api/painel', exigirLogin, rotasPainel)
   app.use('/api/importacao', exigirLogin, rotasImportacao)
   app.use('/api', (_req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }))

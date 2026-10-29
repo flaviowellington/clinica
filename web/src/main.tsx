@@ -15,9 +15,13 @@ import {
   redirect,
   RouterProvider,
 } from '@tanstack/react-router'
+import '@fontsource/m-plus-rounded-1c/latin-400.css'
+import '@fontsource/m-plus-rounded-1c/latin-500.css'
+import '@fontsource/m-plus-rounded-1c/latin-700.css'
+import '@fontsource/m-plus-rounded-1c/latin-800.css'
 import './index.css'
 import { api, consultaEu } from './api'
-import { useAvisos, useTema } from './estado'
+import { PALETAS, useAvisos, useTema, type Paleta } from './estado'
 import { pode } from '../../shared/permissoes'
 import { Entrar } from './paginas/Entrar'
 import { Pacientes } from './paginas/Pacientes'
@@ -39,6 +43,7 @@ import { Confirmacoes } from './paginas/Confirmacoes'
 import { ConfirmarPresenca } from './paginas/ConfirmarPresenca'
 import { Painel } from './paginas/Painel'
 import { Importacao } from './paginas/Importacao'
+import { Estilos } from './paginas/Estilos'
 import { Dialogo } from './componentes/Dialogo'
 import { ABAS } from './abas'
 import { Icone } from './componentes/Icones'
@@ -49,14 +54,16 @@ const queryClient = new QueryClient({
 })
 
 function Raiz() {
-  const tema = useTema((s) => s.tema)
+  const { tema, paleta } = useTema()
   const avisos = useAvisos((s) => s.avisos)
   useEffect(() => {
     document.documentElement.dataset.tema = tema
-  }, [tema])
+    document.documentElement.dataset.paleta = paleta
+  }, [tema, paleta])
   return (
     <>
       <Outlet />
+      <SeletorPaleta />
       <div aria-live="polite" className="fixed right-4 bottom-4 space-y-2">
         {avisos.map((a) => (
           <div
@@ -71,10 +78,63 @@ function Raiz() {
   )
 }
 
+// TEMPORÁRIO: para escolher a paleta da marca. Apagar quando a clínica decidir
+// (deixar só a paleta escolhida no index.css).
+function SeletorPaleta() {
+  const { tema, paleta, alternar, escolherPaleta } = useTema()
+  return (
+    <div className="fixed bottom-4 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center overflow-x-auto gap-1 rounded-full border border-borda bg-superficie p-1 shadow-lg print:hidden">
+      {(Object.keys(PALETAS) as Paleta[]).map((p) => (
+        <button
+          key={p}
+          onClick={() => escolherPaleta(p)}
+          aria-pressed={p === paleta}
+          className={`rounded-full px-3 py-1 text-xs font-bold whitespace-nowrap ${p === paleta ? 'bg-primaria text-sobre-primaria' : 'text-suave hover:bg-primaria-clara'}`}
+        >
+          {PALETAS[p]}
+        </button>
+      ))}
+      <button
+        onClick={alternar}
+        className="rounded-full px-3 py-1 text-xs font-bold whitespace-nowrap text-suave hover:bg-primaria-clara"
+        title="Alternar claro/escuro"
+      >
+        {tema === 'claro' ? '☾ Escuro' : '☀ Claro'}
+      </button>
+    </div>
+  )
+}
+
+/** O que recarregar quando o servidor avisa que um assunto mudou (server/src/tempoReal.ts). */
+const RECARREGAR: Record<string, string[][]> = {
+  agenda: [['agenda'], ['confirmacoes'], ['agendamentos-paciente']],
+  retornos: [['retornos']],
+}
+
+/** Tempo real: ouve os avisos do servidor e recarrega o que outra máquina mudou. */
+function useTempoReal() {
+  const qc = useQueryClient()
+  useEffect(() => {
+    const recarregar = (assunto: string) =>
+      RECARREGAR[assunto]?.forEach((queryKey) => qc.invalidateQueries({ queryKey }))
+    const fonte = new EventSource('/api/eventos') // reconecta sozinho se a rede cair
+    let caiu = false
+    fonte.onerror = () => (caiu = true)
+    fonte.onopen = () => {
+      // Voltou depois de cair: pode ter perdido avisos, então recarrega tudo.
+      if (caiu) Object.keys(RECARREGAR).forEach(recarregar)
+      caiu = false
+    }
+    fonte.onmessage = (e) => recarregar(JSON.parse(e.data).assunto)
+    return () => fonte.close()
+  }, [qc])
+}
+
 function Layout() {
   const { data: eu } = useSuspenseQuery(consultaEu)
-  const { alternar, tema } = useTema()
+  const { alternar, tema, menuRecolhido, alternarMenu } = useTema()
   const qc = useQueryClient()
+  useTempoReal()
   const [trocarSenha, setTrocarSenha] = useState(false)
   async function sair() {
     await api.post('/sair')
@@ -84,19 +144,36 @@ function Layout() {
   const item =
     'flex items-center gap-3 rounded-md px-3 py-2 text-suave hover:bg-primaria-clara hover:text-texto [&.active]:bg-primaria-clara [&.active]:font-medium [&.active]:text-primaria'
   // No celular a barra mostra só os ícones; o nome continua lido por leitores de tela.
-  const nome = 'sr-only lg:not-sr-only'
+  // Recolhida: só ícones em qualquer tela.
+  const nome = menuRecolhido ? 'sr-only' : 'sr-only lg:not-sr-only'
   return (
     <div className="flex min-h-screen">
-      <div className="sticky top-0 flex h-screen w-16 shrink-0 flex-col border-r border-borda bg-superficie p-2 lg:w-56 lg:p-3 print:hidden">
-        <Link to="/" className="mb-4 flex items-center gap-2 px-3 py-2 font-semibold text-primaria">
-          <span
-            className="grid size-7 shrink-0 place-items-center rounded-md bg-primaria text-white dark:text-black"
-            aria-hidden
+      <div
+        className={`sticky top-0 flex h-screen w-16 shrink-0 flex-col border-r border-borda bg-superficie p-2 print:hidden ${menuRecolhido ? '' : 'lg:w-56 lg:p-3'}`}
+      >
+        {/* Recolhida, a barra só tem 4rem: logo e botão ficam um embaixo do outro. */}
+        <div
+          className={`mb-4 flex items-center ${menuRecolhido ? 'flex-col gap-1' : 'justify-between'}`}
+        >
+          <Link to="/" className="flex items-center gap-2 px-3 py-2 font-semibold text-primaria">
+            <span
+              className="grid size-7 shrink-0 place-items-center rounded-md bg-primaria text-sobre-primaria"
+              aria-hidden
+            >
+              C
+            </span>
+            <span className={nome}>Clínica</span>
+          </Link>
+          <button
+            className="hidden size-8 shrink-0 place-items-center rounded-lg text-suave hover:bg-primaria-clara hover:text-texto lg:grid"
+            onClick={alternarMenu}
+            title={menuRecolhido ? 'Expandir menu' : 'Recolher menu'}
+            aria-label={menuRecolhido ? 'Expandir menu' : 'Recolher menu'}
+            aria-expanded={!menuRecolhido}
           >
-            C
-          </span>
-          <span className={nome}>Clínica</span>
-        </Link>
+            <Icone nome={menuRecolhido ? 'expandir' : 'recolher'} />
+          </button>
+        </div>
         <nav aria-label="Menu principal" className="flex flex-1 flex-col gap-1 overflow-y-auto">
           <Link to="/" className={item} activeOptions={{ exact: true }} title="Início">
             <Icone nome="inicio" />
@@ -209,6 +286,11 @@ const documento = createRoute({
 const lixeira = createRoute({ getParentRoute: () => logado, path: '/lixeira', component: Lixeira })
 
 const agenda = createRoute({ getParentRoute: () => logado, path: '/agenda', component: Agenda })
+const agenda2 = createRoute({
+  getParentRoute: () => logado,
+  path: '/agenda-2',
+  component: () => <Agenda filtrosNoTopo />,
+})
 
 const financeiro = createRoute({
   getParentRoute: () => logado,
@@ -248,6 +330,16 @@ const protetico = pagina('/protetico', Protetico)
 const confirmacoes = pagina('/confirmacoes', Confirmacoes)
 const painel = pagina('/painel', Painel)
 const importacao = pagina('/importacao', Importacao)
+// TEMPORÁRIO e público (sem dados de paciente): vitrine para escolher a paleta.
+const estilos = createRoute({
+  getParentRoute: () => raiz,
+  path: '/estilos',
+  component: () => (
+    <main className="mx-auto max-w-5xl p-4">
+      <Estilos />
+    </main>
+  ),
+})
 // Pública: o paciente abre pelo link do e-mail, sem login.
 const confirmar = createRoute({
   getParentRoute: () => raiz,
@@ -266,9 +358,11 @@ const router = createRouter({
   routeTree: raiz.addChildren([
     entrar,
     confirmar,
+    estilos,
     logado.addChildren([
       inicio,
       agenda,
+      agenda2,
       pacientes,
       ficha,
       lixeira,

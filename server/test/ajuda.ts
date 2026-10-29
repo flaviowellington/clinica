@@ -46,6 +46,9 @@ export function usarServidor() {
   })
 }
 
+/** Endereço da API de teste, para chamadas fora do login (integração). */
+export const urlBase = () => base
+
 export type Cliente = ReturnType<typeof cliente>
 
 export function cliente(cookie = '') {
@@ -86,7 +89,8 @@ export async function criarUsuario(perfis: Perfil[]) {
 export async function entrarComo(...perfis: Perfil[]) {
   const u = await criarUsuario(perfis)
   const r = await cliente()('POST', '/api/entrar', { login: u.login, senha: SENHA })
-  return Object.assign(cliente(r.cookie.split(';')[0]), { usuario: u })
+  const cookie = r.cookie.split(';')[0]
+  return Object.assign(cliente(cookie), { usuario: u, cookie })
 }
 
 export const PACIENTE = { nome: 'Fulano de Teste', nascimento: '1990-01-01' }

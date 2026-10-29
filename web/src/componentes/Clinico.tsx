@@ -44,12 +44,12 @@ interface ItemClinico {
 const STATUS: Record<Status, { rotulo: string; classe: string; cor: string }> = {
   A_REALIZAR: {
     rotulo: 'A realizar',
-    classe: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+    classe: 'bg-aviso/15 text-aviso',
     cor: '#d97706',
   },
   EXECUTADO: {
     rotulo: 'Executado',
-    classe: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
+    classe: 'bg-info/15 text-info',
     cor: '#0284c7',
   },
   EXISTENTE: { rotulo: 'Existente', classe: 'bg-suave/15 text-suave', cor: '#6b7280' },

@@ -2,6 +2,7 @@
 // O servidor guarda só o que a clínica mudou; o resto vem daqui.
 import { MODELOS_DOCUMENTO, MODELO_ANAMNESE, lerPerguntas, type Pergunta } from './prontuario'
 import { normalizar } from './regras'
+import { CATEGORIAS } from './agenda'
 
 export interface DadosClinica {
   nome: string
@@ -35,6 +36,8 @@ export const PADROES = {
     Object.entries(MODELOS_DOCUMENTO).map(([id, m]) => [id, m.texto]),
   ) as Record<keyof typeof MODELOS_DOCUMENTO, string>,
   medicamentos: [] as Medicamento[],
+  /** Categorias da agenda (nome → cor); a clínica pode criar outras. */
+  categorias: { ...CATEGORIAS } as Record<string, string>,
   especialidades: [
     'Clínica geral',
     'Cirurgia',
@@ -113,6 +116,22 @@ export function validarConfig(
       const valor = bruto
         .map((e) => txt(e, 80))
         .filter((e) => e && !vistos.has(normalizar(e)) && vistos.add(normalizar(e)))
+      return { valor }
+    }
+    case 'categorias': {
+      const pares = Object.entries(b ?? {})
+      if (!pares.length || pares.length > 60) return { erro: 'Lista de categorias inválida.' }
+      const vistos = new Set<string>()
+      const valor: Record<string, string> = {}
+      for (const [n, c] of pares) {
+        const nome = txt(n, 40)
+        const cor = typeof c === 'string' ? c.trim().toLowerCase() : ''
+        if (!nome) return { erro: 'Informe o nome da categoria.' }
+        if (!/^#[0-9a-f]{6}$/.test(cor)) return { erro: `Cor inválida em "${nome}".` }
+        if (vistos.has(normalizar(nome))) return { erro: `Já existe a categoria "${nome}".` }
+        vistos.add(normalizar(nome))
+        valor[nome] = cor
+      }
       return { valor }
     }
     case 'mensagens': {

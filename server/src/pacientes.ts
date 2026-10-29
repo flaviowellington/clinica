@@ -70,9 +70,23 @@ const NAO_ACHOU = { erro: 'Paciente não encontrado.' }
 export const rotasPacientes = Router()
 
 // Busca em qualquer parte do nome (acha pelo sobrenome); "%" digitado é ignorado.
+// Com 3 dígitos ou mais, também acha por CPF ou telefone, ignorando pontos, traços e espaços.
 rotasPacientes.get('/', exigir('paciente.ver'), async (req, res) => {
   const bruto = String(req.query.busca ?? '').trim()
   const termo = normalizar(bruto.replace(/[%_\\]/g, ''))
+  const digitos = bruto.replace(/\D/g, '')
+  const trecho = `%${digitos}%`
+  const porNumero =
+    digitos.length >= 3
+      ? (
+          await db.$queryRaw<{ id: number }[]>`
+            SELECT id FROM "Pessoa"
+            WHERE tipo = 'PACIENTE' AND "excluidoEm" IS NULL
+              AND (cpf LIKE ${trecho}
+                OR regexp_replace(coalesce(celular, ''), '\\D', '', 'g') LIKE ${trecho}
+                OR regexp_replace(coalesce(telefone, ''), '\\D', '', 'g') LIKE ${trecho})`
+        ).map((r) => r.id)
+      : []
 
   const pagina = Math.max(1, Number(req.query.pagina) || 1)
   const porPagina = TAMANHOS.includes(Number(req.query.porPagina))
@@ -82,7 +96,9 @@ rotasPacientes.get('/', exigir('paciente.ver'), async (req, res) => {
   const where = {
     tipo: 'PACIENTE' as const,
     excluidoEm: null,
-    ...(termo && { nomeBusca: { contains: termo } }),
+    ...(termo && {
+      OR: [{ nomeBusca: { contains: termo } }, { id: { in: porNumero } }],
+    }),
   }
   const [total, itens] = await Promise.all([
     db.pessoa.count({ where }),

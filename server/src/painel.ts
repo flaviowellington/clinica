@@ -3,7 +3,7 @@ import { Router } from 'express'
 import { db } from './db'
 import { exigir } from './auth'
 import { periodo } from './financeiro'
-import { CATEGORIAS, HORARIOS, INTERVALO, paraMinutos } from '../../shared/agenda'
+import { HORARIOS, INTERVALO, paraMinutos } from '../../shared/agenda'
 import { hojeNaClinica } from '../../shared/regras'
 
 const DIA_MS = 86_400_000
@@ -87,9 +87,7 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
       faltas: consultas.filter((c) => c.status === 'FALTOU').length,
       desmarcadas,
       ocupacao: disponiveis ? usados / disponiveis : 0,
-      porCategoria: somarPor(consultas, (c) =>
-        c.categoria && c.categoria in CATEGORIAS ? c.categoria : 'Sem categoria',
-      ),
+      porCategoria: somarPor(consultas, (c) => c.categoria || 'Sem categoria'),
       porProfissional: [...porProfissional]
         .map(([nome, g]) => ({ nome, ...g }))
         .sort((a, b) => b.consultas - a.consultas),

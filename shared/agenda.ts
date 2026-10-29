@@ -91,3 +91,64 @@ export function validarAgendamento(d: DadosAgendamento): Record<string, string> 
   } else if (!d.pacienteId) erros.pacienteId = 'Escolha o paciente.'
   return erros
 }
+
+/**
+ * Grade do dia: agendamentos que se sobrepõem dividem a coluna do profissional, lado a lado.
+ * Encaixe = começa enquanto outro do mesmo grupo ainda não terminou (o que entrou depois).
+ */
+export function ladoALado(itens: { id: number; inicio: string; fim: string }[]) {
+  const res = new Map<number, { coluna: number; colunas: number; encaixe: boolean }>()
+  const ordem = [...itens].sort((a, b) => a.inicio.localeCompare(b.inicio) || a.id - b.id)
+  let grupo: typeof itens = []
+  let faixas: string[] = [] // fim do último agendamento em cada coluna do grupo
+  let fimGrupo = ''
+  const fechar = () => {
+    for (const x of grupo) res.get(x.id)!.colunas = faixas.length
+    grupo = []
+    faixas = []
+  }
+  for (const a of ordem) {
+    if (grupo.length && a.inicio >= fimGrupo) fechar() // "hh:mm" ordena como texto
+    let coluna = faixas.findIndex((f) => f <= a.inicio)
+    if (coluna < 0) coluna = faixas.push(a.fim) - 1
+    else faixas[coluna] = a.fim
+    res.set(a.id, { coluna, colunas: 1, encaixe: grupo.some((b) => b.fim > a.inicio) })
+    fimGrupo = grupo.length && fimGrupo > a.fim ? fimGrupo : a.fim
+    grupo.push(a)
+  }
+  fechar()
+  return res
+}
+
+/** Horários escolhidos no modal: do "inicio" ao "ultimo" (inclusive); "clicado" é o último ativo. */
+export interface SelecaoHorario {
+  inicio: string
+  ultimo: string // vazio = só o início, esperando o segundo clique
+  clicado: string
+}
+
+/**
+ * Um clique na grade de horários:
+ * - nada escolhido: começa ali e espera o segundo clique;
+ * - segundo clique: faixa entre os dois, em qualquer ordem;
+ * - com faixa pronta, clique fora dela aumenta até ali; dentro, recomeça ali;
+ * - clicar de novo no último ativo limpa tudo;
+ * - se a faixa passaria por horário ocupado, recomeça no clique.
+ * "hh:mm" ordena como texto.
+ */
+export function clicarHorario(
+  s: SelecaoHorario,
+  h: string,
+  ocupadoEntre: (a: string, b: string) => boolean,
+): SelecaoHorario {
+  const recomeca = { inicio: h, ultimo: '', clicado: h }
+  if (!s.inicio) return recomeca
+  if (h === s.clicado) return { inicio: '', ultimo: '', clicado: '' }
+  const fim = s.ultimo || s.inicio
+  let a: string, b: string
+  if (!s.ultimo) [a, b] = h < s.inicio ? [h, s.inicio] : [s.inicio, h]
+  else if (h < s.inicio) [a, b] = [h, fim]
+  else if (h > fim) [a, b] = [s.inicio, h]
+  else return recomeca // dentro da faixa
+  return ocupadoEntre(a, b) ? recomeca : { inicio: a, ultimo: b, clicado: h }
+}

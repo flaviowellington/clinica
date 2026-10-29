@@ -8,6 +8,7 @@ const todos = () => true
 export const ABAS: {
   para:
     | '/agenda'
+    | '/agenda-2'
     | '/confirmacoes'
     | '/pacientes'
     | '/protetico'
@@ -29,6 +30,13 @@ export const ABAS: {
     para: '/agenda',
     rotulo: 'Agenda',
     descricao: 'Marque, remarque e acompanhe as consultas do dia.',
+    icone: 'agenda',
+    visivel: todos,
+  },
+  {
+    para: '/agenda-2',
+    rotulo: 'Agenda 2',
+    descricao: 'A agenda com os filtros no topo e a grade na largura toda.',
     icone: 'agenda',
     visivel: todos,
   },

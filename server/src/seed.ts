@@ -5,7 +5,7 @@ import { gerarHash } from './auth'
 import { deflateSync, crc32 } from 'node:zlib'
 import { normalizar } from '../../shared/regras'
 import { MODELO_ANAMNESE, MODELOS_DOCUMENTO, preencherModelo } from '../../shared/prontuario'
-import type { MotivoInativacao, Perfil, Prisma } from './generated/prisma/client'
+import type { MotivoInativacao, Perfil, Prisma, StatusAgenda } from './generated/prisma/client'
 
 if (process.env.NODE_ENV === 'production') throw new Error('O seed não roda em produção.')
 const senha = process.env.SEED_SENHA
@@ -69,6 +69,27 @@ const profissionais = [
     especialidade: 'Dentística',
     corAgenda: '#a855f7',
     cro: 'CRO-XX 10003',
+  },
+  {
+    login: 'dentista4',
+    nome: 'Dr. Fictício Duarte',
+    especialidade: 'Implantodontia',
+    corAgenda: '#22c55e',
+    cro: 'CRO-XX 10004',
+  },
+  {
+    login: 'dentista5',
+    nome: 'Dra. Fictícia Esteves',
+    especialidade: 'Odontopediatria',
+    corAgenda: '#ec4899',
+    cro: 'CRO-XX 10005',
+  },
+  {
+    login: 'dentista6',
+    nome: 'Dr. Fictício Freitas',
+    especialidade: 'Periodontia',
+    corAgenda: '#14b8a6',
+    cro: 'CRO-XX 10006',
   },
 ]
 const pessoaDe: Record<string, number> = {}
@@ -201,53 +222,131 @@ for (const p of pacientes) {
   criados++
 }
 
-// ── Agenda: consultas fictícias a partir de hoje (só se a agenda estiver vazia) ──
+// ── Agenda: hoje + 60 dias bem cheios, com encaixes (sobrepostos) e compromissos ──
+// Gera só para quem ainda não tem nada de hoje em diante (profissional novo ganha agenda).
 let consultas = 0
-if (!(await db.agendamento.count())) {
+const agora = new Date()
+const hojeIso = agora.toLocaleDateString('sv') // aaaa-mm-dd no fuso local
+const dentistas = Object.values(pessoaDe)
+const gerar: number[] = []
+for (const [prof, id] of dentistas.entries())
+  if (!(await db.agendamento.count({ where: { profissionalId: id, data: { gte: data(hojeIso) } } })))
+    gerar.push(prof)
+if (gerar.length) {
   const ativos = await db.pessoa.findMany({
     where: { tipo: 'PACIENTE', ativo: true, excluidoEm: null },
-    take: 12,
     orderBy: { id: 'asc' },
   })
-  const dentistas = Object.values(pessoaDe)
-  const horarios = ['08:30', '09:00', '10:15', '11:00', '14:00', '15:30', '16:45', '18:00']
-  const categorias = ['Avaliação', 'Consulta', 'Retorno', 'Cirurgia', null]
-  const hoje = new Date()
-  hoje.setUTCHours(0, 0, 0, 0)
-  const diaUtil = (d: Date) => (d.getUTCDay() === 0 ? new Date(d.getTime() + 86_400_000) : d)
-  const hora = (min: number) =>
+  const recepcaoId = (await db.usuario.findUniqueOrThrow({ where: { login: 'recepcao1' } })).id
+  // Sorteio com semente fixa: a agenda gerada é sempre a mesma.
+  let semente = 20261028
+  const sorte = () => (semente = (semente * 1103515245 + 12345) % 2 ** 31) / 2 ** 31
+  const um = <T>(xs: readonly T[]) => xs[Math.floor(sorte() * xs.length)]
+  const hhmm = (min: number) =>
     `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
-  for (let i = 0; i < ativos.length; i++) {
-    const inicio = horarios[i % horarios.length]
-    const [h, m] = inicio.split(':').map(Number)
-    const espera = i === 0 // um paciente já chegou (check-in)
-    await db.agendamento.create({
-      data: {
-        data: diaUtil(new Date(hoje.getTime() + (i % 4) * 86_400_000)),
-        inicio,
-        fim: hora(h * 60 + m + (i % 3 === 0 ? 30 : 15)),
-        profissionalId: dentistas[i % dentistas.length],
-        pacienteId: ativos[i].id,
-        categoria: categorias[i % categorias.length],
-        status: espera ? 'EM_ESPERA' : i % 5 === 1 ? 'CONFIRMADO' : 'AGENDADO',
-        checkinEm: espera ? new Date() : null,
-        esperaInicio: espera ? new Date() : null,
-        criadoPorId: adminId,
-      },
+  const minAgora = agora.getHours() * 60 + agora.getMinutes()
+  const categorias = ['Consulta', 'Consulta', 'Retorno', 'Avaliação', 'Periódico', 'Ortopedia', 'Cirurgia']
+  const observacoes = [
+    'Paciente ansioso, explicar o procedimento.',
+    'Trazer exames.',
+    'Prefere ser chamado pelo apelido.',
+    'Alergia a dipirona (fictício).',
+  ]
+  const linhas: Prisma.AgendamentoUncheckedCreateInput[] = []
+
+  const consulta = (dia: Date, n: number, prof: number, ini: number, fim: number, encaixe = false) => {
+    const categoria = um(categorias)
+    let status: StatusAgenda = sorte() < 0.35 ? 'CONFIRMADO' : 'AGENDADO'
+    let chegou: number | null = null
+    if (n === 0) {
+      // Hoje o status acompanha o relógio: já passou, está acontecendo ou está para começar.
+      if (fim <= minAgora) status = 'ATENDIDO'
+      else if (ini <= minAgora) status = sorte() < 0.8 ? 'EM_ATENDIMENTO' : 'ATRASADO'
+      else if (ini - minAgora <= 45) status = sorte() < 0.6 ? 'EM_ESPERA' : 'CONFIRMADO'
+      if (status === 'ATENDIDO' || status === 'EM_ATENDIMENTO' || status === 'EM_ESPERA')
+        chegou = Math.max(7 * 60, Math.min(ini, minAgora) - 5 - Math.floor(sorte() * 15))
+    }
+    const checkin = chegou === null ? null : new Date(`${hojeIso}T${hhmm(chegou)}:00`)
+    const desmarcada = n > 0 && sorte() < 0.04
+    linhas.push({
+      data: dia,
+      inicio: hhmm(ini),
+      fim: hhmm(fim),
+      profissionalId: dentistas[prof],
+      pacienteId: um(ativos).id,
+      categoria,
+      primeiraConsulta: categoria === 'Avaliação' && sorte() < 0.6,
+      observacoes: encaixe
+        ? 'Encaixe: paciente com dor, pediu para ser visto no dia.'
+        : sorte() < 0.1
+          ? um(observacoes)
+          : null,
+      status,
+      checkinEm: checkin,
+      esperaInicio: checkin,
+      confirmacao: sorte() < 0.5 ? 'WHATSAPP' : 'NAO_ENVIAR',
+      confirmadoEm: status === 'CONFIRMADO' ? agora : null,
+      confirmadoPor: status === 'CONFIRMADO' ? um(['Paciente', 'Recepção Fictícia Um']) : null,
+      desmarcadoEm: desmarcada ? agora : null,
+      desmarcadoPorId: desmarcada ? recepcaoId : null,
+      motivoDesmarcacao: desmarcada ? um(['Paciente pediu para remarcar', 'Viagem', 'Doente']) : null,
+      criadoPorId: sorte() < 0.5 ? adminId : recepcaoId,
     })
-    consultas++
   }
-  await db.agendamento.create({
-    data: {
-      tipo: 'COMPROMISSO',
-      titulo: 'Reunião da equipe',
-      data: diaUtil(hoje),
-      inicio: '12:00',
-      fim: '13:00',
-      profissionalId: dentistas[0],
-      criadoPorId: adminId,
-    },
-  })
+
+  for (let n = 0; n <= 60; n++) {
+    const dia = new Date(data(hojeIso).getTime() + n * 86_400_000)
+    const semana = dia.getUTCDay()
+    if (semana === 0) continue // domingo fechado
+
+    // Compromissos do dia: reunião toda quarta no almoço, curso numa sexta, manutenção.
+    const compromissos: { titulo: string; prof: number; ini: number; fim: number }[] = []
+    if (semana === 3) compromissos.push({ titulo: 'Reunião semanal da equipe', prof: 0, ini: 720, fim: 780 })
+    if (semana === 5 && n > 7 && n < 15)
+      for (const prof of dentistas.keys())
+        compromissos.push({ titulo: 'Curso de atualização', prof, ini: 840, fim: 1080 })
+    if (n === 3) compromissos.push({ titulo: 'Manutenção do equipamento', prof: 1, ini: 900, fim: 990 })
+    for (const c of compromissos.filter((c) => gerar.includes(c.prof)))
+      linhas.push({
+        tipo: 'COMPROMISSO',
+        titulo: c.titulo,
+        data: dia,
+        inicio: hhmm(c.ini),
+        fim: hhmm(c.fim),
+        profissionalId: dentistas[c.prof],
+        criadoPorId: adminId,
+      })
+
+    /** Almoço, compromisso, ou o horário que o e2e marca (Dra. Andrade, segunda 10:00). */
+    const bloqueado = (prof: number, ini: number, fim: number) =>
+      (ini < 780 && fim > 720) ||
+      (prof === 0 && semana === 1 && ini < 630 && fim > 600) ||
+      compromissos.some((c) => c.prof === prof && ini < c.fim && fim > c.ini)
+
+    const ocupacao = n < 7 ? 0.85 : n < 21 ? 0.65 : n < 40 ? 0.4 : 0.2 // perto enche mais
+    const fimDia = semana === 6 ? 720 : 1140 // sábado só de manhã
+    for (const prof of gerar) {
+      const blocos: [number, number][] = []
+      for (let t = 480; t < fimDia; ) {
+        const fim = Math.min(t + um([15, 30, 30, 30, 45, 60]), fimDia)
+        if (!bloqueado(prof, t, fim) && sorte() < ocupacao) {
+          consulta(dia, n, prof, t, fim)
+          blocos.push([t, fim])
+        }
+        t = fim
+      }
+      // Encaixes: começam no meio de outra consulta; às vezes ficam três lado a lado.
+      const qtd = n === 0 ? 3 : n < 14 ? Math.floor(sorte() * 3) : sorte() < 0.3 ? 1 : 0
+      const longos = blocos.filter(([a, b]) => b - a >= 30 && !bloqueado(prof, a, b + 30))
+      for (let k = 0; k < qtd && longos.length; k++) {
+        const ini = um(longos)[0] + 15
+        consulta(dia, n, prof, ini, ini + um([15, 30]), true)
+        if (sorte() < 0.25) consulta(dia, n, prof, ini, ini + 15, true)
+      }
+    }
+  }
+  await db.agendamento.createMany({ data: linhas })
+  consultas = linhas.filter((l) => l.tipo !== 'COMPROMISSO').length
 }
 
 console.log(`Seed pronto: ${criados} pacientes novos (${pacientes.length} no total do seed).`)

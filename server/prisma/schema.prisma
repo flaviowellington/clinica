@@ -294,13 +294,26 @@ model AlertaRetorno {
   profissional   Pessoa    @relation("profissionalRetorno", fields: [profissionalId], references: [id])
   data           DateTime  @db.Date
   motivo         String?
+  /// Onde está o aviso automático (n8n). CONFIRMADO e DESMARCADO encerram o alerta.
+  situacao       SituacaoRetorno @default(AGUARDANDO_ENVIO)
+  /// Preenchido quando o paciente confirma ou desmarca: sai da lista de abertos.
   concluidoEm    DateTime?
   excluidoEm     DateTime?
   criadoEm       DateTime  @default(now())
   criadoPorId    Int
   criadoPor      Usuario   @relation(fields: [criadoPorId], references: [id])
+  mensagens      Mensagem[]
 
   @@index([data])
+}
+
+enum SituacaoRetorno {
+  AGUARDANDO_ENVIO
+  ENVIADO
+  FALHOU
+  RESPONDEU
+  CONFIRMADO
+  DESMARCADO
 }
 
 /// Tabela de preços particular (E-009).
@@ -651,6 +664,8 @@ model TrabalhoProtetico {
 enum StatusMensagem {
   ENVIADA
   FALHOU
+  /// Resposta do paciente, recebida pela integração.
+  RECEBIDA
 }
 
 /// Cada mensagem enviada (ou tentada) ao paciente: confirmação, lembrete ou teste.
@@ -658,16 +673,21 @@ model Mensagem {
   id            Int            @id @default(autoincrement())
   agendamentoId Int?
   agendamento   Agendamento?   @relation(fields: [agendamentoId], references: [id])
+  retornoId     Int?
+  retorno       AlertaRetorno? @relation(fields: [retornoId], references: [id])
   canal         Canal
   tipo          String
   destino       String
   assunto       String?
+  /// Texto recebido do paciente (as enviadas seguem o modelo das configurações).
+  texto         String?
   status        StatusMensagem
   erro          String?
   criadoEm      DateTime       @default(now())
   enviadoPorId  Int?
 
   @@index([agendamentoId])
+  @@index([retornoId])
 }
 
 /// Registro de cada importação de planilha do sistema antigo.

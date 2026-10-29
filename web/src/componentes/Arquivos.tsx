@@ -204,7 +204,7 @@ function Visualizador(props: {
           <img
             src={url(a)}
             alt={a.nome}
-            className="max-h-full max-w-full object-contain transition-transform"
+            className="max-h-full max-w-full object-contain"
             style={{ transform: transformar(a) }}
           />
         )}

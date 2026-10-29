@@ -109,6 +109,37 @@ describe('PT-04 busca por nome; "%" busca pelo sobrenome', () => {
   })
 })
 
+describe('busca de paciente por telefone ou CPF', () => {
+  async function preparar() {
+    const api = await entrarComo('RECEPCAO')
+    await api('POST', '/api/pacientes', {
+      nome: 'Bia Número',
+      nascimento: '1980-05-05',
+      cpf: '529.982.247-25',
+      celular: '+55 (11) 98765-4321',
+    })
+    await api('POST', '/api/pacientes', { nome: 'Caio 2024', nascimento: '1980-05-05' })
+    return async (busca: string) =>
+      (await api('GET', `/api/pacientes?busca=${encodeURIComponent(busca)}`)).corpo.itens.map(
+        (p: { nome: string }) => p.nome,
+      )
+  }
+  it('acha pelo CPF com ou sem pontuação', async () => {
+    const nomes = await preparar()
+    expect(await nomes('529.982')).toEqual(['Bia Número'])
+    expect(await nomes('52998224725')).toEqual(['Bia Número'])
+  })
+  it('acha pelo celular ignorando espaços, parênteses e traço', async () => {
+    const nomes = await preparar()
+    expect(await nomes('98765-4321')).toEqual(['Bia Número'])
+    expect(await nomes('11 98765')).toEqual(['Bia Número'])
+  })
+  it('número que está no nome continua achando pelo nome', async () => {
+    const nomes = await preparar()
+    expect(await nomes('2024')).toEqual(['Caio 2024'])
+  })
+})
+
 describe('PT-57 excluir paciente é exclusão lógica', () => {
   it('some da busca e da ficha, fica na lixeira e pode ser restaurado', async () => {
     const api = await entrarComo('ADMINISTRADOR')

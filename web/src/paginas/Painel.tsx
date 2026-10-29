@@ -202,7 +202,7 @@ function Barras(props: {
             </div>
             <div className="mt-1 h-2 rounded-full bg-borda/60">
               <div
-                className="h-full rounded-full bg-primaria transition-opacity group-hover:opacity-80"
+                className="h-full rounded-full bg-primaria group-hover:opacity-80"
                 style={{ width: `${(i.valor / max) * 100}%` }}
               />
             </div>

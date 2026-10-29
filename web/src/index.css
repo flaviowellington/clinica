@@ -1,69 +1,560 @@
 @import 'tailwindcss';
 @custom-variant dark (&:where([data-tema='escuro'], [data-tema='escuro'] *));
 
-/* Tema global: as cores ficam em variáveis e mudam com data-tema no <html>. */
+/*
+ * Tema global. As cores ficam em variáveis e mudam com dois atributos no <html>:
+ *   data-paleta = uva | tutti | hortela | tangerina | girassol | nuvem   (combinação de cores da marca)
+ *   data-tema   = claro | escuro
+ * Cores-base da marca: #340972 #670FCE #D90368 #FF7915 #FFD400 #C8ED31 #0CCE6B #F2E9D6 #E3E2E8.
+ * Os fundos suaves (-clara) saem da cor-base com color-mix, então cada paleta só define a base.
+ */
+
+/* ---------- Uva: roxo da marca + laranja ---------- */
 :root {
-  --fundo: #f6f7f9;
+  --fundo: #e9e4f3;
   --superficie: #ffffff;
-  --texto: #1c1917;
-  --suave: #6b7280;
-  --borda: #e5e7eb;
-  --primaria: #0f766e;
-  --primaria-clara: #e6f4f2;
-  --perigo: #dc2626;
-  --sucesso: #15803d;
+  --superficie-2: #f3f0f9;
+  --texto: #2a1840;
+  --titulo: #340972;
+  --suave: #6e6385;
+  --borda: #dcd6ea;
+  --primaria: #670fce;
+  --sobre-primaria: #ffffff;
+  --secundaria: #ff7915;
+  --sobre-secundaria: #2a1840;
+  --destaque: #ffd400;
+  --perigo: #c8024f;
+  --sucesso: #08934b;
+  --aviso: #b45309;
+  --info: #670fce;
   color-scheme: light;
 }
-
 [data-tema='escuro'] {
-  --fundo: #0f1115;
-  --superficie: #181b21;
-  --texto: #ececec;
-  --suave: #9ca3af;
-  --borda: #2c313a;
-  --primaria: #2dd4bf;
-  --primaria-clara: #12302d;
-  --perigo: #f87171;
-  --sucesso: #4ade80;
+  --fundo: #140824;
+  --superficie: #1e1036;
+  --superficie-2: #2a1848;
+  --texto: #eee8f7;
+  --titulo: #f3ecff;
+  --suave: #a99cc2;
+  --borda: #362456;
+  --primaria: #a673ff;
+  --sobre-primaria: #1a0633;
+  --secundaria: #ff8f3d;
+  --sobre-secundaria: #1a0633;
+  --destaque: #ffd400;
+  --perigo: #ff4d97;
+  --sucesso: #2ee38a;
+  --aviso: #ffb020;
+  --info: #b48cff;
   color-scheme: dark;
+}
+
+/* ---------- Tutti-frutti: magenta + creme + roxo escuro ---------- */
+[data-paleta='tutti'] {
+  --fundo: #f2e9d6;
+  --superficie: #ffffff;
+  --superficie-2: #f8f2e6;
+  --texto: #2b1a2e;
+  --titulo: #340972;
+  --suave: #75657a;
+  --borda: #e4d6b8;
+  --primaria: #d90368;
+  --sobre-primaria: #ffffff;
+  --secundaria: #340972;
+  --sobre-secundaria: #ffffff;
+  --destaque: #ffd400;
+  --perigo: #c81e1e;
+  --sucesso: #08934b;
+  --aviso: #b45309;
+  --info: #670fce;
+}
+[data-paleta='tutti'][data-tema='escuro'] {
+  --fundo: #1a0f1e;
+  --superficie: #26162b;
+  --superficie-2: #33203a;
+  --texto: #f6eee6;
+  --titulo: #f2e9d6;
+  --suave: #b5a2b4;
+  --borda: #43304a;
+  --primaria: #ff4d97;
+  --sobre-primaria: #2a0716;
+  --secundaria: #b48cff;
+  --sobre-secundaria: #1a0633;
+  --destaque: #ffd400;
+  --perigo: #ff6b6b;
+  --sucesso: #2ee38a;
+  --aviso: #ffb020;
+  --info: #b48cff;
+}
+
+/* ---------- Hortelã: verde + lima + roxo escuro ---------- */
+[data-paleta='hortela'] {
+  --fundo: #e3e2e8;
+  --superficie: #ffffff;
+  --superficie-2: #f1f0f4;
+  --texto: #1f1a2e;
+  --titulo: #340972;
+  --suave: #686479;
+  --borda: #d6d4de;
+  --primaria: #0b8a4a;
+  --sobre-primaria: #ffffff;
+  --secundaria: #c8ed31;
+  --sobre-secundaria: #340972;
+  --destaque: #0cce6b;
+  --perigo: #c8024f;
+  --sucesso: #0b8a4a;
+  --aviso: #b45309;
+  --info: #670fce;
+}
+[data-paleta='hortela'][data-tema='escuro'] {
+  --fundo: #0f0b1a;
+  --superficie: #1a1528;
+  --superficie-2: #251e36;
+  --texto: #eef2ec;
+  --titulo: #c8ed31;
+  --suave: #a39fb3;
+  --borda: #2f2842;
+  --primaria: #2ee38a;
+  --sobre-primaria: #0b1a12;
+  --secundaria: #c8ed31;
+  --sobre-secundaria: #1a2400;
+  --destaque: #0cce6b;
+  --perigo: #ff4d97;
+  --sucesso: #2ee38a;
+  --aviso: #ffb020;
+  --info: #b48cff;
+}
+
+/* ---------- Tangerina: laranja + roxo, fundo pêssego ---------- */
+[data-paleta='tangerina'] {
+  --fundo: #fbe6d0;
+  --superficie: #ffffff;
+  --superficie-2: #fdf2e6;
+  --texto: #2a1840;
+  --titulo: #340972;
+  --suave: #7a6560;
+  --borda: #efd2b4;
+  --primaria: #c24e00;
+  --sobre-primaria: #ffffff;
+  --secundaria: #670fce;
+  --sobre-secundaria: #ffffff;
+  --destaque: #ffd400;
+  --perigo: #c8024f;
+  --sucesso: #08934b;
+  --aviso: #a16207;
+  --info: #670fce;
+}
+[data-paleta='tangerina'][data-tema='escuro'] {
+  --fundo: #1c1014;
+  --superficie: #281820;
+  --superficie-2: #35212a;
+  --texto: #f8ece4;
+  --titulo: #ffb27a;
+  --suave: #bba29a;
+  --borda: #45303a;
+  --primaria: #ff8f3d;
+  --sobre-primaria: #2a1000;
+  --secundaria: #b48cff;
+  --sobre-secundaria: #1a0633;
+  --destaque: #ffd400;
+  --perigo: #ff4d97;
+  --sucesso: #2ee38a;
+  --aviso: #ffd400;
+  --info: #b48cff;
+}
+
+/* ---------- Girassol: roxo escuro + amarelo, fundo manteiga ---------- */
+[data-paleta='girassol'] {
+  --fundo: #fbefc0;
+  --superficie: #ffffff;
+  --superficie-2: #fff8dc;
+  --texto: #2a1840;
+  --titulo: #340972;
+  --suave: #6e6385;
+  --borda: #e9d993;
+  --primaria: #340972;
+  --sobre-primaria: #ffffff;
+  --secundaria: #ffd400;
+  --sobre-secundaria: #340972;
+  --destaque: #ff7915;
+  --perigo: #c8024f;
+  --sucesso: #08934b;
+  --aviso: #b45309;
+  --info: #670fce;
+}
+[data-paleta='girassol'][data-tema='escuro'] {
+  --fundo: #120a1e;
+  --superficie: #1d1230;
+  --superficie-2: #2a1b44;
+  --texto: #f4eefc;
+  --titulo: #ffd400;
+  --suave: #a99cc2;
+  --borda: #34244f;
+  --primaria: #ffd400;
+  --sobre-primaria: #340972;
+  --secundaria: #a673ff;
+  --sobre-secundaria: #1a0633;
+  --destaque: #ff8f3d;
+  --perigo: #ff4d97;
+  --sucesso: #2ee38a;
+  --aviso: #ff8f3d;
+  --info: #b48cff;
+}
+
+/* ---------- Nuvem: neutro e sóbrio, roxo + verde só nos detalhes ---------- */
+[data-paleta='nuvem'] {
+  --fundo: #ebebef;
+  --superficie: #ffffff;
+  --superficie-2: #f5f5f8;
+  --texto: #1e1b24;
+  --titulo: #1e1b24;
+  --suave: #6b6878;
+  --borda: #dcdbe2;
+  --primaria: #670fce;
+  --sobre-primaria: #ffffff;
+  --secundaria: #0cce6b;
+  --sobre-secundaria: #340972;
+  --destaque: #d90368;
+  --perigo: #c8024f;
+  --sucesso: #08934b;
+  --aviso: #b45309;
+  --info: #670fce;
+}
+[data-paleta='nuvem'][data-tema='escuro'] {
+  --fundo: #111113;
+  --superficie: #1a1a1f;
+  --superficie-2: #24242b;
+  --texto: #ececf1;
+  --titulo: #ffffff;
+  --suave: #9d9aa8;
+  --borda: #2e2e36;
+  --primaria: #a673ff;
+  --sobre-primaria: #1a0633;
+  --secundaria: #2ee38a;
+  --sobre-secundaria: #0b1a12;
+  --destaque: #ff4d97;
+  --perigo: #ff4d97;
+  --sucesso: #2ee38a;
+  --aviso: #ffb020;
+  --info: #b48cff;
+}
+
+:root {
+  --primaria-clara: color-mix(in srgb, var(--primaria) 12%, var(--superficie));
+  --secundaria-clara: color-mix(in srgb, var(--secundaria) 18%, var(--superficie));
+  --desativado: color-mix(in srgb, var(--suave) 18%, var(--superficie));
+  --desativado-texto: color-mix(in srgb, var(--suave) 70%, var(--superficie));
 }
 
 @theme inline {
   --color-fundo: var(--fundo);
   --color-superficie: var(--superficie);
+  --color-superficie-2: var(--superficie-2);
   --color-texto: var(--texto);
+  --color-titulo: var(--titulo);
   --color-suave: var(--suave);
   --color-borda: var(--borda);
   --color-primaria: var(--primaria);
   --color-primaria-clara: var(--primaria-clara);
+  --color-sobre-primaria: var(--sobre-primaria);
+  --color-secundaria: var(--secundaria);
+  --color-secundaria-clara: var(--secundaria-clara);
+  --color-sobre-secundaria: var(--sobre-secundaria);
+  --color-destaque: var(--destaque);
   --color-perigo: var(--perigo);
   --color-sucesso: var(--sucesso);
-  /* Fonte do sistema: nada carregado de terceiros (LGPD). */
-  --font-sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --color-aviso: var(--aviso);
+  --color-info: var(--info);
+  --color-desativado: var(--desativado);
+  --color-desativado-texto: var(--desativado-texto);
+  /* Fontes servidas pelo próprio app (sem CDN de terceiros, LGPD). */
+  --font-sans: 'M PLUS Rounded 1c', system-ui, 'Segoe UI', sans-serif;
 }
 
 body {
-  @apply bg-fundo text-texto font-sans text-sm;
+  @apply bg-fundo font-sans text-sm text-texto;
+  accent-color: var(--primaria);
+}
+
+@layer base {
+  h1,
+  h2,
+  h3 {
+    @apply font-extrabold text-titulo;
+  }
+  h1 {
+    @apply text-2xl;
+  }
+  /* Sem animação: troca de cor e de estado é instantânea em todo o app. */
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--destaque) 55%, transparent);
+  }
+
+  /* ---------- Barra de rolagem (WebKit/Chromium) ----------
+   * Não usar scrollbar-color aqui: no Chrome ele anula estes pseudo-elementos.
+   * As setas são conic-gradient para herdarem a cor da paleta/tema. */
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+    background: transparent;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--suave) 45%, transparent);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primaria);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: var(--secundaria);
+  }
+  ::-webkit-scrollbar-button:single-button {
+    display: block;
+    width: 12px;
+    height: 12px;
+    --seta: var(--suave);
+  }
+  ::-webkit-scrollbar-button:single-button:hover {
+    --seta: var(--primaria);
+  }
+  ::-webkit-scrollbar-button:single-button:vertical:decrement {
+    background: conic-gradient(from 135deg at 50% 0, var(--seta) 90deg, transparent 0) center / 8px 4px no-repeat;
+  }
+  ::-webkit-scrollbar-button:single-button:vertical:increment {
+    background: conic-gradient(from -45deg at 50% 100%, var(--seta) 90deg, transparent 0) center / 8px 4px no-repeat;
+  }
+  ::-webkit-scrollbar-button:single-button:horizontal:decrement {
+    background: conic-gradient(from 45deg at 0 50%, var(--seta) 90deg, transparent 0) center / 4px 8px no-repeat;
+  }
+  ::-webkit-scrollbar-button:single-button:horizontal:increment {
+    background: conic-gradient(from 225deg at 100% 50%, var(--seta) 90deg, transparent 0) center / 4px 8px no-repeat;
+  }
+  /* Firefox não tem os pseudo-elementos: só cor da barra, sem setas. */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-color: color-mix(in srgb, var(--suave) 45%, transparent) transparent;
+    }
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-primaria;
+  }
 }
 
 @layer components {
-  .campo {
-    @apply w-full rounded-md border border-borda bg-superficie px-3 py-2 outline-none focus:border-primaria;
+  /* ---------- Texto ---------- */
+  .titulo {
+    @apply text-2xl font-extrabold text-titulo;
+  }
+  .subtitulo {
+    @apply text-base text-suave;
   }
   .rotulo {
-    @apply mb-1 block font-medium;
+    @apply mb-1 block font-bold;
   }
+  .ajuda {
+    @apply mt-1 block text-xs text-suave;
+  }
+  .erro-campo {
+    @apply mt-1 block text-xs font-bold text-perigo;
+  }
+  .link {
+    @apply font-bold text-primaria underline decoration-2 underline-offset-2 hover:decoration-secundaria;
+  }
+
+  /* ---------- Campos ---------- */
+  .campo {
+    @apply w-full rounded-xl border-2 border-borda bg-superficie px-3 py-2 outline-none placeholder:text-suave/70 hover:border-primaria/40 focus:border-primaria focus:ring-4 focus:ring-primaria/15 disabled:border-transparent disabled:bg-desativado disabled:text-desativado-texto [&[readonly]]:bg-superficie-2 [&[readonly]]:focus:ring-0 aria-[invalid=true]:border-perigo aria-[invalid=true]:ring-perigo/15;
+  }
+
+  /* ---------- Botões ---------- */
+  .botao,
+  .botao-secundario,
+  .botao-leve,
+  .botao-fantasma,
+  .botao-perigo {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 font-bold select-none active:translate-y-px disabled:translate-y-0 disabled:border-transparent disabled:bg-desativado disabled:text-desativado-texto disabled:shadow-none;
+  }
+  /* Ação principal da tela: uma por tela. */
   .botao {
-    @apply rounded-md bg-primaria px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:text-black;
+    @apply bg-primaria text-sobre-primaria shadow-[0_3px_0_0_color-mix(in_srgb,var(--primaria)_55%,black)] hover:brightness-110 active:shadow-[0_1px_0_0_color-mix(in_srgb,var(--primaria)_55%,black)];
   }
+  /* Ação alternativa com cor (ex.: "Agendar retorno"). */
+  .botao-secundario {
+    @apply bg-secundaria text-sobre-secundaria shadow-[0_3px_0_0_color-mix(in_srgb,var(--secundaria)_60%,black)] hover:brightness-105 active:shadow-[0_1px_0_0_color-mix(in_srgb,var(--secundaria)_60%,black)];
+  }
+  /* Contorno: ações comuns (Cancelar, Filtrar). */
   .botao-leve {
-    @apply rounded-md border border-borda px-4 py-2 hover:bg-primaria-clara disabled:cursor-not-allowed disabled:opacity-50;
+    @apply border-2 border-borda bg-superficie text-texto hover:border-primaria/50 hover:bg-primaria-clara;
+  }
+  /* Só texto: ações discretas dentro de listas e cartões. */
+  .botao-fantasma {
+    @apply text-primaria hover:bg-primaria-clara;
   }
   .botao-perigo {
-    @apply rounded-md bg-perigo px-4 py-2 font-medium text-white;
+    @apply bg-perigo text-white shadow-[0_3px_0_0_color-mix(in_srgb,var(--perigo)_55%,black)] hover:brightness-110 dark:text-black;
   }
+  .botao-pequeno {
+    @apply rounded-lg px-3 py-1 text-xs;
+  }
+  .botao-icone {
+    @apply size-9 rounded-full p-0;
+  }
+
+  /* ---------- Superfícies ---------- */
   .cartao {
-    @apply rounded-lg border border-borda bg-superficie p-4;
+    @apply rounded-2xl border border-borda bg-superficie p-4;
+  }
+  .cartao-destaque {
+    @apply rounded-2xl border border-borda border-t-4 border-t-secundaria bg-superficie p-4 shadow-sm;
+  }
+
+  /* ---------- Etiquetas (spans de status) ---------- */
+  .etiqueta {
+    @apply inline-flex items-center gap-1 rounded-full bg-superficie-2 px-2.5 py-0.5 text-xs font-bold text-suave;
+  }
+  .etiqueta-primaria {
+    @apply bg-primaria/15 text-primaria;
+  }
+  .etiqueta-secundaria {
+    @apply bg-secundaria text-sobre-secundaria;
+  }
+  .etiqueta-sucesso {
+    @apply bg-sucesso/15 text-sucesso;
+  }
+  .etiqueta-aviso {
+    @apply bg-aviso/15 text-aviso;
+  }
+  .etiqueta-perigo {
+    @apply bg-perigo/15 text-perigo;
+  }
+  .etiqueta-info {
+    @apply bg-info/15 text-info;
+  }
+
+  /* ---------- Alertas ---------- */
+  .alerta-info,
+  .alerta-sucesso,
+  .alerta-aviso,
+  .alerta-perigo {
+    @apply rounded-2xl border-l-4 px-4 py-3;
+  }
+  .alerta-info {
+    @apply border-info bg-info/10;
+  }
+  .alerta-sucesso {
+    @apply border-sucesso bg-sucesso/10;
+  }
+  .alerta-aviso {
+    @apply border-aviso bg-aviso/10;
+  }
+  .alerta-perigo {
+    @apply border-perigo bg-perigo/10;
+  }
+
+  /* ---------- Inativo / sem acesso ---------- */
+  /* Bloco inteiro que o usuário não pode usar (sem permissão, recurso desligado). */
+  .inativo {
+    @apply pointer-events-none opacity-50 grayscale select-none;
+  }
+}
+
+/*
+ * Checkbox padrão do projeto (vale para todo <input type="checkbox">).
+ * Cor: use uma classe .check-secundaria/-sucesso/-aviso/-perigo/-info,
+ * ou qualquer cor com style={{ '--cor-check': '#D90368' }}.
+ */
+@layer base {
+  input[type='checkbox'] {
+    --cor-check: var(--primaria);
+    --sobre-check: var(--sobre-primaria);
+    appearance: none;
+    display: inline-grid;
+    place-content: center;
+    flex-shrink: 0;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin: 0;
+    vertical-align: middle;
+    border: 2px solid color-mix(in srgb, var(--suave) 55%, var(--superficie));
+    border-radius: 0.45rem;
+    background: var(--superficie);
+  }
+  input[type='checkbox']::before {
+    content: '';
+    width: 0.8rem;
+    height: 0.8rem;
+    background: var(--sobre-check);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+    transform: scale(0);
+  }
+  input[type='checkbox']:indeterminate::before {
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M4 8h8'/%3E%3C/svg%3E");
+  }
+  input[type='checkbox']:hover:not(:disabled) {
+    border-color: var(--cor-check);
+  }
+  input[type='checkbox']:checked,
+  input[type='checkbox']:indeterminate {
+    border-color: var(--cor-check);
+    background: var(--cor-check);
+  }
+  input[type='checkbox']:checked::before,
+  input[type='checkbox']:indeterminate::before {
+    transform: scale(1);
+  }
+  input[type='checkbox']:focus-visible {
+    outline-color: var(--cor-check);
+  }
+  input[type='checkbox']:disabled {
+    border-color: transparent;
+    background: var(--desativado);
+  }
+  input[type='checkbox']:disabled:checked,
+  input[type='checkbox']:disabled:indeterminate {
+    background: color-mix(in srgb, var(--cor-check) 35%, var(--desativado));
+  }
+}
+
+@layer components {
+  .check-secundaria {
+    --cor-check: var(--secundaria);
+    --sobre-check: var(--sobre-secundaria);
+  }
+  .check-sucesso {
+    --cor-check: var(--sucesso);
+    --sobre-check: var(--superficie);
+  }
+  .check-aviso {
+    --cor-check: var(--aviso);
+    --sobre-check: var(--superficie);
+  }
+  .check-perigo {
+    --cor-check: var(--perigo);
+    --sobre-check: var(--superficie);
+  }
+  .check-info {
+    --cor-check: var(--info);
+    --sobre-check: var(--superficie);
+  }
+}
+
+/* Reserva o lugar da barra de rolagem: a tela não pula quando ela aparece ou some (ex.: trocar Dia/Semana/Mês). */
+@layer base {
+  html {
+    scrollbar-gutter: stable;
   }
 }
 
