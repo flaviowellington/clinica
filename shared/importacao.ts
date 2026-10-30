@@ -27,7 +27,6 @@ export const CAMPOS_IMPORTACAO = {
       rotulo: 'Celular',
       sinonimos: ['celular', 'whatsapp', 'telefone celular', 'fone celular'],
     },
-    telefone: { rotulo: 'Telefone fixo', sinonimos: ['telefone', 'telefone fixo', 'fone', 'tel'] },
     email: { rotulo: 'E-mail', sinonimos: ['email', 'e-mail'] },
     apelido: { rotulo: 'Apelido', sinonimos: ['apelido', 'nome social'] },
     comoConheceu: {

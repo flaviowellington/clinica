@@ -26,6 +26,7 @@ const CAMINHOS = {
   recolher:'M4 4h16v16H4zM9 4v16M16 9l-3 3 3 3',
   expandir: 'M4 4h16v16H4zM9 4v16M13 9l3 3-3 3',
   mais: 'M12 5v14M5 12h14',
+  fechar: 'M6 6l12 12M18 6L6 18',
   pausa: 'M9 6v12M15 6v12',
   esquerda: 'M15 6l-6 6 6 6',
   direita: 'M9 6l6 6-6 6',

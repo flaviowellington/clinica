@@ -1,5 +1,5 @@
 // Configurações da clínica (S-014).
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, consultaConfig, mensagemDeErro } from '../api'
@@ -21,6 +21,7 @@ import {
   type Medicamento,
 } from '../../../shared/configuracoes'
 import { CampoSelect } from '../componentes/CampoSelect'
+import { CampoEspecialidade } from './Profissionais'
 import { CampoEmail } from '../componentes/CampoMascara'
 
 const ABAS = [
@@ -198,21 +199,27 @@ function Procedimentos() {
   )
 }
 
-function FormProcedimento(props: { procedimento?: Procedimento; aoTerminar: () => void }) {
+/** Cadastro de procedimento da tabela (aqui e no orçamento, ao cadastrar um que falta). */
+export function FormProcedimento(props: {
+  procedimento?: Procedimento
+  nomeInicial?: string
+  /** Recebe o procedimento salvo; sem argumento quando cancela. */
+  aoTerminar: (salvo?: Procedimento) => void
+}) {
   const qc = useQueryClient()
   const p = props.procedimento
-  const especialidades = useQuery(consultaConfig('especialidades'))
   const [valor, setValor] = useState(p?.valorCentavos ?? 0)
   const salvar = useMutation({
     mutationFn: async (d: Record<string, unknown>) =>
       p
         ? (await api.put(`/procedimentos/${p.id}`, d)).data
         : (await api.post('/procedimentos', d)).data,
-    onSuccess: () => {
+    onSuccess: (salvo: Procedimento) => {
       avisar('Procedimento salvo')
       qc.invalidateQueries({ queryKey: ['procedimentos-tabela-completa'] })
       qc.invalidateQueries({ queryKey: ['procedimentos-tabela'] })
-      props.aoTerminar()
+      qc.invalidateQueries({ queryKey: ['procedimentos'] })
+      props.aoTerminar(salvo)
     },
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
@@ -227,24 +234,14 @@ function FormProcedimento(props: { procedimento?: Procedimento; aoTerminar: () =
     >
       <label className="block">
         <span className="rotulo">Nome *</span>
-        <input name="nome" className="campo" defaultValue={p?.nome} required autoFocus />
+        <input name="nome" className="campo" defaultValue={p?.nome ?? props.nomeInicial} required autoFocus />
       </label>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label>
-          <span className="rotulo">Especialidade</span>
-          <input
-            name="especialidade"
-            list="especialidades-cfg"
-            className="campo"
-            defaultValue={p?.especialidade ?? ''}
-          />
-          <datalist id="especialidades-cfg">
-            {especialidades.data?.map((e) => (
-              <option key={e} value={e} />
-            ))}
-          </datalist>
+      <CampoReais id="proc-valor" rotulo="Valor *" valor={valor} aoMudar={setValor} />
+      <div>
+        <label className="rotulo" id="p-esp-rotulo">
+          Especialidade
         </label>
-        <CampoReais id="proc-valor" rotulo="Valor *" valor={valor} aoMudar={setValor} />
+        <CampoEspecialidade inicial={p?.especialidade ?? ''} naLinha />
       </div>
       {p && (
         <label className="flex items-center gap-2">
@@ -253,7 +250,7 @@ function FormProcedimento(props: { procedimento?: Procedimento; aoTerminar: () =
         </label>
       )}
       <div className="flex justify-end gap-2">
-        <button type="button" className="botao-leve" onClick={props.aoTerminar}>
+        <button type="button" className="botao-leve" onClick={() => props.aoTerminar()}>
           Cancelar
         </button>
         <button className="botao" disabled={salvar.isPending}>
@@ -267,12 +264,26 @@ function FormProcedimento(props: { procedimento?: Procedimento; aoTerminar: () =
 // ── Anamnese ────────────────────────────────────────────────────────────────
 function ModeloAnamnese() {
   const c = useQuery(consultaConfig('anamnese'))
-  return c.data ? <EditorAnamnese inicial={c.data} /> : <p className="text-suave">Carregando…</p>
+  const salvar = useSalvar('anamnese', 'Modelo da anamnese salvo')
+  if (!c.data) return <p className="text-suave">Carregando…</p>
+  return (
+    <EditorAnamnese inicial={c.data} salvando={salvar.isPending} aoSalvar={salvar.mutate}>
+      <p className="text-suave">
+        Vale para as anamneses novas. As já preenchidas guardam as perguntas da época.
+      </p>
+    </EditorAnamnese>
+  )
 }
 
-function EditorAnamnese({ inicial }: { inicial: Pergunta[] }) {
-  const [perguntas, setPerguntas] = useState(inicial)
-  const salvar = useSalvar('anamnese', 'Modelo da anamnese salvo')
+/** Editor das perguntas de um modelo de anamnese (aqui e na ficha, ao criar um modelo novo). */
+export function EditorAnamnese(props: {
+  inicial: Pergunta[]
+  salvando: boolean
+  aoSalvar: (perguntas: Pergunta[]) => void
+  aoCancelar?: () => void
+  children?: ReactNode
+}) {
+  const [perguntas, setPerguntas] = useState(props.inicial)
   const mudar = (i: number, d: Partial<Pergunta>) =>
     setPerguntas(perguntas.map((p, k) => (k === i ? { ...p, ...d } : p)))
   const mover = (i: number, passo: number) => {
@@ -285,12 +296,10 @@ function EditorAnamnese({ inicial }: { inicial: Pergunta[] }) {
       className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault()
-        salvar.mutate(perguntas)
+        props.aoSalvar(perguntas)
       }}
     >
-      <p className="text-suave">
-        Vale para as anamneses novas. As já preenchidas guardam as perguntas da época.
-      </p>
+      {props.children}
       <ol className="space-y-2">
         {perguntas.map((p, i) => (
           <li key={i} className="cartao space-y-2">
@@ -378,9 +387,16 @@ function EditorAnamnese({ inicial }: { inicial: Pergunta[] }) {
         >
           Adicionar pergunta
         </button>
-        <button className="botao" disabled={!perguntas.length || salvar.isPending}>
-          Salvar modelo
-        </button>
+        <div className="flex gap-2">
+          {props.aoCancelar && (
+            <button type="button" className="botao-leve" onClick={props.aoCancelar}>
+              Cancelar
+            </button>
+          )}
+          <button className="botao" disabled={!perguntas.length || props.salvando}>
+            Salvar modelo
+          </button>
+        </div>
       </div>
     </form>
   )

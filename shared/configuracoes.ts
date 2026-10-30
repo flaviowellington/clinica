@@ -16,6 +16,11 @@ export interface Medicamento {
   nome: string
   posologia: string
 }
+/** Modelo extra de anamnese, além do padrão da clínica. */
+export interface ModeloAnamnese {
+  nome: string
+  perguntas: Pergunta[]
+}
 export interface Mensagens {
   confirmacao: string
 }
@@ -32,6 +37,7 @@ export const PADROES = {
     email: '',
   } as DadosClinica,
   anamnese: MODELO_ANAMNESE as Pergunta[],
+  modelosAnamnese: [] as ModeloAnamnese[],
   documentos: Object.fromEntries(
     Object.entries(MODELOS_DOCUMENTO).map(([id, m]) => [id, m.texto]),
   ) as Record<keyof typeof MODELOS_DOCUMENTO, string>,
@@ -60,6 +66,22 @@ export const CHAVES = Object.keys(PADROES) as ChaveConfig[]
 
 const txt = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 
+/** Perguntas de um modelo de anamnese: guarda só as perguntas, as respostas são de cada paciente. */
+function validarPerguntasModelo(
+  bruto: unknown,
+): { valor: Pergunta[]; erro?: undefined } | { erro: string; valor?: undefined } {
+  const perguntas = lerPerguntas(bruto)
+  if (!perguntas) return { erro: 'Confira as perguntas: cada uma precisa de texto e tipo.' }
+  if (perguntas.some((p) => p.tipo === 'OPCOES' && !(p.opcoes ?? []).filter(Boolean).length))
+    return { erro: 'Pergunta do tipo Opções precisa de pelo menos uma opção.' }
+  return {
+    valor: perguntas.map(({ resposta: _r, descricao: _d, ...p }) => ({
+      ...p,
+      ...(p.opcoes && { opcoes: p.opcoes.map((o) => o.trim()).filter(Boolean) }),
+    })),
+  }
+}
+
 /** Confere o valor enviado; devolve o valor limpo ou a mensagem de erro. */
 export function validarConfig(
   chave: ChaveConfig,
@@ -81,18 +103,22 @@ export function validarConfig(
         },
       }
     }
-    case 'anamnese': {
-      // O modelo guarda só as perguntas: as respostas são de cada paciente.
-      const perguntas = lerPerguntas(bruto)
-      if (!perguntas) return { erro: 'Confira as perguntas: cada uma precisa de texto e tipo.' }
-      if (perguntas.some((p) => p.tipo === 'OPCOES' && !(p.opcoes ?? []).filter(Boolean).length))
-        return { erro: 'Pergunta do tipo Opções precisa de pelo menos uma opção.' }
-      return {
-        valor: perguntas.map(({ resposta: _r, descricao: _d, ...p }) => ({
-          ...p,
-          ...(p.opcoes && { opcoes: p.opcoes.map((o) => o.trim()).filter(Boolean) }),
-        })),
+    case 'anamnese':
+      return validarPerguntasModelo(bruto)
+    case 'modelosAnamnese': {
+      if (!Array.isArray(bruto) || bruto.length > 50) return { erro: 'Lista de modelos inválida.' }
+      const vistos = new Set<string>()
+      const valor: ModeloAnamnese[] = []
+      for (const m of bruto as Record<string, unknown>[]) {
+        const nome = txt(m?.nome, 80)
+        if (!nome) return { erro: 'Informe o nome do modelo.' }
+        if (vistos.has(normalizar(nome))) return { erro: `Já existe o modelo "${nome}".` }
+        vistos.add(normalizar(nome))
+        const v = validarPerguntasModelo(m.perguntas)
+        if (v.erro !== undefined) return { erro: `${nome}: ${v.erro}` }
+        valor.push({ nome, perguntas: v.valor })
       }
+      return { valor }
     }
     case 'documentos': {
       const valor = { ...PADROES.documentos }

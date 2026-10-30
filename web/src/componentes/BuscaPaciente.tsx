@@ -196,7 +196,7 @@ export function BuscaPaciente(props: {
                         <span className="flex flex-wrap gap-x-4 text-xs text-suave">
                           <span className="flex items-center gap-1">
                             <Icone nome="celular" className="h-3.5 w-3.5" />
-                            {a.celular || a.telefone || 'Sem telefone'}
+                            {a.celular || 'Sem celular'}
                           </span>
                           {a.cpf && (
                             <span className="flex items-center gap-1">

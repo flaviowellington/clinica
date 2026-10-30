@@ -19,7 +19,9 @@ import {
   faltandoObrigatorias,
   type Pergunta,
 } from '../../../shared/prontuario'
+import type { ModeloAnamnese } from '../../../shared/configuracoes'
 import { Dialogo } from './Dialogo'
+import { EditorAnamnese } from '../paginas/Configuracoes'
 
 interface Anamnese {
   id: number
@@ -42,8 +44,10 @@ export function Anamneses({ paciente }: { paciente: Paciente }) {
     queryFn: async () => (await api.get<Anamnese[]>(`/pacientes/${paciente.id}/anamneses`)).data,
   })
   const [aberta, setAberta] = useState<Anamnese | 'nova' | null>(null)
-  // Perguntas do modelo da clínica (Configurações > Anamnese).
-  const modelo = useQuery(consultaConfig('anamnese')).data ?? MODELO_ANAMNESE
+  // Modelo padrão da clínica (Configurações > Anamnese) e os modelos extras.
+  const padrao = useQuery(consultaConfig('anamnese')).data ?? MODELO_ANAMNESE
+  const extras = useQuery(consultaConfig('modelosAnamnese')).data ?? []
+  const modelos = [{ nome: 'Padrão da clínica', perguntas: padrao }, ...extras]
   const podeEditar = pode(eu.perfis, 'prontuario.editar')
   const atual = lista.data?.[0]
   const historico = lista.data?.slice(1) ?? []
@@ -91,7 +95,7 @@ export function Anamneses({ paciente }: { paciente: Paciente }) {
         {aberta && (
           <FormAnamnese
             paciente={paciente}
-            modelo={modelo}
+            modelos={modelos}
             anamnese={aberta === 'nova' ? undefined : aberta}
             aoTerminar={() => setAberta(null)}
           />
@@ -154,18 +158,24 @@ function Respostas({ anamnese: a }: { anamnese: Anamnese }) {
 }
 
 /** Nada é gravado até "Salvar" (R-058). Editar altera a mesma; nova vira a Atual (R-075). */
+const emBranco = (m: ModeloAnamnese) =>
+  m.perguntas.map((p) => ({ ...p, resposta: null, descricao: null }))
+
 function FormAnamnese(props: {
   paciente: Paciente
   anamnese?: Anamnese
-  modelo: Pergunta[]
+  /** O primeiro é o padrão da clínica. */
+  modelos: ModeloAnamnese[]
   aoTerminar: () => void
 }) {
   const qc = useQueryClient()
+  const { data: eu } = useSuspenseQuery(consultaEu)
   const a = props.anamnese
   const [respondente, setRespondente] = useState(a?.respondente ?? 'PROFISSIONAL')
-  const [perguntas, setPerguntas] = useState<Pergunta[]>(
-    a?.perguntas ?? props.modelo.map((p) => ({ ...p, resposta: null, descricao: null })),
-  )
+  const [escolhido, setEscolhido] = useState(0)
+  const [criando, setCriando] = useState(false)
+  const [nomeModelo, setNomeModelo] = useState('')
+  const [perguntas, setPerguntas] = useState<Pergunta[]>(a?.perguntas ?? emBranco(props.modelos[0]))
   const [observacoes, setObservacoes] = useState(a?.observacoes ?? '')
   const [tentou, setTentou] = useState(false)
   const mudar = (i: number, d: Partial<Pergunta>) =>
@@ -187,122 +197,218 @@ function FormAnamnese(props: {
     },
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
+  const usar = (i: number, modelos = props.modelos) => {
+    if (
+      i !== escolhido &&
+      perguntas.some((p) => p.resposta || p.descricao) &&
+      !confirm('Trocar de modelo apaga as respostas já preenchidas. Continuar?')
+    )
+      return
+    setEscolhido(i)
+    setPerguntas(emBranco(modelos[i]))
+    setTentou(false)
+  }
+
+  // Modelo novo entra na lista de modelos da clínica e já passa a ser usado.
+  const criarModelo = useMutation({
+    mutationFn: async (novas: Pergunta[]) => {
+      const lista = [...props.modelos.slice(1), { nome: nomeModelo, perguntas: novas }]
+      return (await api.put<ModeloAnamnese[]>('/configuracoes/modelosAnamnese', lista)).data
+    },
+    onSuccess: (extras) => {
+      qc.setQueryData(['config', 'modelosAnamnese'], extras)
+      const modelos = [props.modelos[0], ...extras]
+      setCriando(false)
+      setNomeModelo('')
+      setEscolhido(modelos.length - 1)
+      setPerguntas(emBranco(modelos[modelos.length - 1]))
+      avisar('Modelo criado')
+    },
+    onError: (e) => avisar(mensagemDeErro(e), true),
+  })
+
   const faltando = new Set(faltandoObrigatorias(perguntas))
   const doServidor = errosDosCampos(salvar.error)
 
-  return (
-    <form
-      className="space-y-4"
-      noValidate
-      onSubmit={(e) => {
-        e.preventDefault()
-        setTentou(true)
-        if (faltando.size) return avisar(OBRIGATORIAS, true)
-        salvar.mutate()
-      }}
-    >
-      {!a && (
-        <fieldset className="flex flex-wrap gap-4">
-          <legend className="rotulo">Quem responde</legend>
-          {(['PROFISSIONAL', 'PACIENTE'] as const).map((r) => (
-            <label key={r} className="flex items-center gap-2">
-              <input type="radio" checked={respondente === r} onChange={() => setRespondente(r)} />
-              {RESPONDENTE[r]}
-            </label>
-          ))}
-        </fieldset>
-      )}
-
-      {tentou && faltando.size > 0 && (
-        <p role="alert" className="text-perigo">
-          {OBRIGATORIAS}
-        </p>
-      )}
-
-      <ol className="space-y-3">
-        {perguntas.map((p, i) => {
-          const erro = (tentou && faltando.has(i)) || doServidor[i]
-          const nome = `pergunta-${i}`
-          return (
-            <li key={p.texto} className="rounded-md border border-borda p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <p id={`${nome}-texto`} className="font-medium">
-                  {p.texto}
-                  {p.obrigatoria && <span className="text-perigo"> *</span>}
-                </p>
-                <label
-                  className="flex items-center gap-2 text-suave"
-                  title="Resposta vira alerta do paciente"
-                >
-                  <input
-                    type="checkbox"
-                    checked={!!p.alerta}
-                    onChange={(e) => mudar(i, { alerta: e.target.checked })}
-                  />
-                  Alerta
-                </label>
-              </div>
-              <div className="mt-2" role="group" aria-labelledby={`${nome}-texto`}>
-                {p.tipo === 'DESCRITIVA' ? (
-                  <textarea
-                    className="campo"
-                    rows={2}
-                    maxLength={LIMITE_OBSERVACAO}
-                    value={p.resposta ?? ''}
-                    aria-labelledby={`${nome}-texto`}
-                    onChange={(e) => mudar(i, { resposta: e.target.value })}
-                  />
-                ) : (
-                  <div className="flex flex-wrap items-center gap-4">
-                    {(p.tipo === 'SIM_NAO' ? ['Sim', 'Não'] : (p.opcoes ?? [])).map((o) => (
-                      <label key={o} className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name={nome}
-                          checked={p.resposta === o}
-                          onChange={() => mudar(i, { resposta: o })}
-                        />
-                        {o}
-                      </label>
-                    ))}
-                    {p.tipo === 'SIM_NAO' && (
-                      <input
-                        className="campo min-w-48 flex-1 py-1"
-                        placeholder="Detalhes"
-                        aria-label={`Detalhes: ${p.texto}`}
-                        maxLength={LIMITE_OBSERVACAO}
-                        value={p.descricao ?? ''}
-                        onChange={(e) => mudar(i, { descricao: e.target.value })}
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
-              {erro && <p className="mt-1 text-perigo">Preenchimento obrigatório</p>}
-            </li>
-          )
-        })}
-      </ol>
-
-      <label className="block">
-        <span className="rotulo">Observações</span>
-        <textarea
-          className="campo"
-          rows={3}
-          maxLength={LIMITE_OBSERVACAO}
-          value={observacoes}
-          onChange={(e) => setObservacoes(e.target.value)}
-        />
-      </label>
-
-      <div className="flex justify-end gap-2">
-        <button type="button" className="botao-leve" onClick={props.aoTerminar}>
-          Cancelar
-        </button>
-        <button className="botao" disabled={salvar.isPending}>
-          Salvar
-        </button>
+  const seletor = !a && (
+    <div className="space-y-2">
+      <p className="rotulo">Modelo</p>
+      <div role="tablist" aria-label="Modelo da anamnese" className="flex flex-wrap gap-2">
+        {props.modelos.map((m, i) => (
+          <button
+            key={m.nome}
+            type="button"
+            role="tab"
+            aria-selected={!criando && escolhido === i}
+            className={`${!criando && escolhido === i ? 'botao' : 'botao-leve'} botao-pequeno`}
+            onClick={() => {
+              setCriando(false)
+              usar(i)
+            }}
+          >
+            {m.nome}
+          </button>
+        ))}
+        {pode(eu.perfis, 'configuracao.editar') && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={criando}
+            className={`${criando ? 'botao' : 'botao-fantasma'} botao-pequeno`}
+            onClick={() => setCriando(true)}
+          >
+            + Novo modelo
+          </button>
+        )}
       </div>
-    </form>
+    </div>
+  )
+
+  if (criando)
+    return (
+      <div className="space-y-4">
+        {seletor}
+        <EditorAnamnese
+          inicial={[{ texto: '', tipo: 'SIM_NAO' }]}
+          salvando={criarModelo.isPending}
+          aoSalvar={(novas) => criarModelo.mutate(novas)}
+          aoCancelar={() => setCriando(false)}
+        >
+          <label className="block">
+            <span className="rotulo">Nome do modelo</span>
+            <input
+              className="campo"
+              value={nomeModelo}
+              maxLength={80}
+              required
+              placeholder="Ex.: Ortodontia, Infantil, Cirurgia"
+              onChange={(e) => setNomeModelo(e.target.value)}
+            />
+          </label>
+        </EditorAnamnese>
+      </div>
+    )
+
+  return (
+    <div className="space-y-4">
+      {seletor}
+      <form
+        className="space-y-4"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault()
+          setTentou(true)
+          if (faltando.size) return avisar(OBRIGATORIAS, true)
+          salvar.mutate()
+        }}
+      >
+        {!a && (
+          <fieldset className="flex flex-wrap gap-4">
+            <legend className="rotulo">Quem responde</legend>
+            {(['PROFISSIONAL', 'PACIENTE'] as const).map((r) => (
+              <label key={r} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  checked={respondente === r}
+                  onChange={() => setRespondente(r)}
+                />
+                {RESPONDENTE[r]}
+              </label>
+            ))}
+          </fieldset>
+        )}
+
+        {tentou && faltando.size > 0 && (
+          <p role="alert" className="text-perigo">
+            {OBRIGATORIAS}
+          </p>
+        )}
+
+        <ol className="space-y-3">
+          {perguntas.map((p, i) => {
+            const erro = (tentou && faltando.has(i)) || doServidor[i]
+            const nome = `pergunta-${i}`
+            return (
+              <li key={p.texto} className="rounded-md border border-borda p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p id={`${nome}-texto`} className="font-medium">
+                    {p.texto}
+                    {p.obrigatoria && <span className="text-perigo"> *</span>}
+                  </p>
+                  <label
+                    className="flex items-center gap-2 text-suave"
+                    title="Resposta vira alerta do paciente"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!p.alerta}
+                      onChange={(e) => mudar(i, { alerta: e.target.checked })}
+                    />
+                    Alerta
+                  </label>
+                </div>
+                <div className="mt-2" role="group" aria-labelledby={`${nome}-texto`}>
+                  {p.tipo === 'DESCRITIVA' ? (
+                    <textarea
+                      className="campo"
+                      rows={2}
+                      maxLength={LIMITE_OBSERVACAO}
+                      value={p.resposta ?? ''}
+                      aria-labelledby={`${nome}-texto`}
+                      onChange={(e) => mudar(i, { resposta: e.target.value })}
+                    />
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-4">
+                      {(p.tipo === 'SIM_NAO' ? ['Sim', 'Não'] : (p.opcoes ?? [])).map((o) => (
+                        <label key={o} className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name={nome}
+                            checked={p.resposta === o}
+                            onChange={() => mudar(i, { resposta: o })}
+                          />
+                          {o}
+                        </label>
+                      ))}
+                      {p.tipo === 'SIM_NAO' && (
+                        <input
+                          className="campo min-w-48 flex-1 py-1"
+                          placeholder="Detalhes"
+                          aria-label={`Detalhes: ${p.texto}`}
+                          maxLength={LIMITE_OBSERVACAO}
+                          value={p.descricao ?? ''}
+                          onChange={(e) => mudar(i, { descricao: e.target.value })}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+                {erro && <p className="mt-1 text-perigo">Preenchimento obrigatório</p>}
+              </li>
+            )
+          })}
+        </ol>
+
+        <label className="block">
+          <span className="rotulo">Observações</span>
+          <textarea
+            className="campo"
+            rows={3}
+            maxLength={LIMITE_OBSERVACAO}
+            value={observacoes}
+            onChange={(e) => setObservacoes(e.target.value)}
+          />
+        </label>
+
+        <div className="flex justify-end gap-2">
+          <button type="button" className="botao-leve" onClick={props.aoTerminar}>
+            Cancelar
+          </button>
+          <button className="botao" disabled={salvar.isPending}>
+            Salvar
+          </button>
+        </div>
+      </form>
+    </div>
   )
 }

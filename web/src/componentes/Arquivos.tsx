@@ -6,6 +6,7 @@ import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import { Dialogo } from './Dialogo'
 import { confirmar } from './Confirmar'
+import { CampoSugestoes } from './CampoSugestoes'
 
 interface Arquivo {
   id: number
@@ -77,19 +78,13 @@ export function Arquivos({ paciente, categoria }: { paciente: Paciente; categori
           <div className="flex flex-wrap items-end gap-2">
             <label className="w-60">
               <span className="rotulo">Pasta (opcional)</span>
-              <input
-                className="campo"
-                list={`pastas-${categoria}`}
+              <CampoSugestoes
+                sugestoes={pastas}
                 value={pasta}
                 maxLength={80}
-                onChange={(e) => setPasta(e.target.value)}
+                onChange={setPasta}
                 placeholder="Ex.: Inicial, Pós-tratamento"
               />
-              <datalist id={`pastas-${categoria}`}>
-                {pastas.map((p) => (
-                  <option key={p} value={p} />
-                ))}
-              </datalist>
             </label>
             <label className={`botao ${enviar.isPending ? 'opacity-50' : ''}`}>
               {enviar.isPending
@@ -241,8 +236,9 @@ function Visualizador(props: {
               className="botao-leve text-perigo"
               disabled={excluir.isPending}
               onClick={async () =>
-                (await confirmar(`Excluir "${a.nome}"? Ele sai da ficha, mas fica guardado no histórico.`)) &&
-                excluir.mutate()
+                (await confirmar(
+                  `Excluir "${a.nome}"? Ele sai da ficha, mas fica guardado no histórico.`,
+                )) && excluir.mutate()
               }
             >
               Excluir

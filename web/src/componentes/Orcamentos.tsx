@@ -12,6 +12,7 @@ import {
 } from '../api'
 import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
+import { normalizar } from '../../../shared/regras'
 import { FORMAS, reais } from '../../../shared/financeiro'
 import {
   DENTES_DECIDUOS,
@@ -28,6 +29,9 @@ import { CampoReais } from './CampoReais'
 import { CampoData } from './CampoData'
 import { CampoSelect } from './CampoSelect'
 import { confirmar, perguntar } from './Confirmar'
+import { Icone } from './Icones'
+import { CampoSugestoes } from './CampoSugestoes'
+import { FormProcedimento } from '../paginas/Configuracoes'
 
 interface Item {
   id?: number
@@ -74,7 +78,7 @@ const COR_STATUS: Record<StatusOrcamento, string> = {
   REPROVADO: 'bg-suave/15 text-suave',
   CANCELADO: 'bg-perigo/15 text-perigo',
 }
-const TODOS_DENTES = [...DENTES_PERMANENTES.flat(), ...DENTES_DECIDUOS.flat()]
+const TODOS_DENTES = [...DENTES_PERMANENTES.flat(), ...DENTES_DECIDUOS.flat()].map(String)
 
 export function SeloOrcamento({ status }: { status: StatusOrcamento }) {
   return (
@@ -183,17 +187,24 @@ function EditorOrcamento(props: {
   const [parcelas, setParcelas] = useState(o?.parcelas ?? 1)
   const [primeiro, setPrimeiro] = useState(o?.primeiroVencimento ?? '')
   const [observacoes, setObservacoes] = useState(o?.observacoes ?? '')
-  // Procedimento sendo adicionado (rascunho local até salvar, R-011).
+  // Busca na tabela: cada clique entra direto nos itens (rascunho local até salvar, R-011).
   const [busca, setBusca] = useState('')
-  const [escolhido, setEscolhido] = useState<Procedimento | null>(null)
-  const [dente, setDente] = useState('')
-  const [valor, setValor] = useState(0)
+  const [cadastrando, setCadastrando] = useState(false)
+  const escolher = (p: Procedimento) => {
+    // R-012: valor da tabela, editável na linha.
+    setItens([
+      ...itens,
+      { procedimentoId: p.id, nome: p.nome, dente: null, valorCentavos: p.valorCentavos },
+    ])
+    setBusca('')
+  }
+  const mudarItem = (n: number, d: Partial<Item>) =>
+    setItens(itens.map((i, x) => (x === n ? { ...i, ...d } : i)))
 
   const tabela = useQuery({
     queryKey: ['procedimentos', busca],
     queryFn: async () =>
       (await api.get<Procedimento[]>('/procedimentos', { params: { busca } })).data,
-    enabled: !escolhido,
   })
 
   const total = totalOrcamento(itens, desconto)
@@ -251,22 +262,6 @@ function EditorOrcamento(props: {
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
 
-  function adicionar() {
-    if (!escolhido) return
-    setItens([
-      ...itens,
-      {
-        procedimentoId: escolhido.id,
-        nome: escolhido.nome,
-        dente: dente.trim() || null,
-        valorCentavos: valor,
-      },
-    ])
-    setEscolhido(null)
-    setBusca('')
-    setDente('')
-  }
-
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2">
@@ -290,69 +285,65 @@ function EditorOrcamento(props: {
 
       <fieldset className="space-y-2 rounded-lg border border-borda p-3">
         <legend className="px-1 font-medium">Adicionar procedimento</legend>
-        {escolhido ? (
-          <div className="grid items-end gap-3 sm:grid-cols-[1fr_10rem_10rem_auto]">
-            <p className="py-2">
-              <strong>{escolhido.nome}</strong>{' '}
-              <button type="button" className="text-primaria" onClick={() => setEscolhido(null)}>
-                Trocar
+        <input
+          type="search"
+          className="campo"
+          placeholder="Buscar procedimento (qualquer parte do nome)"
+          aria-label="Buscar procedimento"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+        />
+        <ul className="max-h-48 overflow-y-auto rounded-md border border-borda">
+          {pode(eu.perfis, 'configuracao.editar') &&
+            !tabela.data?.some((p) => normalizar(p.nome) === normalizar(busca.trim())) && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setCadastrando(true)}
+                  className="flex w-full items-center gap-2 border-b border-borda bg-superficie-2 px-3 py-2.5 text-left hover:bg-primaria-clara focus-visible:bg-primaria-clara"
+                >
+                  <Icone nome="mais" className="h-5 w-5 shrink-0 text-suave" />
+                  <span className="min-w-0 truncate">
+                    Novo procedimento{busca.trim() && ': '}
+                    {busca.trim() && <span className="font-bold">{busca.trim()}</span>}
+                  </span>
+                </button>
+              </li>
+            )}
+          {tabela.data?.length === 0 && (
+            <li className="px-3 py-2 text-suave">Nenhum procedimento encontrado.</li>
+          )}
+          {tabela.data?.map((p) => (
+            <li key={p.id}>
+              <button
+                type="button"
+                onClick={() => escolher(p)}
+                className="flex w-full justify-between px-3 py-1.5 text-left hover:bg-primaria-clara"
+              >
+                <span>
+                  {p.nome}
+                  {p.especialidade && <span className="text-suave"> · {p.especialidade}</span>}
+                </span>
+                <span className="text-suave">{reais(p.valorCentavos)}</span>
               </button>
-            </p>
-            <label>
-              <span className="rotulo">Dente ou região</span>
-              <input
-                className="campo"
-                list="dentes-fdi"
-                value={dente}
-                onChange={(e) => setDente(e.target.value)}
-                placeholder="Ex.: 16"
-              />
-              <datalist id="dentes-fdi">
-                {TODOS_DENTES.map((d) => (
-                  <option key={d} value={d} />
-                ))}
-              </datalist>
-            </label>
-            <CampoReais id="valor-item" rotulo="Valor" valor={valor} aoMudar={setValor} />
-            <button type="button" className="botao" onClick={adicionar}>
-              Adicionar
-            </button>
-          </div>
-        ) : (
-          <>
-            <input
-              type="search"
-              className="campo"
-              placeholder="Buscar procedimento (qualquer parte do nome)"
-              aria-label="Buscar procedimento"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
+            </li>
+          ))}
+        </ul>
+        <Dialogo
+          aberto={cadastrando}
+          aoFechar={() => setCadastrando(false)}
+          titulo="Novo procedimento"
+        >
+          {cadastrando && (
+            <FormProcedimento
+              nomeInicial={busca.trim()}
+              aoTerminar={(salvo) => {
+                setCadastrando(false)
+                if (salvo) escolher(salvo)
+              }}
             />
-            <ul className="max-h-40 overflow-y-auto rounded-md border border-borda">
-              {tabela.data?.length === 0 && (
-                <li className="px-3 py-2 text-suave">Nenhum procedimento encontrado.</li>
-              )}
-              {tabela.data?.map((p) => (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEscolhido(p)
-                      setValor(p.valorCentavos) // R-012: valor da tabela, editável
-                    }}
-                    className="flex w-full justify-between px-3 py-1.5 text-left hover:bg-primaria-clara"
-                  >
-                    <span>
-                      {p.nome}
-                      {p.especialidade && <span className="text-suave"> · {p.especialidade}</span>}
-                    </span>
-                    <span className="text-suave">{reais(p.valorCentavos)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+          )}
+        </Dialogo>
       </fieldset>
 
       {itens.length > 0 && (
@@ -360,24 +351,42 @@ function EditorOrcamento(props: {
           <thead className="border-b border-borda text-suave">
             <tr>
               <th className="py-1 font-medium">Procedimento</th>
-              <th className="py-1 font-medium">Dente</th>
-              <th className="py-1 text-right font-medium">Valor</th>
+              <th className="py-1 font-medium">Dente ou região</th>
+              <th className="py-1 font-medium">Valor</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {itens.map((i, n) => (
               <tr key={n} className="border-b border-borda">
-                <td className="py-1.5">{i.nome}</td>
-                <td className="py-1.5">{i.dente}</td>
-                <td className="py-1.5 text-right">{reais(i.valorCentavos)}</td>
-                <td className="py-1.5 text-right">
+                <td className="py-1.5 pr-3">{i.nome}</td>
+                <td className="w-40 py-1.5 pr-3">
+                  <CampoSugestoes
+                    sugestoes={TODOS_DENTES}
+                    value={i.dente ?? ''}
+                    onChange={(v) => mudarItem(n, { dente: v || null })}
+                    placeholder="Ex.: 16"
+                    aria-label={`Dente ou região: ${i.nome}`}
+                  />
+                </td>
+                <td className="w-40 py-1.5 pr-3">
+                  <CampoReais
+                    id={`valor-item-${n}`}
+                    rotulo={`Valor: ${i.nome}`}
+                    rotuloOculto
+                    valor={i.valorCentavos}
+                    aoMudar={(v) => mudarItem(n, { valorCentavos: v })}
+                  />
+                </td>
+                <td className="w-10 py-1.5 text-right">
                   <button
                     type="button"
-                    className="text-perigo"
+                    className="botao-fantasma botao-icone text-perigo"
+                    aria-label={`Remover ${i.nome}`}
+                    title="Remover"
                     onClick={() => setItens(itens.filter((_, x) => x !== n))}
                   >
-                    Remover
+                    <Icone nome="fechar" className="h-4 w-4" />
                   </button>
                 </td>
               </tr>

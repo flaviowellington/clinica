@@ -13,43 +13,41 @@ import {
 import { avisar } from '../estado'
 import { pode, type Acao } from '../../../shared/permissoes'
 import { idade, MOTIVOS_INATIVACAO } from '../../../shared/regras'
-import { reais } from '../../../shared/financeiro'
 import type { Pergunta } from '../../../shared/prontuario'
 import { Dialogo } from '../componentes/Dialogo'
 import { FormPaciente } from '../componentes/FormPaciente'
-import { Abas } from '../componentes/Abas'
 import { NovoRetorno } from '../componentes/Retornos'
-import { Situacao } from './Pacientes'
+import { Situacao, whatsapp } from './Pacientes'
+import { Icone } from '../componentes/Icones'
 import { OrcamentosPaciente } from '../componentes/Orcamentos'
 import { FichasEspecialidade, Odontograma, PlanoFichaClinica } from '../componentes/Clinico'
 import { Anamneses } from '../componentes/Anamnese'
 import { Arquivos } from '../componentes/Arquivos'
 import { Documentos } from '../componentes/Documentos'
-import {
-  AgendamentosPaciente,
-  FinanceiroPaciente,
-  Indicacoes,
-  RecibosPaciente,
-} from '../componentes/FichaConsultas'
+import { AgendamentosPaciente, Indicacoes } from '../componentes/FichaConsultas'
 
-type Janela = 'editar' | 'inativar' | 'excluir' | null
+type Janela = 'editar' | 'excluir' | null
 
-/** As 13 abas da ficha (S-003). Cada uma só aparece para quem tem a permissão. */
+/** As 11 seções da ficha (S-003), em grupos no menu lateral. Cada uma só aparece com a permissão. */
 const ABAS_FICHA = [
-  { id: 'visao-geral', rotulo: 'Visão Geral', acao: 'paciente.ver' },
-  { id: 'orcamentos', rotulo: 'Orçamentos', acao: 'orcamento.ver' },
-  { id: 'financeiro', rotulo: 'Financeiro', acao: 'financeiro.paciente' },
-  { id: 'fotos', rotulo: 'Fotos', acao: 'fotos.ver' },
-  { id: 'plano', rotulo: 'Plano e Ficha Clínica', acao: 'prontuario.ver' },
-  { id: 'especialidades', rotulo: 'Fichas Especialidades', acao: 'prontuario.ver' },
-  { id: 'odontograma', rotulo: 'Odontograma', acao: 'prontuario.ver' },
-  { id: 'anamnese', rotulo: 'Anamnese', acao: 'anamnese.ver' },
-  { id: 'documentos', rotulo: 'Documentos', acao: 'prontuario.ver' },
-  { id: 'exames', rotulo: 'Exames', acao: 'prontuario.ver' },
-  { id: 'recibos', rotulo: 'Recibos', acao: 'financeiro.receber' },
-  { id: 'agendamentos', rotulo: 'Agendamentos', acao: 'agenda.ver' },
-  { id: 'indicacoes', rotulo: 'Indicações', acao: 'paciente.ver' },
-] as const satisfies readonly { id: string; rotulo: string; acao: Acao }[]
+  { id: 'visao-geral', rotulo: 'Visão Geral', acao: 'paciente.ver', grupo: '' },
+  { id: 'orcamentos', rotulo: 'Orçamentos', acao: 'orcamento.ver', grupo: 'Tratamento' },
+  { id: 'agendamentos', rotulo: 'Agendamentos', acao: 'agenda.ver', grupo: 'Tratamento' },
+  { id: 'anamnese', rotulo: 'Anamnese', acao: 'anamnese.ver', grupo: 'Clínico' },
+  { id: 'odontograma', rotulo: 'Odontograma', acao: 'prontuario.ver', grupo: 'Clínico' },
+  { id: 'plano', rotulo: 'Plano e Ficha Clínica', acao: 'prontuario.ver', grupo: 'Clínico' },
+  {
+    id: 'especialidades',
+    rotulo: 'Fichas Especialidades',
+    acao: 'prontuario.ver',
+    grupo: 'Clínico',
+  },
+  { id: 'exames', rotulo: 'Exames', acao: 'prontuario.ver', grupo: 'Arquivos' },
+  { id: 'fotos', rotulo: 'Fotos', acao: 'fotos.ver', grupo: 'Arquivos' },
+  { id: 'documentos', rotulo: 'Documentos', acao: 'prontuario.ver', grupo: 'Arquivos' },
+  { id: 'indicacoes', rotulo: 'Indicações', acao: 'paciente.ver', grupo: 'Outros' },
+] as const satisfies readonly { id: string; rotulo: string; acao: Acao; grupo: string }[]
+const GRUPOS_FICHA = ['', 'Tratamento', 'Clínico', 'Arquivos', 'Outros'] as const
 type AbaFicha = (typeof ABAS_FICHA)[number]['id']
 
 export function Ficha() {
@@ -104,12 +102,11 @@ export function Ficha() {
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
 
-  const situacao = useMutation({
-    mutationFn: async (d: { acao: 'inativar' | 'ativar'; motivo?: string; descricao?: string }) =>
-      (await api.post<Paciente>(`/pacientes/${id}/${d.acao}`, d)).data,
+  const ativar = useMutation({
+    mutationFn: async () => (await api.post<Paciente>(`/pacientes/${id}/ativar`)).data,
     onSuccess: (p) => {
       atualizar(p)
-      avisar(p.ativo ? 'Paciente ativado' : 'Paciente inativado')
+      avisar('Paciente ativado')
     },
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
@@ -134,78 +131,103 @@ export function Ficha() {
     .slice(0, 2)
     .join('')
     .toUpperCase()
+  const naVisao = aba === 'visao-geral'
+
+  const acoes = (
+    <>
+      {pode(eu.perfis, 'paciente.editar') && (
+        <button className="botao-leve" onClick={() => setJanela('editar')}>
+          Editar
+        </button>
+      )}
+      {pode(eu.perfis, 'paciente.inativar') && !p.ativo && (
+        <button className="botao-leve" onClick={() => ativar.mutate()}>
+          Ativar paciente
+        </button>
+      )}
+      {pode(eu.perfis, 'paciente.excluir') && (
+        <button className="botao-leve text-perigo" onClick={() => setJanela('excluir')}>
+          Excluir paciente
+        </button>
+      )}
+    </>
+  )
 
   return (
-    <div className="space-y-4">
-      <header className="cartao flex flex-wrap items-center gap-4">
-        <div className="grid size-12 place-items-center rounded-full bg-primaria-clara font-semibold text-primaria">
-          {iniciais}
-        </div>
-        <div className="flex-1">
-          <h1 className="flex items-center gap-2 text-xl font-semibold">
-            {p.nome} <Situacao ativo={p.ativo} />
-          </h1>
-          <p className="text-suave">{p.celular || 'Sem celular cadastrado'}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {pode(eu.perfis, 'paciente.editar') && (
-            <button className="botao-leve" onClick={() => setJanela('editar')}>
-              Editar
-            </button>
-          )}
-          {pode(eu.perfis, 'paciente.inativar') &&
-            (p.ativo ? (
-              <button className="botao-leve" onClick={() => setJanela('inativar')}>
-                Inativar paciente
-              </button>
-            ) : (
-              <button className="botao-leve" onClick={() => situacao.mutate({ acao: 'ativar' })}>
-                Ativar paciente
-              </button>
+    <div className="flex flex-wrap items-start gap-4">
+      <nav
+        aria-label="Seções da ficha"
+        className="cartao w-full space-y-3 p-2 lg:sticky lg:top-4 lg:w-56 lg:shrink-0"
+      >
+        {GRUPOS_FICHA.map((g) => {
+          const itens = abas.filter((a) => a.grupo === g)
+          if (!itens.length) return null
+          return (
+            <div key={g}>
+              {g && (
+                <p className="px-3 pt-1 pb-1 text-xs font-extrabold tracking-wide text-suave uppercase">
+                  {g}
+                </p>
+              )}
+              <ul className="flex flex-wrap gap-1 lg:flex-col">
+                {itens.map((a) => (
+                  <li key={a.id}>
+                    <button
+                      aria-current={aba === a.id ? 'page' : undefined}
+                      onClick={() => trocarAba(a.id)}
+                      className={`w-full rounded-xl px-3 py-2 text-left ${aba === a.id ? 'bg-primaria-clara font-extrabold text-primaria' : 'hover:bg-superficie-2'}`}
+                    >
+                      {a.rotulo}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })}
+      </nav>
+
+      <div className="min-w-0 flex-[999_1_36rem] space-y-4">
+        {!p.ativo && p.motivoInativacao && (
+          <p className="cartao border-perigo/40">
+            Inativo por: {MOTIVOS_INATIVACAO[p.motivoInativacao]}
+            {p.motivoInativacaoDescricao && ` — ${p.motivoInativacaoDescricao}`}. Não pode receber
+            novas consultas.
+          </p>
+        )}
+
+        {!naVisao && !!alertas.data?.length && (
+          <div role="alert" className="cartao flex flex-wrap items-center gap-2 border-perigo/50">
+            <span className="font-medium text-perigo">Alertas da anamnese:</span>
+            {alertas.data.map((a) => (
+              <span key={a.texto} className="rounded-full bg-perigo/10 px-2 py-0.5 text-perigo">
+                {a.texto.replace(/[?]$/, '')}: {a.resposta}
+                {a.descricao && ` (${a.descricao})`}
+              </span>
             ))}
-          {pode(eu.perfis, 'paciente.excluir') && (
-            <button className="botao-leve text-perigo" onClick={() => setJanela('excluir')}>
-              Excluir paciente
-            </button>
-          )}
-        </div>
-      </header>
+          </div>
+        )}
 
-      {!p.ativo && p.motivoInativacao && (
-        <p className="cartao border-perigo/40">
-          Inativo por: {MOTIVOS_INATIVACAO[p.motivoInativacao]}
-          {p.motivoInativacaoDescricao && ` — ${p.motivoInativacaoDescricao}`}. Não pode receber
-          novas consultas.
-        </p>
-      )}
-
-      {!!alertas.data?.length && (
-        <div role="alert" className="cartao flex flex-wrap items-center gap-2 border-perigo/50">
-          <span className="font-medium text-perigo">Alertas da anamnese:</span>
-          {alertas.data.map((a) => (
-            <span key={a.texto} className="rounded-full bg-perigo/10 px-2 py-0.5 text-perigo">
-              {a.texto.replace(/[?]$/, '')}: {a.resposta}
-              {a.descricao && ` (${a.descricao})`}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <Abas abas={[...abas]} atual={aba} aoTrocar={trocarAba} />
-
-      {aba === 'visao-geral' && <VisaoGeral paciente={p} irPara={trocarAba} />}
-      {aba === 'orcamentos' && <OrcamentosPaciente paciente={p} />}
-      {aba === 'financeiro' && <FinanceiroPaciente paciente={p} />}
-      {aba === 'fotos' && <Arquivos paciente={p} categoria="FOTO" />}
-      {aba === 'plano' && <PlanoFichaClinica paciente={p} />}
-      {aba === 'especialidades' && <FichasEspecialidade paciente={p} />}
-      {aba === 'odontograma' && <Odontograma paciente={p} />}
-      {aba === 'anamnese' && <Anamneses paciente={p} />}
-      {aba === 'documentos' && <Documentos paciente={p} />}
-      {aba === 'exames' && <Arquivos paciente={p} categoria="EXAME" />}
-      {aba === 'recibos' && <RecibosPaciente paciente={p} />}
-      {aba === 'agendamentos' && <AgendamentosPaciente paciente={p} />}
-      {aba === 'indicacoes' && <Indicacoes paciente={p} />}
+        {naVisao && (
+          <VisaoGeral
+            paciente={p}
+            iniciais={iniciais}
+            acoes={acoes}
+            alertas={alertas.data ?? []}
+            irPara={trocarAba}
+          />
+        )}
+        {aba === 'orcamentos' && <OrcamentosPaciente paciente={p} />}
+        {aba === 'fotos' && <Arquivos paciente={p} categoria="FOTO" />}
+        {aba === 'plano' && <PlanoFichaClinica paciente={p} />}
+        {aba === 'especialidades' && <FichasEspecialidade paciente={p} />}
+        {aba === 'odontograma' && <Odontograma paciente={p} />}
+        {aba === 'anamnese' && <Anamneses paciente={p} />}
+        {aba === 'documentos' && <Documentos paciente={p} />}
+        {aba === 'exames' && <Arquivos paciente={p} categoria="EXAME" />}
+        {aba === 'agendamentos' && <AgendamentosPaciente paciente={p} />}
+        {aba === 'indicacoes' && <Indicacoes paciente={p} />}
+      </div>
 
       <Dialogo
         aberto={janela === 'editar'}
@@ -218,17 +240,6 @@ export function Ficha() {
           enviando={salvar.isPending}
           erros={errosDosCampos(salvar.error)}
           aoEnviar={(d) => salvar.mutate(d)}
-        />
-      </Dialogo>
-
-      <Dialogo
-        aberto={janela === 'inativar'}
-        aoFechar={() => setJanela(null)}
-        titulo="Inativar paciente"
-      >
-        <Inativar
-          enviando={situacao.isPending}
-          aoConfirmar={(m, d) => situacao.mutate({ acao: 'inativar', motivo: m, descricao: d })}
         />
       </Dialogo>
 
@@ -268,9 +279,15 @@ interface Resumo {
 
 function VisaoGeral({
   paciente: p,
+  iniciais,
+  acoes,
+  alertas,
   irPara,
 }: {
   paciente: Paciente
+  iniciais: string
+  acoes: ReactNode
+  alertas: Pergunta[]
   irPara: (a: AbaFicha) => void
 }) {
   const { data: eu } = useSuspenseQuery(consultaEu)
@@ -290,155 +307,263 @@ function VisaoGeral({
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
   const r = resumo.data
-  const totalAberto = r?.orcamentosAbertos.reduce((s, o) => s + o.totalCentavos, 0) ?? 0
+  const verAnamnese = pode(eu.perfis, 'anamnese.ver')
   const atalho = (a: AbaFicha, texto: string) => (
-    <button className="text-primaria hover:underline" onClick={() => irPara(a)}>
+    <button className="link mt-auto self-start" onClick={() => irPara(a)}>
       {texto}
     </button>
   )
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-3">
-        <Bloco titulo="Cadastro">
-          <Info rotulo="Apelido" valor={p.apelido} />
-          <Info
-            rotulo="Nascimento"
-            valor={`${dataBR(p.nascimento)} (${idade(p.nascimento)} anos)`}
-          />
-          <Info rotulo="CPF" valor={cpfBR(p.cpf)} />
-          <Info rotulo="RG" valor={p.rg} />
-          <Info rotulo="Sexo" valor={p.sexo} />
-          <Info rotulo="Estado civil" valor={p.estadoCivil} />
-          <Info rotulo="Cadastrado em" valor={dataBR(p.criadoEm)} />
-        </Bloco>
-        <Bloco titulo="Contato">
-          <Info rotulo="Celular / WhatsApp" valor={p.celular} />
-          <Info rotulo="Telefone fixo" valor={p.telefone} />
-          <Info rotulo="E-mail" valor={p.email} />
-          <Info
-            rotulo="Como conheceu"
-            valor={[p.comoConheceu, p.indicadoPor ?? p.comoConheceuOutro].filter(Boolean).join(': ')}
-          />
-        </Bloco>
-        <Bloco titulo="Complemento">
-          <Info rotulo="Mãe" valor={p.nomeMae} />
-          <Info rotulo="Pai" valor={p.nomePai} />
-          <Info
-            rotulo="Responsável legal"
-            valor={[p.responsavelNome, p.responsavelParentesco, cpfBR(p.responsavelCpf)]
-              .filter(Boolean)
-              .join(' · ')}
-          />
-          <Info rotulo="Observações" valor={p.observacoes} />
-        </Bloco>
-      </div>
+  // Só o que foi preenchido aparece no Cadastro.
+  const familia = [
+    { rotulo: 'Mãe', valor: p.nomeMae },
+    { rotulo: 'Pai', valor: p.nomePai },
+    {
+      rotulo: 'Responsável legal',
+      valor: [p.responsavelNome, p.responsavelParentesco, cpfBR(p.responsavelCpf)]
+        .filter(Boolean)
+        .join(' · '),
+    },
+  ].filter((f) => f.valor)
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <section className="cartao space-y-2">
-          <h2 className="font-semibold">Próximo agendamento</h2>
-          {r?.proximaConsulta ? (
-            <p>
-              {dataBR(r.proximaConsulta.data)} às {r.proximaConsulta.inicio}
-              <br />
-              <span className="text-suave">{r.proximaConsulta.profissional.nome}</span>
-            </p>
-          ) : (
-            <p className="text-suave">Nenhuma consulta marcada.</p>
+  const consulta = r?.proximaConsulta
+  const dia = consulta ? new Date(`${consulta.data.slice(0, 10)}T00:00`) : null
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+  const faltam = dia ? Math.round((dia.getTime() - hoje.getTime()) / 86_400_000) : 0
+
+  return (
+    <div className="flex flex-wrap items-start gap-4">
+      <aside className="flex w-full flex-col gap-4 lg:w-80 lg:shrink-0">
+        <section className="cartao space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="grid size-16 shrink-0 place-items-center rounded-full bg-primaria-clara text-xl font-extrabold text-primaria">
+              {iniciais}
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-xl">{p.nome}</h1>
+              <p className="text-suave">
+                {[p.nascimento && `${idade(p.nascimento)} anos`, p.sexo]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+              <div className="mt-1">
+                <Situacao ativo={p.ativo} />
+              </div>
+            </div>
+          </div>
+          {(p.celular || p.email) && (
+            <div className="flex flex-wrap gap-2">
+              {p.celular && (
+                <a className="botao" href={whatsapp(p.celular)} target="_blank" rel="noreferrer">
+                  WhatsApp
+                </a>
+              )}
+              {p.email && (
+                <a
+                  className="botao-leve botao-icone size-10"
+                  href={`mailto:${p.email}`}
+                  aria-label="Enviar e-mail"
+                  title="Enviar e-mail"
+                >
+                  <Icone nome="confirmacoes" />
+                </a>
+              )}
+            </div>
           )}
-          {pode(eu.perfis, 'agenda.ver') && atalho('agendamentos', 'Ver agendamentos')}
+          <div className="flex flex-wrap gap-2 border-t border-borda pt-3">{acoes}</div>
         </section>
 
-        {pode(eu.perfis, 'anamnese.ver') && (
-          <section className="cartao space-y-2">
-            <h2 className="font-semibold">Anamnese</h2>
-            {r?.anamnese ? (
-              <p>
-                Atual, de {dataBR(r.anamnese.criadoEm)}
-                <br />
-                <span className={r.anamnese.alertas.length ? 'text-perigo' : 'text-suave'}>
-                  {r.anamnese.alertas.length
-                    ? `${r.anamnese.alertas.length} alerta(s)`
-                    : 'Sem alertas'}
+        {verAnamnese && alertas.length > 0 && (
+          <section role="alert" className="alerta-perigo space-y-2">
+            <h2 className="text-xs tracking-wide text-perigo uppercase">Alertas de saúde</h2>
+            <div className="flex flex-wrap gap-1.5">
+              {alertas.map((a) => (
+                <span key={a.texto} className="etiqueta etiqueta-perigo">
+                  {a.texto.replace(/[?]$/, '')}: {a.resposta}
+                  {a.descricao && ` (${a.descricao})`}
                 </span>
+              ))}
+            </div>
+            {r?.anamnese && (
+              <p className="text-xs text-suave">
+                Da anamnese de {dataBR(r.anamnese.criadoEm)} ·{' '}
+                <button className="link" onClick={() => irPara('anamnese')}>
+                  ver anamnese
+                </button>
               </p>
-            ) : (
-              <p className="text-suave">Ainda não preenchida.</p>
             )}
-            {atalho('anamnese', 'Abrir anamnese')}
           </section>
         )}
 
-        <section className="cartao space-y-2">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Alerta de retorno</h2>
+        <Bloco titulo="Contato">
+          <Info rotulo="Celular / WhatsApp" valor={p.celular} />
+          <Info rotulo="E-mail" valor={p.email} />
+        </Bloco>
+
+        <Bloco titulo="Cadastro" colunas>
+          <Info rotulo="Nascimento" valor={dataBR(p.nascimento)} />
+          <Info rotulo="CPF" valor={cpfBR(p.cpf)} />
+          <Info rotulo="RG" valor={p.rg} />
+          <Info rotulo="Estado civil" valor={p.estadoCivil} />
+          <Info
+            rotulo="Como conheceu"
+            valor={[p.comoConheceu, p.indicadoPor ?? p.comoConheceuOutro]
+              .filter(Boolean)
+              .join(': ')}
+          />
+          <Info rotulo="Cadastrado em" valor={dataBR(p.criadoEm)} />
+          {p.apelido && <Info rotulo="Apelido" valor={p.apelido} />}
+          {p.observacoes && (
+            <div className="col-span-2">
+              <Info rotulo="Observações" valor={p.observacoes} />
+            </div>
+          )}
+          {familia.length > 0 && (
+            <div className="col-span-2 space-y-3 border-t border-borda pt-3">
+              <p className="text-xs font-bold tracking-wide text-suave uppercase">
+                Família e responsável
+              </p>
+              {familia.map((f) => (
+                <Info key={f.rotulo} rotulo={f.rotulo} valor={f.valor} />
+              ))}
+            </div>
+          )}
+        </Bloco>
+      </aside>
+
+      <div className="flex min-w-0 flex-[999_1_32rem] flex-col gap-4">
+        <section className="cartao flex flex-wrap items-center justify-between gap-4 border-primaria/30 bg-primaria-clara">
+          {consulta && dia ? (
+            <div className="flex items-center gap-4">
+              <div className="min-w-16 rounded-xl border border-primaria/30 bg-superficie px-3 py-2 text-center">
+                <p className="text-xs font-extrabold text-primaria uppercase">
+                  {dia.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
+                </p>
+                <p className="text-2xl font-extrabold text-titulo">{dia.getDate()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-suave">
+                  Próxima consulta ·{' '}
+                  {faltam === 0 ? 'hoje' : faltam === 1 ? 'amanhã' : `em ${faltam} dias`}
+                </p>
+                <p className="text-lg font-bold text-titulo first-letter:uppercase">
+                  {dia.toLocaleDateString('pt-BR', { weekday: 'long' })}, {consulta.inicio}
+                </p>
+                <p className="text-suave">{consulta.profissional.nome}</p>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p className="text-xs text-suave">Próxima consulta</p>
+              <p className="text-lg font-bold text-titulo">Nenhuma consulta marcada</p>
+            </div>
+          )}
+          {pode(eu.perfis, 'agenda.ver') && (
+            <button className="botao-leve" onClick={() => irPara('agendamentos')}>
+              Ver agendamentos
+            </button>
+          )}
+        </section>
+
+        <div className="grid gap-4 sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
+          <section className="cartao flex flex-col gap-2">
+            <h2 className="text-xs tracking-wide text-suave uppercase">Retorno</h2>
+            {r?.retornos.length ? (
+              <ul className="space-y-1">
+                {r.retornos.map((x) => (
+                  <li key={x.id}>
+                    <p className="font-bold">{dataBR(x.data)}</p>
+                    <p className="text-suave">
+                      {[x.motivo, x.profissional.nome].filter(Boolean).join(' · ')}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-suave">Nenhum retorno pendente.</p>
+            )}
             {pode(eu.perfis, 'agenda.editar') && (
-              <button
-                className="text-primaria hover:underline"
-                onClick={() => setNovoRetorno(true)}
-              >
-                Novo alerta
+              <button className="link mt-auto self-start" onClick={() => setNovoRetorno(true)}>
+                + Novo alerta de retorno
               </button>
             )}
+          </section>
+
+          {verAnamnese && (
+            <section className="cartao flex flex-col gap-2">
+              <h2 className="text-xs tracking-wide text-suave uppercase">Anamnese</h2>
+              {r?.anamnese ? (
+                <>
+                  <p className="font-bold">Atualizada em {dataBR(r.anamnese.criadoEm)}</p>
+                  <p className={r.anamnese.alertas.length ? 'font-bold text-perigo' : 'text-suave'}>
+                    {r.anamnese.alertas.length
+                      ? `${r.anamnese.alertas.length} alerta(s)`
+                      : 'Sem alertas'}
+                  </p>
+                </>
+              ) : (
+                <p className="text-suave">Ainda não preenchida.</p>
+              )}
+              {atalho('anamnese', 'Abrir anamnese')}
+            </section>
+          )}
+
+          <section className="cartao flex flex-col gap-2">
+            <h2 className="text-xs tracking-wide text-suave uppercase">Tratamento</h2>
+            {r?.orcamentosAbertos.length ? (
+              <p className="font-bold">
+                {r.orcamentosAbertos.length === 1
+                  ? '1 orçamento aguardando'
+                  : `${r.orcamentosAbertos.length} orçamentos aguardando`}
+              </p>
+            ) : (
+              <p className="text-suave">Nenhum orçamento em aberto.</p>
+            )}
+            {pode(eu.perfis, 'orcamento.ver') && atalho('orcamentos', 'Ver orçamentos')}
+          </section>
+        </div>
+
+        <section className="cartao space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs tracking-wide text-suave uppercase">Notas gerais</h2>
+            {!!r?.notas.length && (
+              <span className="text-xs text-suave">{r.notas.length} nota(s)</span>
+            )}
           </div>
-          {r?.retornos.length === 0 && <p className="text-suave">Nenhum retorno pendente.</p>}
-          <ul className="space-y-1">
-            {r?.retornos.map((x) => (
-              <li key={x.id}>
-                {dataBR(x.data)} · {x.profissional.nome}
-                {x.motivo && <span className="text-suave"> — {x.motivo}</span>}
+          {pode(eu.perfis, 'paciente.editar') && (
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                salvarNota.mutate()
+              }}
+            >
+              <input
+                className="campo"
+                value={nota}
+                maxLength={1500}
+                onChange={(e) => setNota(e.target.value)}
+                placeholder="Escreva uma nota sobre o paciente"
+                aria-label="Nova nota"
+              />
+              <button className="botao shrink-0" disabled={!nota.trim() || salvarNota.isPending}>
+                Adicionar
+              </button>
+            </form>
+          )}
+          {r?.notas.length === 0 && <p className="text-suave">Nenhuma nota.</p>}
+          <ul className="space-y-2">
+            {r?.notas.map((n) => (
+              <li key={n.id} className="rounded-xl bg-superficie-2 px-3 py-2">
+                <p className="whitespace-pre-wrap">{n.texto}</p>
+                <p className="mt-1 text-xs text-suave">
+                  {n.criadoPor.nome} · {new Date(n.criadoEm).toLocaleString('pt-BR')}
+                </p>
               </li>
             ))}
           </ul>
         </section>
-
-        <section className="cartao space-y-2">
-          <h2 className="font-semibold">Orçamentos em aberto</h2>
-          {r?.orcamentosAbertos.length ? (
-            <p>
-              {r.orcamentosAbertos.length} orçamento(s) · {reais(totalAberto)}
-            </p>
-          ) : (
-            <p className="text-suave">Nenhum orçamento em aberto.</p>
-          )}
-          {pode(eu.perfis, 'orcamento.ver') && atalho('orcamentos', 'Ver orçamentos')}
-        </section>
       </div>
-
-      <section className="cartao space-y-3">
-        <h2 className="font-semibold">Notas gerais</h2>
-        {pode(eu.perfis, 'paciente.editar') && (
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              salvarNota.mutate()
-            }}
-          >
-            <input
-              className="campo"
-              value={nota}
-              maxLength={1500}
-              onChange={(e) => setNota(e.target.value)}
-              placeholder="Escreva uma nota sobre o paciente"
-              aria-label="Nova nota"
-            />
-            <button className="botao shrink-0" disabled={!nota.trim() || salvarNota.isPending}>
-              Adicionar
-            </button>
-          </form>
-        )}
-        {r?.notas.length === 0 && <p className="text-suave">Nenhuma nota.</p>}
-        <ul className="space-y-2">
-          {r?.notas.map((n) => (
-            <li key={n.id} className="border-l-2 border-borda pl-3">
-              <p className="whitespace-pre-wrap">{n.texto}</p>
-              <p className="text-xs text-suave">
-                {n.criadoPor.nome} · {new Date(n.criadoEm).toLocaleString('pt-BR')}
-              </p>
-            </li>
-          ))}
-        </ul>
-      </section>
 
       <Dialogo
         aberto={novoRetorno}
@@ -457,53 +582,11 @@ function VisaoGeral({
   )
 }
 
-function Inativar(props: {
-  enviando: boolean
-  aoConfirmar: (motivo: string, descricao: string) => void
-}) {
-  const [motivo, setMotivo] = useState('')
-  const [descricao, setDescricao] = useState('')
-  const ok = motivo && (motivo !== 'OUTROS' || descricao.trim())
-  return (
-    <div className="space-y-3">
-      <p>Paciente inativo continua com a ficha acessível, mas não pode receber novas consultas.</p>
-      <fieldset className="space-y-2">
-        <legend className="rotulo">Motivo *</legend>
-        {Object.entries(MOTIVOS_INATIVACAO).map(([valor, texto]) => (
-          <label key={valor} className="flex items-center gap-2">
-            <input type="radio" name="motivo" value={valor} onChange={() => setMotivo(valor)} />
-            {texto}
-          </label>
-        ))}
-      </fieldset>
-      {motivo === 'OUTROS' && (
-        <label className="block">
-          <span className="rotulo">Descreva o motivo *</span>
-          <input
-            value={descricao}
-            onChange={(e) => setDescricao(e.target.value)}
-            className="campo"
-          />
-        </label>
-      )}
-      <div className="flex justify-end">
-        <button
-          className="botao"
-          disabled={!ok || props.enviando}
-          onClick={() => props.aoConfirmar(motivo, descricao)}
-        >
-          Inativar
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function Bloco({ titulo, children }: { titulo: string; children: ReactNode }) {
+function Bloco(props: { titulo: string; colunas?: boolean; children: ReactNode }) {
   return (
     <section className="cartao">
-      <h2 className="mb-3 font-semibold">{titulo}</h2>
-      <dl className="space-y-2">{children}</dl>
+      <h2 className="mb-3 text-xs tracking-wide text-suave uppercase">{props.titulo}</h2>
+      <dl className={props.colunas ? 'grid grid-cols-2 gap-3' : 'space-y-3'}>{props.children}</dl>
     </section>
   )
 }
@@ -511,8 +594,8 @@ function Bloco({ titulo, children }: { titulo: string; children: ReactNode }) {
 function Info({ rotulo, valor }: { rotulo: string; valor: string | null }) {
   return (
     <div>
-      <dt className="text-suave">{rotulo}</dt>
-      <dd>{valor || '—'}</dd>
+      <dt className="text-xs text-suave">{rotulo}</dt>
+      <dd className="font-bold break-words">{valor || '—'}</dd>
     </div>
   )
 }

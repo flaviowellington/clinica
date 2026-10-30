@@ -83,9 +83,17 @@ export const COR_PADRAO = '#0f766e'
 
 /**
  * Especialidade: busca na lista da clínica enquanto digita e oferece adicionar o que foi
- * digitado (mesmo padrão da busca de paciente).
+ * digitado (mesmo padrão da busca de paciente). Usado no profissional e no procedimento.
+ * O rótulo do formulário precisa ter id="p-esp-rotulo".
  */
-function CampoEspecialidade({ inicial }: { inicial: string }) {
+export function CampoEspecialidade({
+  inicial,
+  naLinha = false,
+}: {
+  inicial: string
+  /** A lista abre empurrando o que vem abaixo, em vez de flutuar (para janelas pequenas). */
+  naLinha?: boolean
+}) {
   const qc = useQueryClient()
   const especialidades = useQuery(consultaConfig('especialidades'))
   const [valor, setValor] = useState(inicial)
@@ -154,7 +162,7 @@ function CampoEspecialidade({ inicial }: { inicial: string }) {
         <div
           // Clicar na lista não tira o foco da busca (senão ela fecharia antes do clique).
           onMouseDown={(e) => e.preventDefault()}
-          className="absolute inset-x-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-xl border border-borda bg-superficie shadow-[0_10px_30px_-8px_color-mix(in_srgb,black_30%,transparent)]"
+          className={`${naLinha ? '' : 'absolute inset-x-0 top-full z-30'} mt-1 max-h-60 overflow-y-auto rounded-xl border border-borda bg-superficie shadow-[0_10px_30px_-8px_color-mix(in_srgb,black_30%,transparent)]`}
         >
           {!existe && (
             <button

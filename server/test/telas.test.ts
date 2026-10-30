@@ -142,6 +142,34 @@ describe('configurações', () => {
     ])
   })
 
+  it('modelos de anamnese extras: precisam de nome único e perguntas', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    expect((await admin('GET', '/api/configuracoes/modelosAnamnese')).corpo).toEqual([])
+    const pergunta = { texto: 'Usa aparelho?', tipo: 'SIM_NAO', resposta: 'Sim' }
+    expect(
+      (await admin('PUT', '/api/configuracoes/modelosAnamnese', [{ nome: '', perguntas: [pergunta] }]))
+        .status,
+    ).toBe(400)
+    expect(
+      (await admin('PUT', '/api/configuracoes/modelosAnamnese', [{ nome: 'Orto', perguntas: [] }]))
+        .status,
+    ).toBe(400)
+    const repetido = [
+      { nome: 'Orto', perguntas: [pergunta] },
+      { nome: 'orto', perguntas: [pergunta] },
+    ]
+    expect((await admin('PUT', '/api/configuracoes/modelosAnamnese', repetido)).status).toBe(400)
+    const r = await admin('PUT', '/api/configuracoes/modelosAnamnese', [
+      { nome: ' Ortodontia ', perguntas: [pergunta] },
+    ])
+    expect(r.corpo).toEqual([
+      {
+        nome: 'Ortodontia',
+        perguntas: [{ texto: 'Usa aparelho?', tipo: 'SIM_NAO', obrigatoria: false, alerta: false }],
+      },
+    ])
+  })
+
   it('tabela de procedimentos: cria, edita preço e inativa', async () => {
     const admin = await entrarComo('ADMINISTRADOR')
     const r = await admin('POST', '/api/procedimentos', {

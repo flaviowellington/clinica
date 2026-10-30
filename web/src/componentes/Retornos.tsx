@@ -117,7 +117,6 @@ function DetalheRetorno({ r, hoje }: { r: Retorno; hoje: string }) {
   const atrasado = r.data < hoje
   const contatos = [
     { rotulo: 'Celular', valor: r.paciente.celular },
-    { rotulo: 'Telefone', valor: r.paciente.telefone },
     { rotulo: 'E-mail', valor: r.paciente.email },
   ].filter((c) => c.valor)
 

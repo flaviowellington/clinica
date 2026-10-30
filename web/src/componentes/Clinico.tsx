@@ -26,6 +26,9 @@ import { Dialogo } from './Dialogo'
 import { CampoData } from './CampoData'
 import { CampoSelect } from './CampoSelect'
 import { confirmar } from './Confirmar'
+import { CampoSugestoes } from './CampoSugestoes'
+
+const LISTA_DENTES = [...DENTES_VALIDOS].map(String)
 
 type Status = 'A_REALIZAR' | 'EXECUTADO' | 'EXISTENTE'
 interface ItemClinico {
@@ -374,20 +377,14 @@ function FormProcedimento(props: {
       <div className="grid gap-3 sm:grid-cols-2">
         <label>
           <span className="rotulo">Procedimento *</span>
-          <input
-            className="campo"
-            list="procedimentos-tabela"
+          <CampoSugestoes
+            sugestoes={tabela.data?.map((t) => t.nome) ?? []}
             value={nome}
-            onChange={(e) => setNome(e.target.value)}
+            onChange={setNome}
             placeholder="Busque na tabela ou escreva"
             autoFocus
             required
           />
-          <datalist id="procedimentos-tabela">
-            {tabela.data?.map((t) => (
-              <option key={t.id} value={t.nome} />
-            ))}
-          </datalist>
           {erro('procedimentoId')}
         </label>
         <label>
@@ -414,19 +411,13 @@ function FormProcedimento(props: {
       <div className="grid gap-3 sm:grid-cols-3">
         <label>
           <span className="rotulo">Dente (opcional)</span>
-          <input
-            className="campo"
-            list="dentes-validos"
+          <CampoSugestoes
+            sugestoes={LISTA_DENTES}
             inputMode="numeric"
             value={dente}
-            onChange={(e) => setDente(e.target.value.trim())}
+            onChange={(v) => setDente(v.trim())}
             placeholder="Ex.: 16"
           />
-          <datalist id="dentes-validos">
-            {[...DENTES_VALIDOS].map((d) => (
-              <option key={d} value={d} />
-            ))}
-          </datalist>
           {erro('dente')}
         </label>
         <fieldset disabled={!denteValido}>
@@ -787,8 +778,9 @@ function FichaCartao({
                     <button
                       className="text-perigo hover:underline"
                       onClick={async () =>
-                        (await confirmar(`Tirar o dente ${i.dente} desta ficha?`, { botao: 'Remover' })) &&
-                        remover.mutate(i.id)
+                        (await confirmar(`Tirar o dente ${i.dente} desta ficha?`, {
+                          botao: 'Remover',
+                        })) && remover.mutate(i.id)
                       }
                     >
                       Remover
@@ -810,19 +802,13 @@ function FichaCartao({
         >
           <label className="w-28">
             <span className="rotulo">Dente *</span>
-            <input
-              className="campo"
-              list="dentes-ficha"
+            <CampoSugestoes
+              sugestoes={LISTA_DENTES}
               inputMode="numeric"
               value={dente}
-              onChange={(e) => setDente(e.target.value.trim())}
+              onChange={(v) => setDente(v.trim())}
               required
             />
-            <datalist id="dentes-ficha">
-              {[...DENTES_VALIDOS].map((d) => (
-                <option key={d} value={d} />
-              ))}
-            </datalist>
           </label>
           <label className="min-w-48 flex-1">
             <span className="rotulo">Procedimento *</span>

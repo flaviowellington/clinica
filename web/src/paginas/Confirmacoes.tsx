@@ -6,6 +6,7 @@ import { api, dataBR, isoLocal, mensagemDeErro, somarDias } from '../api'
 import { avisar } from '../estado'
 import { STATUS, type StatusAgenda } from '../../../shared/agenda'
 import { CampoData } from '../componentes/CampoData'
+import { Icone } from '../componentes/Icones'
 
 interface Mensagem {
   id: number
@@ -79,14 +80,15 @@ export function Confirmacoes() {
 
   const confirmadas = lista.data?.filter((c) => c.confirmadoEm).length ?? 0
 
+  const total = lista.data?.length ?? 0
+  const colunas = ['Horário', 'Paciente', 'Contato', 'Profissional', 'Situação', 'Envio', '']
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="space-y-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Confirmações</h1>
-          <p className="text-suave">
-            {lista.data?.length ?? 0} consulta(s) · {confirmadas} confirmada(s)
-          </p>
+          <h1 className="titulo">Confirmações</h1>
+          <p className="subtitulo">Confirme as consultas do dia por e-mail ou à mão.</p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <label>
@@ -98,107 +100,123 @@ export function Confirmacoes() {
             disabled={!pendentesComEmail.length || enviandoTodos}
             onClick={enviarTodos}
           >
+            <Icone nome="confirmacoes" className="h-4 w-4" />
             {enviandoTodos ? 'Enviando…' : `Enviar e-mail a todos (${pendentesComEmail.length})`}
           </button>
         </div>
-      </div>
-      <p className="cartao text-suave">
+      </header>
+
+      <p className="alerta-info">
         O paciente recebe um e-mail com um link e confirma sozinho. Quem não tem e-mail pode ser
         confirmado à mão depois da ligação. WhatsApp e SMS ainda estão desligados.
       </p>
 
       <div className="cartao overflow-x-auto p-0">
-        <table className="w-full text-left">
-          <thead className="border-b border-borda text-suave">
+        <table className="w-full min-w-[52rem] text-left">
+          <thead>
             <tr>
-              {['Horário', 'Paciente', 'Contato', 'Profissional', 'Situação', 'Envio', ''].map(
-                (t) => (
-                  <th key={t} className="px-3 py-2 font-medium">
-                    {t}
-                  </th>
-                ),
-              )}
+              {colunas.map((t) => (
+                <th
+                  key={t}
+                  className="border-b border-borda px-4 py-2.5 text-xs font-bold tracking-wide text-suave uppercase"
+                >
+                  {t}
+                </th>
+              ))}
             </tr>
           </thead>
-          <tbody>
-            {lista.data?.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-3 py-4 text-suave">
-                  Nenhuma consulta em {dataBR(data)}.
-                </td>
-              </tr>
-            )}
+          <tbody className={lista.isFetching ? 'opacity-60' : ''}>
             {lista.data?.map((c) => {
               const ultima = c.mensagens[0]
               return (
-                <tr key={c.id} className="border-b border-borda align-top last:border-0">
-                  <td className="px-3 py-2 font-medium">{c.inicio}</td>
-                  <td className="px-3 py-2">
+                <tr
+                  key={c.id}
+                  className="border-b border-borda align-top last:border-0 hover:bg-primaria-clara"
+                >
+                  <td className="px-4 py-2.5 font-bold tabular-nums">{c.inicio}</td>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
                     {c.paciente && (
                       <Link
                         to="/pacientes/$id"
                         params={{ id: String(c.paciente.id) }}
-                        className="hover:text-primaria"
+                        className="font-bold text-primaria hover:underline"
                       >
                         {c.paciente.nome}
                       </Link>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-suave">
+                  <td className="px-4 py-2.5 text-suave">
                     {c.paciente?.celular && <span className="block">{c.paciente.celular}</span>}
-                    {c.paciente?.email ?? 'sem e-mail'}
+                    {c.paciente?.email ?? 'Sem e-mail'}
                   </td>
-                  <td className="px-3 py-2">{c.profissional.nome}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-4 py-2.5 whitespace-nowrap">{c.profissional.nome}</td>
+                  <td className="px-4 py-2.5">
                     {c.confirmadoEm ? (
-                      <span className="text-sucesso">
-                        Confirmada
-                        <span className="block text-xs text-suave">
+                      <>
+                        <span className="etiqueta etiqueta-sucesso">Confirmada</span>
+                        <span className="mt-1 block text-xs text-suave">
                           {c.confirmadoPor} · {hora(c.confirmadoEm)}
                         </span>
-                      </span>
+                      </>
                     ) : (
-                      STATUS[c.status].rotulo
+                      <span className="etiqueta">{STATUS[c.status].rotulo}</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-xs">
+                  <td className="px-4 py-2.5">
                     {ultima ? (
-                      <span
-                        className={ultima.status === 'FALHOU' ? 'text-perigo' : 'text-suave'}
-                        title={ultima.erro ?? undefined}
-                      >
-                        {ultima.status === 'FALHOU' ? 'Falhou' : 'E-mail enviado'} ·{' '}
-                        {hora(ultima.criadoEm)}
-                      </span>
+                      <>
+                        <span
+                          className={`etiqueta ${ultima.status === 'FALHOU' ? 'etiqueta-perigo' : 'etiqueta-info'}`}
+                          title={ultima.erro ?? undefined}
+                        >
+                          {ultima.status === 'FALHOU' ? 'Falhou' : 'E-mail enviado'}
+                        </span>
+                        <span className="mt-1 block text-xs text-suave">
+                          {hora(ultima.criadoEm)}
+                        </span>
+                      </>
                     ) : (
                       <span className="text-suave">—</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     {!c.confirmadoEm && (
-                      <>
+                      <div className="flex justify-end gap-1">
                         <button
-                          className="text-primaria hover:underline disabled:opacity-40"
+                          className="botao-leve botao-pequeno"
                           disabled={!c.paciente?.email || enviar.isPending}
                           title={c.paciente?.email ? undefined : 'Paciente sem e-mail no cadastro'}
                           onClick={() => enviar.mutate(c.id)}
                         >
+                          <Icone nome="confirmacoes" className="h-4 w-4" />
                           Enviar e-mail
                         </button>
                         <button
-                          className="ml-3 text-primaria hover:underline"
+                          className="botao-leve botao-pequeno"
+                          disabled={confirmar.isPending}
                           onClick={() => confirmar.mutate(c.id)}
                         >
                           Confirmar
                         </button>
-                      </>
+                      </div>
                     )}
                   </td>
                 </tr>
               )
             })}
+            {lista.data?.length === 0 && (
+              <tr>
+                <td colSpan={colunas.length} className="px-4 py-10 text-center text-suave">
+                  Nenhuma consulta em {dataBR(data)}.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
+        <div className="border-t border-borda px-4 py-2.5 text-sm font-bold text-suave">
+          {total} {total === 1 ? 'consulta' : 'consultas'} · {confirmadas}{' '}
+          {confirmadas === 1 ? 'confirmada' : 'confirmadas'}
+        </div>
       </div>
     </div>
   )

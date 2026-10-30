@@ -121,7 +121,6 @@ export function FormPaciente(props: {
           <span className="rotulo">Celular / WhatsApp</span>
           <CampoCelular name="celular" defaultValue={p.celular ?? ''} erro={props.erros.celular} />
         </label>
-        {campo('telefone', 'Telefone fixo', { type: 'tel' })}
         <label className="block sm:col-span-2">
           <span className="rotulo">E-mail</span>
           <CampoEmail name="email" defaultValue={p.email ?? ''} erro={props.erros.email} />
