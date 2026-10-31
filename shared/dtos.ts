@@ -348,6 +348,7 @@ export const OrcamentoDto = z.object({
           // Sem valor (ou inválido), vale o da tabela (R-012).
           valorCentavos: centavos().nullable().catch(null),
           dente: texto(40),
+          faces: texto(20),
         }),
       )
       .min(1, 'Adicione pelo menos um procedimento.'),
@@ -357,13 +358,8 @@ export const OrcamentoDto = z.object({
     .int()
     .catch(0)
     .transform((v) => Math.max(0, v)),
-  forma: opcaoOpcional(FORMAS, 'Forma de pagamento inválida.'),
-  parcelas: PARCELAS,
-  primeiroVencimento: dataOpcional.catch(null),
   observacoes: texto(LIMITE_OBSERVACAO),
 })
-
-export const ReprovarOrcamentoDto = z.object({ motivo: texto(500) })
 
 export const DesaprovarOrcamentoDto = z.object({ senha: qualquerTexto })
 
@@ -406,6 +402,16 @@ export const ProcedimentoClinicoDto = z.object({
       .nullable(),
   ),
   faces: texto(20),
+  // Vários dentes no mesmo lançamento: vira um registro por dente, com os mesmos dados.
+  dentes: z
+    .array(
+      z.object({
+        dente: z.string().refine((d) => DENTES_VALIDOS.has(d), 'Dente inválido (numeração FDI).'),
+        faces: texto(20),
+      }),
+    )
+    .max(52)
+    .optional(),
   data: dataOpcional,
   // R-078: duas observações de até 1500 caracteres.
   observacao,

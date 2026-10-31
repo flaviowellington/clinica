@@ -155,13 +155,10 @@ describe('PT-10 a PT-19 orçamento', () => {
       pacienteId: b.paciente.id,
       profissionalId: b.dentista.id,
       itens: [
-        { procedimentoId: b.resina.id, dente: '16' },
+        { procedimentoId: b.resina.id, dente: '16', faces: 'om' },
         { procedimentoId: b.limpeza.id, valorCentavos: 12000 },
       ],
       descontoCentavos: 2000,
-      forma: 'Boleto',
-      parcelas: 2,
-      primeiroVencimento: '2026-11-22',
       ...extra,
     })
     return { ...b, r }
@@ -178,20 +175,18 @@ describe('PT-10 a PT-19 orçamento', () => {
     const api = await entrarComo('RECEPCAO')
     const { r } = await criar(api)
     expect(r.status).toBe(201)
-    expect(r.corpo).toMatchObject({
-      status: 'ABERTO',
-      totalCentavos: 40000,
-      forma: 'Boleto',
-      parcelas: 2,
-    })
+    expect(r.corpo).toMatchObject({ status: 'ABERTO', totalCentavos: 40000 })
     expect(
-      r.corpo.itens.map((i: { valorCentavos: number; dente: string | null }) => [
-        i.valorCentavos,
-        i.dente,
-      ]),
+      r.corpo.itens.map(
+        (i: { valorCentavos: number; dente: string | null; faces: string | null }) => [
+          i.valorCentavos,
+          i.dente,
+          i.faces,
+        ],
+      ),
     ).toEqual([
-      [30000, '16'],
-      [12000, null],
+      [30000, '16', 'MO'],
+      [12000, null, null],
     ])
   })
 
@@ -202,7 +197,7 @@ describe('PT-10 a PT-19 orçamento', () => {
     expect(r.corpo.erros.itens).toBeTruthy()
   })
 
-  it('aprovar gera venda e parcelas a receber, e fica só leitura (R-018, R-019, R-038)', async () => {
+  it('aprovar gera a venda e uma conta à vista, sem forma, e fica só leitura (R-018, R-019, R-038)', async () => {
     const api = await entrarComo('RECEPCAO')
     const { r } = await criar(api)
     const ap = await api('POST', `/api/orcamentos/${r.corpo.id}/aprovar`)
@@ -220,20 +215,31 @@ describe('PT-10 a PT-19 orçamento', () => {
         p.vencimento.toISOString().slice(0, 10),
         p.forma,
       ]),
-    ).toEqual([
-      [1, 20000, '2026-11-22', 'Boleto'],
-      [2, 20000, '2026-12-22', 'Boleto'],
-    ])
+    ).toEqual([[1, 40000, new Date().toISOString().slice(0, 10), null]])
     expect((await api('PUT', `/api/orcamentos/${r.corpo.id}`, { itens: [] })).status).toBe(409)
   })
 
-  it('reprovar guarda o motivo', async () => {
+  it('não existe mais reprovar: o orçamento fica em aberto', async () => {
     const api = await entrarComo('PROFISSIONAL')
     const { r } = await criar(api)
-    const rep = await api('POST', `/api/orcamentos/${r.corpo.id}/reprovar`, {
-      motivo: 'Achou caro',
+    const rep = await api('POST', `/api/orcamentos/${r.corpo.id}/reprovar`, { motivo: 'Caro' })
+    expect(rep.status).toBe(404)
+    expect((await db.orcamento.findUnique({ where: { id: r.corpo.id } }))?.status).toBe('ABERTO')
+  })
+
+  it('excluir some da lista, mas fica no banco; aprovado não exclui', async () => {
+    const api = await entrarComo('PROFISSIONAL')
+    const { r, paciente } = await criar(api)
+    expect((await api('DELETE', `/api/orcamentos/${r.corpo.id}`)).status).toBe(200)
+    const lista = await api('GET', `/api/orcamentos?pacienteId=${paciente.id}`)
+    expect(lista.corpo.map((o: { id: number }) => o.id)).not.toContain(r.corpo.id)
+    expect(await db.orcamento.findUnique({ where: { id: r.corpo.id } })).toMatchObject({
+      excluidoEm: expect.any(Date),
     })
-    expect(rep.corpo).toMatchObject({ status: 'REPROVADO', motivoReprovacao: 'Achou caro' })
+    expect((await api('DELETE', `/api/orcamentos/${r.corpo.id}`)).status).toBe(404)
+    const { r: outro } = await criar(api)
+    await api('POST', `/api/orcamentos/${outro.corpo.id}/aprovar`)
+    expect((await api('DELETE', `/api/orcamentos/${outro.corpo.id}`)).status).toBe(409)
   })
 
   it('desaprovar pede a senha e desfaz venda e parcelas (R-037, R-056)', async () => {
@@ -269,7 +275,44 @@ describe('PT-10 a PT-19 orçamento', () => {
     expect(l.map((x) => x.tipo)).toEqual(['VENDA', 'CANCELAMENTO'])
     expect(
       await db.contaFinanceira.count({ where: { orcamentoId: r.corpo.id, status: 'CANCELADA' } }),
-    ).toBe(2)
+    ).toBe(1)
+  })
+
+  it('executa procedimento de orçamento em aberto; aí o orçamento não muda nem sai', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { r } = await criar(api)
+    const ex = await api('POST', `/api/orcamentos/itens/${r.corpo.itens[0].id}/executar`)
+    expect(ex.corpo.executadoEm).toBeTruthy()
+    const corpo = {
+      itens: [{ procedimentoId: r.corpo.itens[1].procedimentoId, valorCentavos: 100 }],
+    }
+    expect((await api('PUT', `/api/orcamentos/${r.corpo.id}`, corpo)).status).toBe(409)
+    expect((await api('DELETE', `/api/orcamentos/${r.corpo.id}`)).status).toBe(409)
+    // Desfazer a execução libera de novo.
+    await api('POST', `/api/orcamentos/itens/${r.corpo.itens[0].id}/executar`)
+    expect((await api('DELETE', `/api/orcamentos/${r.corpo.id}`)).status).toBe(200)
+  })
+
+  it('tira item de orçamento em aberto (fica no histórico); o último leva o orçamento junto', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { r } = await criar(api)
+    const [a, b] = r.corpo.itens
+    await api('POST', `/api/orcamentos/itens/${a.id}/executar`)
+    expect((await api('DELETE', `/api/orcamentos/itens/${a.id}`)).status).toBe(200)
+    const sobra = await db.itemOrcamento.findMany({ where: { orcamentoId: r.corpo.id } })
+    expect(sobra.map((i) => i.id)).toEqual([b.id])
+    expect(await db.alteracao.count({ where: { tabela: 'ItemOrcamento', registroId: a.id } })).toBe(
+      1,
+    )
+    await api('DELETE', `/api/orcamentos/itens/${b.id}`)
+    expect((await db.orcamento.findUnique({ where: { id: r.corpo.id } }))!.excluidoEm).toBeTruthy()
+  })
+
+  it('não tira item de orçamento aprovado', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { r } = await criar(api)
+    await api('POST', `/api/orcamentos/${r.corpo.id}/aprovar`)
+    expect((await api('DELETE', `/api/orcamentos/itens/${r.corpo.itens[0].id}`)).status).toBe(409)
   })
 
   it('profissional não cancela aprovado, mas executa procedimento', async () => {

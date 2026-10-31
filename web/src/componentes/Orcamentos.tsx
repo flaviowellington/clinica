@@ -6,29 +6,26 @@ import {
   consultaProfissionais,
   dataBR,
   errosDosCampos,
-  isoLocal,
   mensagemDeErro,
   type Paciente,
 } from '../api'
 import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import { normalizar } from '../../../shared/regras'
-import { FORMAS, reais } from '../../../shared/financeiro'
+import { reais } from '../../../shared/financeiro'
 import {
   DENTES_DECIDUOS,
   DENTES_PERMANENTES,
   STATUS_ORCAMENTO,
-  dividirParcelas,
+  descontoDoPercentual,
+  percentualDoDesconto,
   totalOrcamento,
-  umMesDepois,
-  vencimentos,
   type StatusOrcamento,
 } from '../../../shared/orcamentos'
 import { Dialogo } from './Dialogo'
 import { CampoReais } from './CampoReais'
-import { CampoData } from './CampoData'
 import { CampoSelect } from './CampoSelect'
-import { confirmar, perguntar } from './Confirmar'
+import { confirmar } from './Confirmar'
 import { Icone } from './Icones'
 import { CampoSugestoes } from './CampoSugestoes'
 import { FormProcedimento } from '../paginas/Configuracoes'
@@ -38,6 +35,8 @@ interface Item {
   procedimentoId: number
   nome: string
   dente: string | null
+  /** Faces do dente quando o item veio do odontograma (ex.: "MO"). */
+  faces?: string | null
   valorCentavos: number
   executadoEm?: string | null
 }
@@ -48,10 +47,6 @@ interface Orcamento {
   aprovadoEm: string | null
   observacoes: string | null
   descontoCentavos: number
-  forma: string | null
-  parcelas: number
-  primeiroVencimento: string | null
-  motivoReprovacao: string | null
   totalCentavos: number
   profissional: { id: number; nome: string }
   criadoPor: { nome: string }
@@ -75,7 +70,6 @@ interface Procedimento {
 const COR_STATUS: Record<StatusOrcamento, string> = {
   ABERTO: 'bg-info/15 text-info',
   APROVADO: 'bg-sucesso/15 text-sucesso',
-  REPROVADO: 'bg-suave/15 text-suave',
   CANCELADO: 'bg-perigo/15 text-perigo',
 }
 const TODOS_DENTES = [...DENTES_PERMANENTES.flat(), ...DENTES_DECIDUOS.flat()].map(String)
@@ -98,6 +92,16 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
       (await api.get<Orcamento[]>('/orcamentos', { params: { pacienteId: paciente.id } })).data,
   })
   const titulo = aberto === 'novo' ? 'Novo orçamento' : aberto ? `Orçamento nº ${aberto.id}` : ''
+  const qc = useQueryClient()
+  const excluir = useMutation({
+    mutationFn: (id: number) => api.delete(`/orcamentos/${id}`),
+    onSuccess: () => {
+      avisar('Orçamento excluído')
+      qc.invalidateQueries({ queryKey: ['orcamentos', paciente.id] })
+    },
+    onError: (e) => avisar(mensagemDeErro(e), true),
+  })
+  const podeExcluir = (o: Orcamento) => pode(eu.perfis, 'orcamento.editar') && o.status === 'ABERTO'
 
   return (
     <section className="cartao space-y-3">
@@ -120,13 +124,14 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
                     {t}
                   </th>
                 ))}
+                <th className="w-10" />
               </tr>
             </thead>
             <tbody>
               {lista.data.map((o) => (
                 <tr
                   key={o.id}
-                  className="cursor-pointer border-b border-borda last:border-0 hover:bg-primaria-clara"
+                  className="group cursor-pointer border-b border-borda last:border-0 hover:bg-primaria-clara"
                   onClick={() => setAberto(o)}
                 >
                   <td className="px-3 py-2">{o.id}</td>
@@ -139,6 +144,29 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
                   </td>
                   <td className="px-3 py-2">{o.profissional.nome}</td>
                   <td className="px-3 py-2 font-medium">{reais(o.totalCentavos)}</td>
+                  <td className="px-1 py-1 text-right">
+                    {podeExcluir(o) && (
+                      <button
+                        type="button"
+                        className="botao-fantasma botao-icone text-suave opacity-0 group-hover:opacity-100 hover:text-perigo focus-visible:opacity-100"
+                        aria-label={`Excluir orçamento nº ${o.id}`}
+                        title="Excluir orçamento"
+                        disabled={excluir.isPending}
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          if (
+                            await confirmar(`Excluir o orçamento nº ${o.id}?`, {
+                              titulo: 'Excluir orçamento',
+                              botao: 'Excluir',
+                            })
+                          )
+                            excluir.mutate(o.id)
+                        }}
+                      >
+                        <Icone nome="lixeira" className="h-4 w-4" />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -177,15 +205,14 @@ function EditorOrcamento(props: {
   const qc = useQueryClient()
   const { data: eu } = useSuspenseQuery(consultaEu)
   const { data: prof } = useQuery(consultaProfissionais)
-  const hoje = isoLocal(new Date())
   const [itens, setItens] = useState<Item[]>(o?.itens ?? [])
   const [profissionalId, setProfissionalId] = useState<number | ''>(
     o?.profissional.id ?? prof?.meuId ?? '',
   )
-  const [desconto, setDesconto] = useState(o?.descontoCentavos ?? 0)
-  const [forma, setForma] = useState(o?.forma ?? '')
-  const [parcelas, setParcelas] = useState(o?.parcelas ?? 1)
-  const [primeiro, setPrimeiro] = useState(o?.primeiroVencimento ?? '')
+  // Desconto fixo (R$) ou em %; no %, o valor em reais acompanha o subtotal.
+  const [modoDesconto, setModoDesconto] = useState<'REAIS' | 'PERCENTUAL'>('REAIS')
+  const [descontoFixo, setDescontoFixo] = useState(o?.descontoCentavos ?? 0)
+  const [percentual, setPercentual] = useState(0)
   const [observacoes, setObservacoes] = useState(o?.observacoes ?? '')
   // Busca na tabela: cada clique entra direto nos itens (rascunho local até salvar, R-011).
   const [busca, setBusca] = useState('')
@@ -207,25 +234,27 @@ function EditorOrcamento(props: {
       (await api.get<Procedimento[]>('/procedimentos', { params: { busca } })).data,
   })
 
+  const subtotal = totalOrcamento(itens)
+  const desconto =
+    modoDesconto === 'PERCENTUAL' ? descontoDoPercentual(subtotal, percentual) : descontoFixo
   const total = totalOrcamento(itens, desconto)
-  const primeiroVenc = primeiro || (parcelas > 1 ? umMesDepois(hoje) : hoje)
-  const plano = vencimentos(primeiroVenc, parcelas).map((v, i) => ({
-    v,
-    valor: dividirParcelas(total, parcelas)[i],
-  }))
+  const trocarModo = (m: typeof modoDesconto) => {
+    // Troca mantendo o mesmo desconto, só mudando como ele é digitado.
+    if (m === 'PERCENTUAL') setPercentual(percentualDoDesconto(subtotal, descontoFixo))
+    else setDescontoFixo(desconto)
+    setModoDesconto(m)
+  }
 
   const corpo = () => ({
     pacienteId: props.paciente.id,
     profissionalId,
-    itens: itens.map(({ procedimentoId, dente, valorCentavos }) => ({
+    itens: itens.map(({ procedimentoId, dente, faces, valorCentavos }) => ({
       procedimentoId,
       dente,
+      faces,
       valorCentavos,
     })),
     descontoCentavos: desconto,
-    forma: forma || null,
-    parcelas,
-    primeiroVencimento: primeiro || null,
     observacoes,
   })
   const atualizar = () => {
@@ -251,17 +280,6 @@ function EditorOrcamento(props: {
     },
   })
   const erros = errosDosCampos(salvar.error)
-  const reprovar = useMutation({
-    mutationFn: async (motivo: string) =>
-      (await api.post(`/orcamentos/${o!.id}/reprovar`, { motivo })).data,
-    onSuccess: () => {
-      avisar('Orçamento reprovado')
-      atualizar()
-      props.aoTerminar()
-    },
-    onError: (e) => avisar(mensagemDeErro(e), true),
-  })
-
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2">
@@ -368,6 +386,7 @@ function EditorOrcamento(props: {
                     placeholder="Ex.: 16"
                     aria-label={`Dente ou região: ${i.nome}`}
                   />
+                  {i.faces && <span className="text-xs text-suave">Faces: {i.faces}</span>}
                 </td>
                 <td className="w-40 py-1.5 pr-3">
                   <CampoReais
@@ -395,48 +414,67 @@ function EditorOrcamento(props: {
         </table>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-4">
-        <CampoReais id="desconto" rotulo="Desconto" valor={desconto} aoMudar={setDesconto} />
-        <label>
-          <span className="rotulo">Forma de pagamento</span>
-          <CampoSelect
-            value={forma}
-            onChange={(e) => setForma(e.target.value)}
-            vazio="A definir"
-            opcoes={FORMAS}
-          />
-        </label>
-        <label>
-          <span className="rotulo">Parcelas</span>
-          <CampoSelect
-            value={parcelas}
-            onChange={(e) => setParcelas(Number(e.target.value))}
-            vazio={false}
-            opcoes={Array.from(
-              { length: 24 },
-              (_, i) => [i + 1, i ? `${i + 1}x` : 'À vista'] as const,
-            )}
-          />
-        </label>
-        <label>
-          <span className="rotulo">1º vencimento</span>
-          <CampoData value={primeiroVenc} onChange={(v) => v && setPrimeiro(v)} />
-        </label>
+      <div className="flex flex-wrap items-end gap-3">
+        <fieldset>
+          <legend className="rotulo">Tipo de desconto</legend>
+          <div className="flex overflow-hidden rounded-lg border border-borda">
+            {(
+              [
+                ['REAIS', 'Valor fixo (R$)'],
+                ['PERCENTUAL', 'Porcentagem (%)'],
+              ] as const
+            ).map(([m, rotulo]) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={modoDesconto === m}
+                onClick={() => trocarModo(m)}
+                className={`px-3 py-2 ${modoDesconto === m ? 'bg-primaria text-sobre-primaria' : 'bg-superficie hover:bg-superficie-2'}`}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+        <div className="w-44">
+          {modoDesconto === 'REAIS' ? (
+            <CampoReais
+              id="desconto"
+              rotulo="Desconto"
+              valor={descontoFixo}
+              aoMudar={setDescontoFixo}
+            />
+          ) : (
+            <label>
+              <span className="rotulo">Desconto (%)</span>
+              <input
+                type="number"
+                className="campo"
+                min={0}
+                max={100}
+                step={0.01}
+                value={percentual || ''}
+                onChange={(e) => setPercentual(Math.min(100, Math.max(0, Number(e.target.value))))}
+              />
+            </label>
+          )}
+        </div>
+        {/* Conta automática: mostra o desconto no outro formato. */}
+        {subtotal > 0 && desconto > 0 && (
+          <p className="pb-2 text-suave">
+            {modoDesconto === 'REAIS'
+              ? `= ${percentualDoDesconto(subtotal, desconto).toLocaleString('pt-BR')}% do subtotal`
+              : `= ${reais(desconto)} de desconto`}
+          </p>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-start justify-between gap-4 rounded-lg bg-primaria-clara p-3">
-        <div className="text-lg">
+      <div className="space-y-1 rounded-lg bg-primaria-clara p-3 text-right">
+        <p className="text-suave">Subtotal: {reais(subtotal)}</p>
+        {desconto > 0 && <p className="text-suave">Desconto: − {reais(desconto)}</p>}
+        <p className="text-lg">
           Total: <strong>{reais(total)}</strong>
-        </div>
-        {itens.length > 0 && parcelas > 1 && (
-          <ol className="grid grid-cols-2 gap-x-6 text-suave sm:grid-cols-3">
-            {plano.map((p, i) => (
-              <li key={i}>
-                {i + 1}ª {dataBR(p.v)}: {reais(p.valor)}
-              </li>
-            ))}
-          </ol>
-        )}
+        </p>
       </div>
 
       <label className="block">
@@ -449,24 +487,7 @@ function EditorOrcamento(props: {
         />
       </label>
 
-      <div className="flex flex-wrap justify-between gap-2">
-        <div>
-          {o && (
-            <button
-              type="button"
-              className="botao-leve"
-              onClick={async () => {
-                const motivo = await perguntar('Motivo da reprovação (opcional)', {
-                  titulo: 'Reprovar orçamento',
-                  botao: 'Reprovar',
-                })
-                if (motivo !== null) reprovar.mutate(motivo)
-              }}
-            >
-              Reprovar
-            </button>
-          )}
-        </div>
+      <div className="flex flex-wrap justify-end gap-2">
         <div className="flex gap-2">
           <button type="button" className="botao-leve" onClick={props.aoTerminar}>
             Cancelar
@@ -486,11 +507,10 @@ function EditorOrcamento(props: {
                 <button
                   type="button"
                   className="botao"
-                  disabled={salvar.isPending || !forma}
-                  title={forma ? undefined : 'Escolha a forma de pagamento para aprovar'}
+                  disabled={salvar.isPending}
                   onClick={async () =>
                     (await confirmar(
-                      'Aprovar este orçamento? Ele vira tratamento e gera as parcelas a receber.',
+                      'Aprovar este orçamento? Ele vira tratamento e o total entra como conta a receber. A forma de pagamento se escolhe ao receber, no Financeiro.',
                       { titulo: 'Aprovar orçamento', botao: 'Aprovar', perigo: false },
                     )) && salvar.mutate(true)
                   }
@@ -506,7 +526,7 @@ function EditorOrcamento(props: {
   )
 }
 
-/** Orçamento aprovado, reprovado ou cancelado: só leitura (R-038). */
+/** Orçamento aprovado ou cancelado: só leitura (R-038). */
 function VerOrcamento(props: { orcamento: Orcamento; pacienteId: number; aoTerminar: () => void }) {
   const o = props.orcamento
   const qc = useQueryClient()
@@ -551,7 +571,6 @@ function VerOrcamento(props: { orcamento: Orcamento; pacienteId: number; aoTermi
           {o.aprovadoEm && ` · aprovado em ${dataBR(o.aprovadoEm)}`}
         </span>
       </div>
-      {o.motivoReprovacao && <p>Motivo da reprovação: {o.motivoReprovacao}</p>}
 
       <table className="w-full text-left">
         <thead className="border-b border-borda text-suave">
@@ -593,13 +612,12 @@ function VerOrcamento(props: { orcamento: Orcamento; pacienteId: number; aoTermi
         {o.descontoCentavos > 0 && (
           <span className="mr-4 text-suave">Desconto: {reais(o.descontoCentavos)}</span>
         )}
-        Total: <strong>{reais(o.totalCentavos)}</strong> · {o.forma ?? 'A definir'},{' '}
-        {o.parcelas === 1 ? 'à vista' : `${o.parcelas} parcelas`}
+        Total: <strong>{reais(o.totalCentavos)}</strong>
       </p>
 
       {o.contas.length > 0 && (
         <div>
-          <p className="mb-1 font-medium">Parcelas</p>
+          <p className="mb-1 font-medium">A receber</p>
           <ul className="grid gap-1 sm:grid-cols-2">
             {o.contas.map((c) => (
               <li

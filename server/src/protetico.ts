@@ -96,7 +96,7 @@ rotasProtetico.patch('/:id/etapa', exigir('protetico.editar'), async (req, res) 
       movidoEm: new Date(),
       movidoPorId: usuarioDe(res).id,
       ...(etapa === 'EM_LABORATORIO' && !t.enviadoEm && { enviadoEm: hoje }),
-      ...(etapa === 'RETORNO' && !t.retornoEm && { retornoEm: hoje }),
+      ...(etapa === 'AGENDAMENTO' && !t.retornoEm && { retornoEm: hoje }),
       ...(etapa === 'INSTALADO' && !t.instaladoEm && { instaladoEm: hoje }),
     },
     include: incluir,

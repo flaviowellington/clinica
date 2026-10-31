@@ -27,7 +27,7 @@ export function MiniCalendario(props: {
         >
           ‹
         </button>
-        <span className="font-medium first-letter:uppercase">
+        <span className="font-extrabold text-titulo first-letter:uppercase">
           {new Date(`${primeiro}T12:00:00`).toLocaleDateString('pt-BR', {
             month: 'long',
             year: 'numeric',

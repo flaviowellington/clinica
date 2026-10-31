@@ -31,7 +31,7 @@ test('PT-20, PT-29, PT-31, PT-34 e PT-35: marcar, fazer check-in e excluir', asy
 
   // Nova consulta na próxima segunda, no primeiro horário livre da Dra. Fictícia Andrade.
   const segunda = proximaSegunda()
-  await page.getByRole('button', { name: 'Adicionar ▾' }).click()
+  await page.getByRole('button', { name: 'Adicionar' }).click()
   await page.getByRole('button', { name: 'Nova consulta' }).click()
   const dialogo = page.getByRole('dialog')
   const buscaPaciente = dialogo.getByPlaceholder('Buscar por nome, telefone ou CPF')
@@ -108,7 +108,7 @@ test('vários agendamentos: profissionais, categorias e horários diferentes de 
   await page.getByLabel('Senha').fill(env.SEED_SENHA)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('navigation').getByRole('link', { name: 'Agenda', exact: true }).click()
-  await page.getByRole('button', { name: 'Adicionar ▾' }).click()
+  await page.getByRole('button', { name: 'Adicionar' }).click()
   await page.getByRole('button', { name: 'Nova consulta' }).click()
   const dialogo = page.getByRole('dialog')
   await dialogo.getByPlaceholder('Buscar por nome, telefone ou CPF').fill('90000-1002')

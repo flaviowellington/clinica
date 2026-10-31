@@ -35,6 +35,9 @@ model Pessoa {
   /// Nome sem acento e em minúsculas, para a busca.
   nomeBusca   String
   nascimento  DateTime?  @db.Date
+  /// Odontograma: dentes sem coroa (X na coroa) e dentes removidos (somem do desenho).
+  dentesSemCoroa  String[] @default([])
+  dentesRemovidos String[] @default([])
   apelido     String?
   cpf         String?
   rg          String?
@@ -304,7 +307,6 @@ model Procedimento {
 enum StatusOrcamento {
   ABERTO
   APROVADO
-  REPROVADO
   CANCELADO
 }
 
@@ -318,14 +320,16 @@ model Orcamento {
   status             StatusOrcamento @default(ABERTO)
   observacoes        String?
   descontoCentavos   Int             @default(0)
-  /// Forma e parcelas (R-026); a 1ª parcela vence em primeiroVencimento.
+  /// Não usados desde que o orçamento deixou de ter forma e parcelas: aprovar gera uma conta à vista.
   forma              String?
   parcelas           Int             @default(1)
   primeiroVencimento DateTime?       @db.Date
-  motivoReprovacao   String?
   aprovadoEm         DateTime?
   aprovadoPorId      Int?
   canceladoEm        DateTime?
+  /// Exclusão lógica (só em aberto): some da ficha e dos relatórios.
+  excluidoEm         DateTime?
+  excluidoPorId      Int?
   criadoEm           DateTime        @default(now())
   criadoPorId        Int
   criadoPor          Usuario         @relation(fields: [criadoPorId], references: [id])
@@ -347,6 +351,8 @@ model ItemOrcamento {
   nome           String
   /// Dente na numeração FDI ou região (R-014).
   dente          String?
+  /// Faces do dente, ex.: "MO" (vem do odontograma).
+  faces          String?
   valorCentavos  Int
   executadoEm    DateTime?
   executadoPorId Int?
@@ -419,6 +425,7 @@ model Alteracao {
 
 /// "A realizar" vem dos orçamentos aprovados; aqui ficam os lançados direto (R-061).
 enum StatusClinico {
+  A_REALIZAR
   EXECUTADO
   EXISTENTE
 }
@@ -433,7 +440,7 @@ model ProcedimentoClinico {
   procedimentoId     Int?
   procedimento       Procedimento? @relation(fields: [procedimentoId], references: [id])
   nome               String
-  /// Dente FDI (opcional) e faces V P M D O C, ex.: "MO" (R-069).
+  /// Dente FDI (opcional) e faces V P L M D O I C, ex.: "MO" (R-069).
   dente              String?
   faces              String?
   status             StatusClinico
@@ -580,11 +587,10 @@ model Configuracao {
   alteradoPorId Int?
 }
 
-/// As cinco etapas do trabalho de laboratório (R-082).
+/// As quatro etapas do trabalho de laboratório (R-082).
 enum EtapaProtetica {
   PRE_ENVIO
   EM_LABORATORIO
-  RETORNO
   AGENDAMENTO
   INSTALADO
 }

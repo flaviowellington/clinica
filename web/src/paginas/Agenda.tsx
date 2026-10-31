@@ -21,7 +21,6 @@ import {
   ladoALado,
   paraHora,
   paraMinutos,
-  type Categoria,
 } from '../../../shared/agenda'
 import { Dialogo } from '../componentes/Dialogo'
 import { NovoAgendamento, type Inicial } from '../componentes/NovoAgendamento'
@@ -189,63 +188,105 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
 
   return (
     <div className="space-y-3">
-      <header className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1" role="group" aria-label="Visualizar por">
-          {(Object.keys(VISOES) as Visao[]).map((v) => (
-            <button
-              key={v}
-              aria-pressed={visao === v}
-              onClick={() => setVisao(v)}
-              className={visao === v ? 'botao py-1.5' : 'botao-leve py-1.5'}
-            >
-              {VISOES[v]}
-            </button>
-          ))}
-        </div>
-        <h1 className="ml-auto text-lg font-semibold first-letter:uppercase">
-          {titulo(visao, data)}
-        </h1>
-        {podeEditar && (
-          <div className="relative">
-            <button className="botao" aria-expanded={menu} onClick={() => setMenu(!menu)}>
-              Adicionar ▾
-            </button>
-            {menu && (
-              <ul
-                className="cartao absolute right-0 z-40 mt-1 w-56 p-1 shadow-lg"
-                onKeyDown={(e) => e.key === 'Escape' && setMenu(false)}
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {!filtrosNoTopo && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="botao-leve botao-icone"
+                onClick={() => passo(-1)}
+                aria-label={`${VISOES[visao]} anterior`}
               >
-                <li>
-                  <button
-                    className="w-full rounded px-3 py-2 text-left hover:bg-primaria-clara"
-                    onClick={() => abrirNovo()}
-                  >
-                    Nova consulta
-                  </button>
-                </li>
-                <li>
-                  <button
-                    className="w-full rounded px-3 py-2 text-left hover:bg-primaria-clara"
-                    onClick={() => abrirNovo({ tipo: 'COMPROMISSO' })}
-                  >
-                    Novo compromisso
-                  </button>
-                </li>
-                <li>
-                  <button
-                    className="w-full rounded px-3 py-2 text-left hover:bg-primaria-clara"
-                    onClick={() => {
-                      setMenu(false)
-                      setRetorno(true)
-                    }}
-                  >
-                    Alerta de retorno
-                  </button>
-                </li>
-              </ul>
-            )}
+                <Icone nome="esquerda" className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="botao-leve px-3 py-1.5"
+                disabled={data === hoje}
+                onClick={() => setData(hoje)}
+              >
+                Hoje
+              </button>
+              <button
+                type="button"
+                className="botao-leve botao-icone"
+                onClick={() => passo(1)}
+                aria-label={`Próximo: ${VISOES[visao].toLowerCase()}`}
+              >
+                <Icone nome="direita" className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+          <div
+            className="flex rounded-xl border-2 border-borda bg-superficie p-0.5"
+            role="group"
+            aria-label="Visualizar por"
+          >
+            {(Object.keys(VISOES) as Visao[]).map((v) => (
+              <button
+                key={v}
+                aria-pressed={visao === v}
+                onClick={() => setVisao(v)}
+                className={`rounded-lg px-4 py-1.5 font-bold ${
+                  visao === v
+                    ? 'bg-primaria text-sobre-primaria'
+                    : 'text-suave hover:bg-primaria-clara hover:text-texto'
+                }`}
+              >
+                {VISOES[v]}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 text-right">
+            <h1 className="titulo">Agenda</h1>
+            <p className="subtitulo first-letter:uppercase">{titulo(visao, data)}</p>
+          </div>
+          {podeEditar && (
+            <div className="relative">
+              <button className="botao" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+                <Icone nome="mais" className="h-4 w-4" />
+                Adicionar
+              </button>
+              {menu && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setMenu(false)} />
+                  <ul
+                    className="cartao absolute right-0 z-40 mt-2 w-60 p-1.5 shadow-lg"
+                    onKeyDown={(e) => e.key === 'Escape' && setMenu(false)}
+                  >
+                    {(
+                      [
+                        ['Nova consulta', 'agenda', () => abrirNovo()],
+                        ['Novo compromisso', 'pausa', () => abrirNovo({ tipo: 'COMPROMISSO' })],
+                        [
+                          'Alerta de retorno',
+                          'confirmacoes',
+                          () => {
+                            setMenu(false)
+                            setRetorno(true)
+                          },
+                        ],
+                      ] as const
+                    ).map(([rotulo, icone, acao]) => (
+                      <li key={rotulo}>
+                        <button
+                          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left font-bold hover:bg-primaria-clara"
+                          onClick={acao}
+                        >
+                          <Icone nome={icone} className="h-4 w-4 text-primaria" />
+                          {rotulo}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </header>
       {filtrosNoTopo && (
         <div className="cartao flex flex-wrap items-center gap-2 py-2">
@@ -258,7 +299,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
               onClick={() => passo(-1)}
               aria-label={`${VISOES[visao]} anterior`}
             >
-              ‹
+              <Icone nome="esquerda" className="h-4 w-4" />
             </button>
             <button
               type="button"
@@ -275,7 +316,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
               onClick={() => passo(1)}
               aria-label={`Próximo: ${VISOES[visao].toLowerCase()}`}
             >
-              ›
+              <Icone nome="direita" className="h-4 w-4" />
             </button>
             {janela === 'data' && (
               <div className="absolute top-full left-0 z-40 mt-1 w-64 shadow-lg">
@@ -318,10 +359,10 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
             {janela === 'profissionais' && (
               <div className="cartao absolute top-full left-0 z-40 mt-1 w-72 space-y-2 shadow-lg">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium">Profissionais</p>
+                  <h2 className="text-base">Profissionais</h2>
                   <button
                     type="button"
-                    className="botao-leve px-2 py-0.5 text-sm"
+                    className="botao-leve botao-pequeno"
                     onClick={() => {
                       setOcultos([])
                       setBusca(null)
@@ -384,14 +425,14 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         {!filtrosNoTopo && (
-          // Mesma altura da tabela (VisaoDia acima="9rem"): os alertas ocupam o que sobra.
-          <aside className="flex flex-col gap-4 lg:h-[calc(100vh-9rem)] lg:w-64 lg:shrink-0">
+          // Mesma altura da tabela (VisaoDia acima="10.25rem"): os alertas ocupam o que sobra.
+          <aside className="flex flex-col gap-4 lg:h-[calc(100vh-10.25rem)] lg:w-64 lg:shrink-0">
             {/* key: ao trocar de mês na agenda, o minicalendário volta para esse mês */}
             <MiniCalendario key={data.slice(0, 7)} data={data} hoje={hoje} aoEscolher={setData} />
             <div className="cartao space-y-2">
               <div className="relative flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1">
-                  <p className="font-medium">Profissionais</p>
+                  <h2 className="text-base">Profissionais</h2>
                   <button
                     type="button"
                     className="rounded p-1 text-suave hover:bg-primaria-clara hover:text-texto"
@@ -416,7 +457,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
                 </div>
                 <button
                   type="button"
-                  className="botao-leve px-2 py-0.5 text-sm"
+                  className="botao-leve botao-pequeno"
                   onClick={() => {
                     setOcultos([])
                     setBusca(null)
@@ -448,7 +489,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
 
           {visao === 'dia' && (
             <VisaoDia
-              acima={filtrosNoTopo ? '14.75rem' : '10.75rem'}
+              acima={filtrosNoTopo ? '16rem' : '12rem'}
               data={data}
               hoje={hoje}
               colunas={colunas}
@@ -464,7 +505,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
           {visao === 'semana' && (
             <VisaoSemana
               de={de}
-              acima={filtrosNoTopo ? '14.75rem' : '10.75rem'}
+              acima={filtrosNoTopo ? '16rem' : '12rem'}
               hoje={hoje}
               itens={itens}
               carregando={lista.isPending}
@@ -601,8 +642,8 @@ function VisaoDia(props: {
               className="border-b-4 border-l border-l-borda px-2 py-2"
               style={{ borderBottomColor: cor, backgroundColor: clara(cor, 22) }}
             >
-              <p className="truncate font-medium">{c.nome}</p>
-              <p className="truncate text-suave">
+              <p className="truncate font-extrabold text-titulo">{c.nome}</p>
+              <p className="truncate text-xs font-bold text-suave">
                 Pacientes:{' '}
                 {
                   props.itens.filter((a) => a.profissional.id === c.id && a.tipo === 'CONSULTA')
@@ -628,11 +669,11 @@ function VisaoDia(props: {
             <div
               key={h}
               style={{ height: ALTURA }}
-              className={`flex items-start justify-end border-b border-borda/50 pt-0.5 pr-2 text-xs ${
+              className={`flex items-start justify-end border-b border-borda/50 pt-0.5 pr-2 text-xs tabular-nums ${
                 foco === i
                   ? 'bg-secundaria/25 font-semibold text-texto'
                   : h.endsWith(':00')
-                    ? 'font-medium text-texto'
+                    ? 'font-bold text-titulo'
                     : 'text-suave'
               }`}
             >
@@ -688,7 +729,7 @@ function VisaoDia(props: {
                     draggable={props.podeEditar}
                     onDragStart={(e) => e.dataTransfer.setData('text/plain', String(a.id))}
                     onClick={() => props.aoAbrir(a)}
-                    className={`@container absolute z-10 flex flex-col justify-center overflow-hidden rounded border-l-4 px-1.5 text-left text-xs leading-tight shadow-sm hover:z-20 hover:brightness-95 ${
+                    className={`@container absolute z-10 flex flex-col justify-center overflow-hidden rounded-md border-l-4 px-1.5 text-left text-xs leading-tight shadow-sm hover:z-20 hover:brightness-95 ${
                       encaixe ? 'outline-2 -outline-offset-2 outline-aviso outline-dashed' : ''
                     }`}
                     style={{
@@ -707,7 +748,7 @@ function VisaoDia(props: {
                       </span>
                     )}
                     <span className="truncate">
-                      <span className="font-medium">{nomeDe(a)}</span>, {a.inicio}–{a.fim}
+                      <span className="font-bold">{nomeDe(a)}</span>, {a.inicio}–{a.fim}
                     </span>
                     {altura > ALTURA && a.tipo === 'CONSULTA' && (
                       <span className="truncate text-suave">{STATUS[a.status].rotulo}</span>
@@ -765,20 +806,25 @@ function VisaoSemana(props: {
         return (
           <div
             key={d}
-            className={`cartao flex min-h-40 min-w-0 flex-col gap-1 p-2 ${d === props.hoje ? 'border-primaria' : ''}`}
+            className={`cartao flex min-h-40 min-w-0 flex-col gap-1.5 p-2 ${d === props.hoje ? 'border-2 border-primaria' : ''}`}
           >
             <button
               type="button"
-              className="flex w-full shrink-0 items-center justify-between gap-1 text-left font-medium hover:text-primaria"
+              className="flex w-full shrink-0 items-center justify-between gap-1 border-b border-borda px-1 pb-1.5 text-left hover:text-primaria"
               onClick={() => props.aoDia(d)}
             >
-              <span className="truncate">
-                {SEMANA[i]} {d.slice(8)}/{d.slice(5, 7)}
+              <span className="min-w-0 truncate">
+                <span className="block text-xs font-bold tracking-wide text-suave uppercase">
+                  {SEMANA[i]}
+                </span>
+                <span
+                  className={`text-lg leading-tight font-extrabold tabular-nums ${d === props.hoje ? 'text-primaria' : 'text-titulo'}`}
+                >
+                  {d.slice(8)}/{d.slice(5, 7)}
+                </span>
               </span>
               {doDia.length > 0 && (
-                <span className="rounded-full bg-primaria-clara px-1.5 text-[11px] font-bold text-primaria tabular-nums">
-                  {doDia.length}
-                </span>
+                <span className="etiqueta etiqueta-primaria tabular-nums">{doDia.length}</span>
               )}
             </button>
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
@@ -791,14 +837,14 @@ function VisaoSemana(props: {
                 <button
                   key={a.id}
                   onClick={() => props.aoAbrir(a)}
-                  className="block w-full truncate rounded border-l-4 px-1.5 py-0.5 text-left text-xs"
+                  className="block w-full truncate rounded-md border-l-4 px-1.5 py-1 text-left text-xs hover:brightness-95"
                   style={{
                     backgroundColor: `${corDe(a)}26`,
                     borderLeftColor: STATUS[a.status].cor,
                   }}
                   title={`${a.profissional.nome} · ${STATUS[a.status].rotulo}`}
                 >
-                  {a.inicio} {nomeDe(a)}
+                  <span className="font-bold tabular-nums">{a.inicio}</span> {nomeDe(a)}
                 </button>
               ))}
             </div>

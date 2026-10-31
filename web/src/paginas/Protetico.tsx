@@ -165,7 +165,6 @@ function Escolha(props: {
 const COR_ETAPA: Record<Etapa, string> = {
   PRE_ENVIO: 'border-t-suave',
   EM_LABORATORIO: 'border-t-info',
-  RETORNO: 'border-t-aviso',
   AGENDAMENTO: 'border-t-secundaria',
   INSTALADO: 'border-t-sucesso',
 }

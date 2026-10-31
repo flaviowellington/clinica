@@ -77,7 +77,7 @@ export function ListaRetornos() {
   const hoje = isoLocal(new Date())
   return (
     <div className="cartao space-y-2">
-      <p className="font-medium">Alertas de retorno</p>
+      <h2 className="text-base">Alertas de retorno</h2>
       {lista.data?.length === 0 && (
         <p className="text-suave">Nenhum retorno nos próximos 60 dias.</p>
       )}

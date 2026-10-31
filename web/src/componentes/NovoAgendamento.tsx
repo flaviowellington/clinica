@@ -34,6 +34,8 @@ export interface Inicial {
   data: string
   inicio?: string
   profissionalId?: number
+  /** Já escolhido (aberto da ficha do paciente). */
+  paciente?: Paciente
 }
 
 const PERIODOS = [
@@ -118,7 +120,7 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
   const [encaixe, setEncaixe] = useState(false)
   const [calendario, setCalendario] = useState(false)
   const [buscaProf, setBuscaProf] = useState('')
-  const [paciente, setPaciente] = useState<Paciente | null>(null)
+  const [paciente, setPaciente] = useState<Paciente | null>(props.inicial.paciente ?? null)
   const [titulo, setTitulo] = useState('')
   // Decisão da clínica: confirmação e lembrete por WhatsApp de saída (o estudo, R-027, vinha desligado).
   const [avisos, setAvisos] = useState({ confirmacao: 'WHATSAPP', alerta: 'WHATSAPP' })

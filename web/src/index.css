@@ -9,7 +9,11 @@
  * Os fundos suaves (-clara) saem da cor-base com color-mix, então cada paleta só define a base.
  */
 
-/* ---------- Uva: roxo da marca + laranja ---------- */
+/*
+ * PALETAS ANTIGAS (antes do ajuste de contraste de 30/10/2026). Para voltar,
+ * descomente este bloco e apague o bloco "PALETAS ACESSÍVEIS" logo abaixo.
+
+-- Uva: roxo da marca + laranja --
 :root {
   --fundo: #e9e4f3;
   --superficie: #ffffff;
@@ -49,7 +53,7 @@
   color-scheme: dark;
 }
 
-/* ---------- Tutti-frutti: magenta + creme + roxo escuro ---------- */
+-- Tutti-frutti: magenta + creme + roxo escuro --
 [data-paleta='tutti'] {
   --fundo: #f2e9d6;
   --superficie: #ffffff;
@@ -87,7 +91,7 @@
   --info: #b48cff;
 }
 
-/* ---------- Hortelã: verde + lima + roxo escuro ---------- */
+-- Hortelã: verde + lima + roxo escuro --
 [data-paleta='hortela'] {
   --fundo: #e3e2e8;
   --superficie: #ffffff;
@@ -125,7 +129,7 @@
   --info: #b48cff;
 }
 
-/* ---------- Tangerina: laranja + roxo, fundo pêssego ---------- */
+-- Tangerina: laranja + roxo, fundo pêssego --
 [data-paleta='tangerina'] {
   --fundo: #fbe6d0;
   --superficie: #ffffff;
@@ -163,7 +167,7 @@
   --info: #b48cff;
 }
 
-/* ---------- Girassol: roxo escuro + amarelo, fundo manteiga ---------- */
+-- Girassol: roxo escuro + amarelo, fundo manteiga --
 [data-paleta='girassol'] {
   --fundo: #fbefc0;
   --superficie: #ffffff;
@@ -201,7 +205,7 @@
   --info: #b48cff;
 }
 
-/* ---------- Nuvem: neutro e sóbrio, roxo + verde só nos detalhes ---------- */
+-- Nuvem: neutro e sóbrio, roxo + verde só nos detalhes --
 [data-paleta='nuvem'] {
   --fundo: #ebebef;
   --superficie: #ffffff;
@@ -238,12 +242,258 @@
   --aviso: #ffb020;
   --info: #b48cff;
 }
+*/
+
+/*
+ * PALETAS ACESSÍVEIS: mesmas cores da marca, com contraste conferido em cada paleta x tema.
+ * Mínimos usados (acima do WCAG AA, para sobrar margem em monitores lavados ou mal calibrados):
+ *   texto e título 7:1 · texto suave, links, etiquetas e texto de botão 5:1 · borda de campo 3:1.
+ */
+
+/* ---------- Uva: roxo da marca + laranja ---------- */
+:root {
+  --fundo: #e9e4f3;
+  --superficie: #ffffff;
+  --superficie-2: #f3f0f9;
+  --texto: #2a1840;
+  --titulo: #340972;
+  --suave: #5b5072;
+  --borda: #cfc7e2;
+  --primaria: #670fce;
+  --sobre-primaria: #ffffff;
+  --secundaria: #ff7915;
+  --sobre-secundaria: #2a1840;
+  --destaque: #ffd400;
+  --perigo: #ad003e;
+  --sucesso: #036b37;
+  --aviso: #8f3f06;
+  --info: #670fce;
+  color-scheme: light;
+}
+[data-tema='escuro'] {
+  --fundo: #140824;
+  --superficie: #1e1036;
+  --superficie-2: #2a1848;
+  --texto: #eee8f7;
+  --titulo: #f3ecff;
+  --suave: #b7abcf;
+  --borda: #48336c;
+  --primaria: #b48cff;
+  --sobre-primaria: #1a0633;
+  --secundaria: #ff8f3d;
+  --sobre-secundaria: #1a0633;
+  --destaque: #ffd400;
+  --perigo: #ff75ad;
+  --sucesso: #2ee38a;
+  --aviso: #ffb020;
+  --info: #c2a3ff;
+  color-scheme: dark;
+}
+
+/* ---------- Tutti-frutti: magenta + creme + roxo escuro ---------- */
+[data-paleta='tutti'] {
+  --fundo: #f2e9d6;
+  --superficie: #ffffff;
+  --superficie-2: #f8f2e6;
+  --texto: #2b1a2e;
+  --titulo: #340972;
+  --suave: #614f66;
+  --borda: #d9c69c;
+  --primaria: #b0004f;
+  --sobre-primaria: #ffffff;
+  --secundaria: #340972;
+  --sobre-secundaria: #ffffff;
+  --destaque: #ffd400;
+  --perigo: #ab1212;
+  --sucesso: #036b37;
+  --aviso: #8f3f06;
+  --info: #670fce;
+}
+[data-paleta='tutti'][data-tema='escuro'] {
+  --fundo: #1a0f1e;
+  --superficie: #26162b;
+  --superficie-2: #33203a;
+  --texto: #f6eee6;
+  --titulo: #f2e9d6;
+  --suave: #c4b2c3;
+  --borda: #57405f;
+  --primaria: #ff70ab;
+  --sobre-primaria: #2a0716;
+  --secundaria: #c2a3ff;
+  --sobre-secundaria: #1a0633;
+  --destaque: #ffd400;
+  --perigo: #ff8a8a;
+  --sucesso: #2ee38a;
+  --aviso: #ffb020;
+  --info: #c2a3ff;
+}
+
+/* ---------- Hortelã: verde + lima + roxo escuro ---------- */
+[data-paleta='hortela'] {
+  --fundo: #e3e2e8;
+  --superficie: #ffffff;
+  --superficie-2: #f1f0f4;
+  --texto: #1f1a2e;
+  --titulo: #340972;
+  --suave: #545065;
+  --borda: #c8c5d3;
+  --primaria: #036b37;
+  --sobre-primaria: #ffffff;
+  --secundaria: #c8ed31;
+  --sobre-secundaria: #340972;
+  --destaque: #0cce6b;
+  --perigo: #ad003e;
+  --sucesso: #036b37;
+  --aviso: #8f3f06;
+  --info: #670fce;
+}
+[data-paleta='hortela'][data-tema='escuro'] {
+  --fundo: #0f0b1a;
+  --superficie: #1a1528;
+  --superficie-2: #251e36;
+  --texto: #eef2ec;
+  --titulo: #c8ed31;
+  --suave: #b2aec2;
+  --borda: #3e3555;
+  --primaria: #2ee38a;
+  --sobre-primaria: #0b1a12;
+  --secundaria: #c8ed31;
+  --sobre-secundaria: #1a2400;
+  --destaque: #0cce6b;
+  --perigo: #ff75ad;
+  --sucesso: #2ee38a;
+  --aviso: #ffb020;
+  --info: #c2a3ff;
+}
+
+/* ---------- Tangerina: laranja + roxo, fundo pêssego ---------- */
+[data-paleta='tangerina'] {
+  --fundo: #fbe6d0;
+  --superficie: #ffffff;
+  --superficie-2: #fdf2e6;
+  --texto: #2a1840;
+  --titulo: #340972;
+  --suave: #634f4a;
+  --borda: #e3be98;
+  --primaria: #9e3d00;
+  --sobre-primaria: #ffffff;
+  --secundaria: #670fce;
+  --sobre-secundaria: #ffffff;
+  --destaque: #ffd400;
+  --perigo: #ad003e;
+  --sucesso: #036b37;
+  --aviso: #824a00;
+  --info: #670fce;
+}
+[data-paleta='tangerina'][data-tema='escuro'] {
+  --fundo: #1c1014;
+  --superficie: #281820;
+  --superficie-2: #35212a;
+  --texto: #f8ece4;
+  --titulo: #ffb27a;
+  --suave: #c9b2aa;
+  --borda: #5a3f4b;
+  --primaria: #ff8f3d;
+  --sobre-primaria: #2a1000;
+  --secundaria: #c2a3ff;
+  --sobre-secundaria: #1a0633;
+  --destaque: #ffd400;
+  --perigo: #ff75ad;
+  --sucesso: #2ee38a;
+  --aviso: #ffd400;
+  --info: #c2a3ff;
+}
+
+/* ---------- Girassol: roxo escuro + amarelo, fundo manteiga ---------- */
+[data-paleta='girassol'] {
+  --fundo: #fbefc0;
+  --superficie: #ffffff;
+  --superficie-2: #fff8dc;
+  --texto: #2a1840;
+  --titulo: #340972;
+  --suave: #5b5072;
+  --borda: #dcc76c;
+  --primaria: #340972;
+  --sobre-primaria: #ffffff;
+  --secundaria: #ffd400;
+  --sobre-secundaria: #340972;
+  --destaque: #ff7915;
+  --perigo: #ad003e;
+  --sucesso: #036b37;
+  --aviso: #8f3f06;
+  --info: #670fce;
+}
+[data-paleta='girassol'][data-tema='escuro'] {
+  --fundo: #120a1e;
+  --superficie: #1d1230;
+  --superficie-2: #2a1b44;
+  --texto: #f4eefc;
+  --titulo: #ffd400;
+  --suave: #b7abcf;
+  --borda: #463266;
+  --primaria: #ffd400;
+  --sobre-primaria: #340972;
+  --secundaria: #b48cff;
+  --sobre-secundaria: #1a0633;
+  --destaque: #ff8f3d;
+  --perigo: #ff75ad;
+  --sucesso: #2ee38a;
+  --aviso: #ff8f3d;
+  --info: #c2a3ff;
+}
+
+/* ---------- Nuvem: neutro e sóbrio, roxo + verde só nos detalhes ---------- */
+[data-paleta='nuvem'] {
+  --fundo: #ebebef;
+  --superficie: #ffffff;
+  --superficie-2: #f5f5f8;
+  --texto: #1e1b24;
+  --titulo: #1e1b24;
+  --suave: #57546a;
+  --borda: #cbcad3;
+  --primaria: #670fce;
+  --sobre-primaria: #ffffff;
+  --secundaria: #0cce6b;
+  --sobre-secundaria: #340972;
+  --destaque: #d90368;
+  --perigo: #ad003e;
+  --sucesso: #036b37;
+  --aviso: #8f3f06;
+  --info: #670fce;
+}
+[data-paleta='nuvem'][data-tema='escuro'] {
+  --fundo: #111113;
+  --superficie: #1a1a1f;
+  --superficie-2: #24242b;
+  --texto: #ececf1;
+  --titulo: #ffffff;
+  --suave: #aeabb9;
+  --borda: #3c3c46;
+  --primaria: #b48cff;
+  --sobre-primaria: #1a0633;
+  --secundaria: #2ee38a;
+  --sobre-secundaria: #0b1a12;
+  --destaque: #ff75ad;
+  --perigo: #ff75ad;
+  --sucesso: #2ee38a;
+  --aviso: #ffb020;
+  --info: #c2a3ff;
+}
 
 :root {
   --primaria-clara: color-mix(in srgb, var(--primaria) 12%, var(--superficie));
   --secundaria-clara: color-mix(in srgb, var(--secundaria) 18%, var(--superficie));
   --desativado: color-mix(in srgb, var(--suave) 18%, var(--superficie));
   --desativado-texto: color-mix(in srgb, var(--suave) 70%, var(--superficie));
+  /* Contorno de campos e checkboxes: 3:1 contra a superfície (WCAG 1.4.11). Cartões seguem com --borda. */
+  --borda-campo: color-mix(in srgb, var(--suave) 70%, var(--superficie));
+}
+/* Uva: borda de campo lavanda (puxada da primária), 3.5:1 no claro e 3.6:1 no escuro. */
+[data-paleta='uva'] {
+  --borda-campo: color-mix(in srgb, var(--primaria) 60%, var(--superficie));
+}
+[data-paleta='uva'][data-tema='escuro'] {
+  --borda-campo: color-mix(in srgb, var(--primaria) 65%, var(--superficie));
 }
 
 @theme inline {
@@ -254,6 +504,7 @@
   --color-titulo: var(--titulo);
   --color-suave: var(--suave);
   --color-borda: var(--borda);
+  --color-borda-campo: var(--borda-campo);
   --color-primaria: var(--primaria);
   --color-primaria-clara: var(--primaria-clara);
   --color-sobre-primaria: var(--sobre-primaria);
@@ -379,7 +630,7 @@ body {
 
   /* ---------- Campos ---------- */
   .campo {
-    @apply w-full rounded-xl border-2 border-borda bg-superficie px-3 py-2 outline-none placeholder:text-suave/70 hover:border-primaria/40 focus:border-primaria focus:ring-4 focus:ring-primaria/15 disabled:border-transparent disabled:bg-desativado disabled:text-desativado-texto [&[readonly]]:bg-superficie-2 [&[readonly]]:focus:ring-0 aria-[invalid=true]:border-perigo aria-[invalid=true]:ring-perigo/15;
+    @apply w-full rounded-xl border-2 border-borda-campo bg-superficie px-3 py-2 outline-none placeholder:text-suave/70 hover:border-primaria/40 focus:border-primaria focus:ring-4 focus:ring-primaria/15 disabled:border-transparent disabled:bg-desativado disabled:text-desativado-texto [&[readonly]]:bg-superficie-2 [&[readonly]]:focus:ring-0 aria-[invalid=true]:border-perigo aria-[invalid=true]:ring-perigo/15;
   }
 
   /* ---------- Botões ---------- */
@@ -421,7 +672,7 @@ body {
     @apply rounded-2xl border border-borda bg-superficie p-4;
   }
   .cartao-destaque {
-    @apply rounded-2xl border border-borda border-t-4 border-t-secundaria bg-superficie p-4 shadow-sm;
+    @apply rounded-2xl border border-secundaria bg-secundaria/10 p-4 shadow-sm;
   }
 
   /* ---------- Etiquetas (spans de status) ---------- */
@@ -452,19 +703,19 @@ body {
   .alerta-sucesso,
   .alerta-aviso,
   .alerta-perigo {
-    @apply rounded-2xl border-l-4 px-4 py-3;
+    @apply rounded-2xl border px-4 py-3;
   }
   .alerta-info {
-    @apply border-info bg-info/10;
+    @apply border-info/40 bg-info/10;
   }
   .alerta-sucesso {
-    @apply border-sucesso bg-sucesso/10;
+    @apply border-sucesso/40 bg-sucesso/10;
   }
   .alerta-aviso {
-    @apply border-aviso bg-aviso/10;
+    @apply border-aviso/40 bg-aviso/10;
   }
   .alerta-perigo {
-    @apply border-perigo bg-perigo/10;
+    @apply border-perigo/40 bg-perigo/10;
   }
 
   /* ---------- Inativo / sem acesso ---------- */
@@ -491,7 +742,7 @@ body {
     height: 1.25rem;
     margin: 0;
     vertical-align: middle;
-    border: 2px solid color-mix(in srgb, var(--suave) 55%, var(--superficie));
+    border: 2px solid var(--borda-campo);
     border-radius: 0.45rem;
     background: var(--superficie);
   }

@@ -6,6 +6,7 @@ import { exigir, usuarioDe } from './auth'
 import { pode, type Acao } from '../../shared/permissoes'
 import { hojeNaClinica, normalizar } from '../../shared/regras'
 import {
+  DENTES_VALIDOS,
   MODELOS_DOCUMENTO,
   alertasDaAnamnese,
   faltandoObrigatorias,
@@ -80,7 +81,7 @@ rotasFichaPaciente.get('/:id/resumo', exigir('paciente.ver'), async (_req, res) 
       orderBy: { data: 'asc' },
     }),
     db.orcamento.findMany({
-      where: { pacienteId, status: 'ABERTO' },
+      where: { pacienteId, status: 'ABERTO', excluidoEm: null },
       include: { itens: { select: { valorCentavos: true } } },
     }),
     db.nota.findMany({
@@ -181,11 +182,14 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       where: { pacienteId, excluidoEm: null },
       include: { profissional: pessoaCurta },
     }),
-    // Aprovado: tudo; cancelado: só o que chegou a ser feito.
+    // Em aberto ou aprovado: tudo; cancelado: só o que chegou a ser feito; excluído: nada.
     db.itemOrcamento.findMany({
       where: {
-        orcamento: { pacienteId },
-        OR: [{ orcamento: { status: 'APROVADO' } }, { executadoEm: { not: null } }],
+        orcamento: { pacienteId, excluidoEm: null },
+        OR: [
+          { orcamento: { status: { in: ['ABERTO', 'APROVADO'] } } },
+          { executadoEm: { not: null } },
+        ],
       },
       include: { orcamento: { include: { profissional: pessoaCurta } } },
     }),
@@ -204,6 +208,8 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       observacao: c.observacao,
       observacaoPaciente: c.observacaoPaciente,
       orcamentoId: null as number | null,
+      orcamentoStatus: null as string | null,
+      valorCentavos: null as number | null,
     })),
     ...itens.map((i) => ({
       origem: 'ORCAMENTO' as const,
@@ -211,13 +217,15 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       procedimentoId: i.procedimentoId,
       nome: i.nome,
       dente: i.dente,
-      faces: null,
+      faces: i.faces,
       status: i.executadoEm ? ('EXECUTADO' as const) : ('A_REALIZAR' as const),
       data: isoDe(i.executadoEm ?? i.orcamento.aprovadoEm ?? i.orcamento.criadoEm),
       profissional: i.orcamento.profissional,
       observacao: null,
       observacaoPaciente: null,
       orcamentoId: i.orcamentoId,
+      orcamentoStatus: i.orcamento.status as string | null,
+      valorCentavos: i.valorCentavos as number | null,
     })),
   ]
   lista.sort((a, b) => b.data.localeCompare(a.data) || b.id - a.id)
@@ -249,12 +257,38 @@ async function lerProcedimento(corpo: unknown, res: Response) {
 }
 
 rotasFichaPaciente.post('/:id/procedimentos', exigir('prontuario.editar'), async (req, res) => {
-  const dados = await lerProcedimento(req.body, res)
-  if (!dados) return
-  const c = await db.procedimentoClinico.create({
-    data: { ...dados, pacienteId: pacienteDe(res), criadoPorId: usuarioDe(res).id },
+  const lido = await lerProcedimento(req.body, res)
+  if (!lido) return
+  const { dentes, ...dados } = lido
+  const comum = { ...dados, pacienteId: pacienteDe(res), criadoPorId: usuarioDe(res).id }
+  // Vários dentes: um registro por dente, todos ou nenhum.
+  const criados = await db.$transaction(
+    (dentes?.length
+      ? dentes.map((d) => ({ ...comum, dente: d.dente, faces: normalizarFaces(d.faces) || null }))
+      : [comum]
+    ).map((data) => db.procedimentoClinico.create({ data })),
+  )
+  // ponytail: responde só o primeiro; ninguém usa a lista ainda.
+  res.status(201).json({ ...criados[0], data: isoDe(criados[0].data) })
+})
+
+// ── Odontograma: dente sem coroa e dente removido ───────────────────────────
+rotasFichaPaciente.get('/:id/odontograma', exigir('prontuario.ver'), async (_req, res) => {
+  const p = await db.pessoa.findUniqueOrThrow({ where: { id: pacienteDe(res) } })
+  res.json({ semCoroa: p.dentesSemCoroa, removidos: p.dentesRemovidos })
+})
+
+rotasFichaPaciente.put('/:id/odontograma', exigir('prontuario.editar'), async (req, res) => {
+  const lista = (v: unknown) =>
+    Array.isArray(v) && v.every((d) => DENTES_VALIDOS.has(d)) ? [...new Set(v as string[])] : null
+  const semCoroa = lista(req.body?.semCoroa)
+  const removidos = lista(req.body?.removidos)
+  if (!semCoroa || !removidos) return res.status(400).json({ erro: 'Dente inválido.' })
+  await db.pessoa.update({
+    where: { id: pacienteDe(res) },
+    data: { dentesSemCoroa: semCoroa, dentesRemovidos: removidos },
   })
-  res.status(201).json({ ...c, data: isoDe(c.data) })
+  res.json({ semCoroa, removidos })
 })
 
 // ── Fichas de especialidade (R-068) ─────────────────────────────────────────
@@ -509,6 +543,8 @@ rotasProntuario.put('/procedimentos/:id', exigir('prontuario.editar'), async (re
     res,
   )
   if (!dados) return
+  // Editar é sempre um dente só.
+  delete dados.dentes
   const [, novo] = await db.$transaction([
     guardarAntes('ProcedimentoClinico', c, usuarioDe(res).id),
     db.procedimentoClinico.update({ where: { id: c.id }, data: dados }),

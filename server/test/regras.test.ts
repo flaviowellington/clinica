@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { cpfValido, dataValida, idade, normalizar, podeCadastrar } from '../../shared/regras'
 import { pode } from '../../shared/permissoes'
 import { clicarHorario, ladoALado, paraHora } from '../../shared/agenda'
+import { agruparProcedimentos, facesDoDente, normalizarFaces } from '../../shared/prontuario'
+import { descontoDoPercentual, percentualDoDesconto } from '../../shared/orcamentos'
 
 describe('PT-01 botão "Cadastrar paciente"', () => {
   it('fica desabilitado vazio ou só com o nome', () => {
@@ -100,5 +102,45 @@ describe('escolher horários no modal por cliques', () => {
     const ocupado7 = (a: string, b: string) => a <= H(7) && H(7) <= b
     expect(clicar([5, 9], ocupado7)).toEqual(faixa(9, '', 9))
     expect(clicar([8, 10, 5], ocupado7)).toEqual(faixa(5, '', 5))
+  })
+})
+
+describe('faces do dente no odontograma', () => {
+  it('segue a posição na tela: esquerda, centro, direita, cervical, baixo, cima', () => {
+    expect(facesDoDente('61')).toEqual(['M', 'I', 'D', 'C', 'P', 'V'])
+    expect(facesDoDente('55')).toEqual(['D', 'O', 'M', 'C', 'P', 'V'])
+    expect(facesDoDente('36')).toEqual(['M', 'O', 'D', 'C', 'V', 'L'])
+    expect(facesDoDente('83')).toEqual(['D', 'I', 'M', 'C', 'V', 'L'])
+  })
+  it('várias faces viram uma sigla só, na ordem padrão', () => {
+    expect(normalizarFaces('ilm')).toBe('LMI')
+  })
+  it('o mesmo lançamento em vários dentes vira um grupo só', () => {
+    const base = {
+      origem: 'CLINICO',
+      nome: 'Resina',
+      status: 'EXECUTADO',
+      data: '2026-10-30',
+      profissional: { id: 1 },
+      observacao: null,
+      observacaoPaciente: null,
+      orcamentoId: null,
+    }
+    const grupos = agruparProcedimentos([
+      { ...base, dente: '11' },
+      { ...base, dente: '21' },
+      { ...base, status: 'EXISTENTE', dente: '11' },
+    ])
+    expect(grupos.map((g) => g.map((i) => i.dente))).toEqual([['11', '21'], ['11']])
+  })
+})
+
+describe('desconto do orçamento em R$ ou %', () => {
+  it('% vira centavos arredondados, e o valor fixo mostra o % equivalente', () => {
+    expect(descontoDoPercentual(33333, 10)).toBe(3333)
+    expect(descontoDoPercentual(30000, 12.5)).toBe(3750)
+    expect(percentualDoDesconto(30000, 3000)).toBe(10)
+    expect(percentualDoDesconto(30000, 1000)).toBe(3.33)
+    expect(percentualDoDesconto(0, 1000)).toBe(0)
   })
 })

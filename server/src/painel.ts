@@ -41,7 +41,7 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
         },
         select: { valorCentavos: true, pacienteId: true },
       }),
-      db.orcamento.count({ where: { criadoEm: instantes } }),
+      db.orcamento.count({ where: { criadoEm: instantes, excluidoEm: null } }),
       db.orcamento.findMany({
         where: { aprovadoEm: instantes, status: { in: ['APROVADO', 'CANCELADO'] } },
         include: { itens: { include: { procedimento: { select: { especialidade: true } } } } },

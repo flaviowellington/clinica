@@ -6,7 +6,7 @@ const env = dotenv.config({ path: 'server/.env', quiet: true }).parsed ?? {}
 
 export default defineConfig({
   testDir: 'e2e',
-  use: { baseURL: 'http://localhost:5174' },
+  use: { baseURL: 'http://localhost:5199' },
   webServer: [
     {
       command: 'npm run e2e:servidor -w server',
@@ -14,10 +14,12 @@ export default defineConfig({
       env: { DATABASE_URL: env.DATABASE_URL_TESTE, PORTA: '3101' },
     },
     {
-      command: 'npm run dev -w web -- --port 5174 --strictPort',
-      url: 'http://localhost:5174',
+      command: 'npm run dev -w web -- --port 5199 --strictPort',
+      url: 'http://localhost:5199',
       env: { API_URL: 'http://localhost:3101' },
-      // No Windows o Vite às vezes fica aberto depois do teste; reaproveitar evita "porta em uso".
+      // Porta só do e2e: o Vite de dev pula para 5174 quando a 5173 está ocupada, e reaproveitá-lo
+      // mandaria a API para o servidor de dev. No Windows o Vite às vezes fica aberto depois do teste;
+      // reaproveitar evita "porta em uso".
       reuseExistingServer: true,
     },
   ],

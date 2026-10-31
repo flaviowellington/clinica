@@ -252,7 +252,7 @@ export const GERADORES_EXTRA: Record<string, Gerador> = {
   },
   'tratamentos-procedimentos': async (data) => {
     const l = await db.itemOrcamento.findMany({
-      where: { orcamento: { criadoEm: instantes(data) } },
+      where: { orcamento: { criadoEm: instantes(data), excluidoEm: null } },
       include: { orcamento: true },
     })
     const m = new Map<string, { orcados: number; aprovados: number; valor: number }>()

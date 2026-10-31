@@ -18,7 +18,7 @@ import { Dialogo } from '../componentes/Dialogo'
 import { FormPaciente } from '../componentes/FormPaciente'
 import { NovoRetorno } from '../componentes/Retornos'
 import { Situacao, whatsapp } from './Pacientes'
-import { Icone } from '../componentes/Icones'
+import { Icone, type NomeIcone } from '../componentes/Icones'
 import { OrcamentosPaciente } from '../componentes/Orcamentos'
 import { FichasEspecialidade, Odontograma, PlanoFichaClinica } from '../componentes/Clinico'
 import { Anamneses } from '../componentes/Anamnese'
@@ -30,24 +30,32 @@ type Janela = 'editar' | 'excluir' | null
 
 /** As 11 seções da ficha (S-003), em grupos no menu lateral. Cada uma só aparece com a permissão. */
 const ABAS_FICHA = [
-  { id: 'visao-geral', rotulo: 'Visão Geral', acao: 'paciente.ver', grupo: '' },
-  { id: 'orcamentos', rotulo: 'Orçamentos', acao: 'orcamento.ver', grupo: 'Tratamento' },
-  { id: 'agendamentos', rotulo: 'Agendamentos', acao: 'agenda.ver', grupo: 'Tratamento' },
+  { id: 'visao-geral', rotulo: 'Visão Geral', acao: 'paciente.ver', grupo: 'Paciente' },
+  // Dentro de cada grupo, em ordem alfabética.
+  { id: 'agendamentos', rotulo: 'Agendamentos', acao: 'agenda.ver', grupo: 'Atendimento' },
+  { id: 'orcamentos', rotulo: 'Orçamentos', acao: 'orcamento.ver', grupo: 'Atendimento' },
   { id: 'anamnese', rotulo: 'Anamnese', acao: 'anamnese.ver', grupo: 'Clínico' },
-  { id: 'odontograma', rotulo: 'Odontograma', acao: 'prontuario.ver', grupo: 'Clínico' },
-  { id: 'plano', rotulo: 'Plano e Ficha Clínica', acao: 'prontuario.ver', grupo: 'Clínico' },
   {
     id: 'especialidades',
     rotulo: 'Fichas Especialidades',
     acao: 'prontuario.ver',
     grupo: 'Clínico',
   },
+  { id: 'odontograma', rotulo: 'Odontograma', acao: 'prontuario.ver', grupo: 'Clínico' },
+  { id: 'plano', rotulo: 'Plano e Ficha Clínica', acao: 'prontuario.ver', grupo: 'Clínico' },
+  { id: 'documentos', rotulo: 'Documentos', acao: 'prontuario.ver', grupo: 'Arquivos' },
   { id: 'exames', rotulo: 'Exames', acao: 'prontuario.ver', grupo: 'Arquivos' },
   { id: 'fotos', rotulo: 'Fotos', acao: 'fotos.ver', grupo: 'Arquivos' },
-  { id: 'documentos', rotulo: 'Documentos', acao: 'prontuario.ver', grupo: 'Arquivos' },
   { id: 'indicacoes', rotulo: 'Indicações', acao: 'paciente.ver', grupo: 'Outros' },
 ] as const satisfies readonly { id: string; rotulo: string; acao: Acao; grupo: string }[]
-const GRUPOS_FICHA = ['', 'Tratamento', 'Clínico', 'Arquivos', 'Outros'] as const
+const GRUPOS_FICHA = ['Paciente', 'Atendimento', 'Clínico', 'Arquivos', 'Outros'] as const
+const ICONE_GRUPO: Record<(typeof GRUPOS_FICHA)[number], NomeIcone> = {
+  Paciente: 'inicio',
+  Atendimento: 'agenda',
+  Clínico: 'dente',
+  Arquivos: 'pasta',
+  Outros: 'reticencias',
+}
 type AbaFicha = (typeof ABAS_FICHA)[number]['id']
 
 export function Ficha() {
@@ -154,40 +162,98 @@ export function Ficha() {
   )
 
   return (
-    <div className="flex flex-wrap items-start gap-4">
-      <nav
-        aria-label="Seções da ficha"
-        className="cartao w-full space-y-3 p-2 lg:sticky lg:top-4 lg:w-56 lg:shrink-0"
-      >
-        {GRUPOS_FICHA.map((g) => {
-          const itens = abas.filter((a) => a.grupo === g)
-          if (!itens.length) return null
-          return (
-            <div key={g}>
-              {g && (
-                <p className="px-3 pt-1 pb-1 text-xs font-extrabold tracking-wide text-suave uppercase">
+    <div>
+      {/* Cabeçalho fixo em todas as seções: quem é o paciente, alertas de saúde e ações. */}
+      <header className="cartao mb-4 p-0 shadow-sm">
+        <div className="flex flex-wrap items-center gap-4 p-4">
+          <div className="grid size-13 shrink-0 place-items-center rounded-full bg-primaria-clara text-lg font-extrabold text-primaria">
+            {iniciais}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl">{p.nome}</h1>
+              <Situacao ativo={p.ativo} />
+            </div>
+            <p className="text-suave">
+              {[p.nascimento && `${idade(p.nascimento)} anos`, p.sexo].filter(Boolean).join(' · ')}
+            </p>
+          </div>
+          {!!alertas.data?.length && (
+            <div role="alert" className="flex flex-wrap gap-1.5">
+              {alertas.data.map((a) => (
+                <button
+                  key={a.texto}
+                  className="etiqueta etiqueta-perigo"
+                  title="Ver anamnese"
+                  onClick={() => trocarAba('anamnese')}
+                >
+                  {a.texto.replace(/[?]$/, '')}: {a.resposta}
+                  {a.descricao && ` (${a.descricao})`}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="ml-auto flex flex-wrap gap-2">
+            {p.celular && (
+              <a className="botao" href={whatsapp(p.celular)} target="_blank" rel="noreferrer">
+                WhatsApp
+              </a>
+            )}
+            {p.email && (
+              <a
+                className="botao-leve botao-icone size-10"
+                href={`mailto:${p.email}`}
+                aria-label="Enviar e-mail"
+                title="Enviar e-mail"
+              >
+                <Icone nome="confirmacoes" />
+              </a>
+            )}
+            {acoes}
+          </div>
+        </div>
+
+        {/* Cada grupo é um trilho de botões; a seção aberta é o botão roxo cheio. */}
+        <nav
+          aria-label="Seções da ficha"
+          className="flex flex-wrap items-end gap-x-3 gap-y-2.5 rounded-b-2xl border-t border-borda bg-superficie-2/50 px-4 pt-3 pb-3.5"
+        >
+          {GRUPOS_FICHA.map((g) => {
+            const itens = abas.filter((a) => a.grupo === g)
+            if (!itens.length) return null
+            const grupoAtivo = itens.some((a) => a.id === aba)
+            return (
+              <div key={g} role="group" aria-label={g} className="flex flex-col gap-1.5">
+                <p
+                  className={`flex items-center gap-1.5 px-1.5 text-[11px] font-extrabold tracking-wide uppercase ${grupoAtivo ? 'text-primaria' : 'text-suave'}`}
+                >
+                  {/* As reticências têm traço fino: engrossa para ter o mesmo peso dos outros. */}
+                  <Icone
+                    nome={ICONE_GRUPO[g]}
+                    className={`h-3.5 w-3.5 ${g === 'Outros' ? 'stroke-[4]' : ''}`}
+                  />
                   {g}
                 </p>
-              )}
-              <ul className="flex flex-wrap gap-1 lg:flex-col">
-                {itens.map((a) => (
-                  <li key={a.id}>
-                    <button
-                      aria-current={aba === a.id ? 'page' : undefined}
-                      onClick={() => trocarAba(a.id)}
-                      className={`w-full rounded-xl px-3 py-2 text-left ${aba === a.id ? 'bg-primaria-clara font-extrabold text-primaria' : 'hover:bg-superficie-2'}`}
-                    >
-                      {a.rotulo}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )
-        })}
-      </nav>
+                <ul className="flex gap-0.5 rounded-xl border border-borda bg-superficie-2 p-[3px]">
+                  {itens.map((a) => (
+                    <li key={a.id}>
+                      <button
+                        aria-current={aba === a.id ? 'page' : undefined}
+                        onClick={() => trocarAba(a.id)}
+                        className={`rounded-[9px] px-3 py-1.5 font-bold whitespace-nowrap ${aba === a.id ? 'bg-primaria text-sobre-primaria shadow-[0_3px_10px_color-mix(in_srgb,var(--primaria)_35%,transparent)]' : 'text-texto hover:bg-superficie hover:shadow-sm'}`}
+                      >
+                        {a.rotulo}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })}
+        </nav>
+      </header>
 
-      <div className="min-w-0 flex-[999_1_36rem] space-y-4">
+      <div className="min-w-0 space-y-4">
         {!p.ativo && p.motivoInativacao && (
           <p className="cartao border-perigo/40">
             Inativo por: {MOTIVOS_INATIVACAO[p.motivoInativacao]}
@@ -196,27 +262,7 @@ export function Ficha() {
           </p>
         )}
 
-        {!naVisao && !!alertas.data?.length && (
-          <div role="alert" className="cartao flex flex-wrap items-center gap-2 border-perigo/50">
-            <span className="font-medium text-perigo">Alertas da anamnese:</span>
-            {alertas.data.map((a) => (
-              <span key={a.texto} className="rounded-full bg-perigo/10 px-2 py-0.5 text-perigo">
-                {a.texto.replace(/[?]$/, '')}: {a.resposta}
-                {a.descricao && ` (${a.descricao})`}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {naVisao && (
-          <VisaoGeral
-            paciente={p}
-            iniciais={iniciais}
-            acoes={acoes}
-            alertas={alertas.data ?? []}
-            irPara={trocarAba}
-          />
-        )}
+        {naVisao && <VisaoGeral paciente={p} irPara={trocarAba} />}
         {aba === 'orcamentos' && <OrcamentosPaciente paciente={p} />}
         {aba === 'fotos' && <Arquivos paciente={p} categoria="FOTO" />}
         {aba === 'plano' && <PlanoFichaClinica paciente={p} />}
@@ -279,15 +325,9 @@ interface Resumo {
 
 function VisaoGeral({
   paciente: p,
-  iniciais,
-  acoes,
-  alertas,
   irPara,
 }: {
   paciente: Paciente
-  iniciais: string
-  acoes: ReactNode
-  alertas: Pergunta[]
   irPara: (a: AbaFicha) => void
 }) {
   const { data: eu } = useSuspenseQuery(consultaEu)
@@ -334,67 +374,6 @@ function VisaoGeral({
   return (
     <div className="flex flex-wrap items-start gap-4">
       <aside className="flex w-full flex-col gap-4 lg:w-80 lg:shrink-0">
-        <section className="cartao space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="grid size-16 shrink-0 place-items-center rounded-full bg-primaria-clara text-xl font-extrabold text-primaria">
-              {iniciais}
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-xl">{p.nome}</h1>
-              <p className="text-suave">
-                {[p.nascimento && `${idade(p.nascimento)} anos`, p.sexo]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </p>
-              <div className="mt-1">
-                <Situacao ativo={p.ativo} />
-              </div>
-            </div>
-          </div>
-          {(p.celular || p.email) && (
-            <div className="flex flex-wrap gap-2">
-              {p.celular && (
-                <a className="botao" href={whatsapp(p.celular)} target="_blank" rel="noreferrer">
-                  WhatsApp
-                </a>
-              )}
-              {p.email && (
-                <a
-                  className="botao-leve botao-icone size-10"
-                  href={`mailto:${p.email}`}
-                  aria-label="Enviar e-mail"
-                  title="Enviar e-mail"
-                >
-                  <Icone nome="confirmacoes" />
-                </a>
-              )}
-            </div>
-          )}
-          <div className="flex flex-wrap gap-2 border-t border-borda pt-3">{acoes}</div>
-        </section>
-
-        {verAnamnese && alertas.length > 0 && (
-          <section role="alert" className="alerta-perigo space-y-2">
-            <h2 className="text-xs tracking-wide text-perigo uppercase">Alertas de saúde</h2>
-            <div className="flex flex-wrap gap-1.5">
-              {alertas.map((a) => (
-                <span key={a.texto} className="etiqueta etiqueta-perigo">
-                  {a.texto.replace(/[?]$/, '')}: {a.resposta}
-                  {a.descricao && ` (${a.descricao})`}
-                </span>
-              ))}
-            </div>
-            {r?.anamnese && (
-              <p className="text-xs text-suave">
-                Da anamnese de {dataBR(r.anamnese.criadoEm)} ·{' '}
-                <button className="link" onClick={() => irPara('anamnese')}>
-                  ver anamnese
-                </button>
-              </p>
-            )}
-          </section>
-        )}
-
         <Bloco titulo="Contato">
           <Info rotulo="Celular / WhatsApp" valor={p.celular} />
           <Info rotulo="E-mail" valor={p.email} />
@@ -482,9 +461,13 @@ function VisaoGeral({
             ) : (
               <p className="text-suave">Nenhum retorno pendente.</p>
             )}
-            {pode(eu.perfis, 'agenda.editar') && (
-              <button className="link mt-auto self-start" onClick={() => setNovoRetorno(true)}>
-                + Novo alerta de retorno
+            {pode(eu.perfis, 'agenda.editar') && p.ativo && (
+              <button
+                className="botao-leve botao-pequeno mt-auto self-start"
+                onClick={() => setNovoRetorno(true)}
+              >
+                <Icone nome="mais" className="h-3.5 w-3.5" />
+                Alerta de retorno
               </button>
             )}
           </section>

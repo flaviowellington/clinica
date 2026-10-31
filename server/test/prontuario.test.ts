@@ -150,6 +150,31 @@ describe('odontograma e ficha clínica (R-061, R-069, R-078)', () => {
     expect((await api('POST', url, { ...ok, observacao: 'x'.repeat(1501) })).status).toBe(400)
   })
 
+  it('vários dentes, cada um com suas faces, num lançamento só; dente inválido não grava nenhum', async () => {
+    const api = await entrarComo('PROFISSIONAL')
+    const { dentista, paciente, resina } = await base(api)
+    const url = `/api/pacientes/${paciente.id}/procedimentos`
+    const corpo = { procedimentoId: resina.id, profissionalId: dentista.id, status: 'A_REALIZAR' }
+    const ruim = await api('POST', url, { ...corpo, dentes: [{ dente: '16' }, { dente: '99' }] })
+    expect(ruim.status).toBe(400)
+    expect(await db.procedimentoClinico.count()).toBe(0)
+
+    const r = await api('POST', url, {
+      ...corpo,
+      dentes: [
+        { dente: '16', faces: 'om' },
+        { dente: '26', faces: 'v' },
+      ],
+    })
+    expect(r.status).toBe(201)
+    const lista = (await api('GET', url)).corpo
+    expect(lista.map((i: { dente: string; faces: string }) => i.dente + i.faces).sort()).toEqual([
+      '16MO',
+      '26V',
+    ])
+    expect(lista).toMatchObject([{ status: 'A_REALIZAR' }, { status: 'A_REALIZAR' }])
+  })
+
   it('PT-69: editar guarda o valor antigo; excluir tira da lista sem apagar do banco', async () => {
     const api = await entrarComo('PROFISSIONAL')
     const { dentista, paciente, resina } = await base(api)
@@ -189,6 +214,30 @@ describe('odontograma e ficha clínica (R-061, R-069, R-078)', () => {
     ])
     await api('POST', `/api/orcamentos/itens/${o.corpo.itens[0].id}/executar`)
     expect((await api('GET', url)).corpo).toMatchObject([{ status: 'EXECUTADO' }])
+  })
+
+  it('orçamento em aberto já aparece no odontograma como "A realizar", com faces e valor; excluído some', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { dentista, paciente, resina } = await base(api)
+    const o = await api('POST', '/api/orcamentos', {
+      pacienteId: paciente.id,
+      profissionalId: dentista.id,
+      itens: [{ procedimentoId: resina.id, dente: '16', faces: 'om', valorCentavos: 25000 }],
+    })
+    const url = `/api/pacientes/${paciente.id}/procedimentos`
+    expect((await api('GET', url)).corpo).toMatchObject([
+      {
+        origem: 'ORCAMENTO',
+        status: 'A_REALIZAR',
+        dente: '16',
+        faces: 'MO',
+        valorCentavos: 25000,
+        orcamentoId: o.corpo.id,
+        orcamentoStatus: 'ABERTO',
+      },
+    ])
+    await api('DELETE', `/api/orcamentos/${o.corpo.id}`)
+    expect((await api('GET', url)).corpo).toEqual([])
   })
 
   it('Recepção não vê o odontograma', async () => {
@@ -365,14 +414,12 @@ describe('abas de consulta: resumo, notas, financeiro, agendamentos, indicaçõe
       const o = await api('POST', '/api/orcamentos', {
         pacienteId: p.id,
         profissionalId: dentista.id,
-        forma: 'Pix',
-        parcelas: 2,
         itens: [{ procedimentoId: resina.id }],
       })
       await api('POST', `/api/orcamentos/${o.corpo.id}/aprovar`)
     }
     const r = await api('GET', `/api/pacientes/${paciente.id}/financeiro`)
-    expect(r.corpo.contas).toHaveLength(2)
+    expect(r.corpo.contas).toHaveLength(1)
     expect(r.corpo.lancamentos).toMatchObject([{ tipo: 'VENDA', valorCentavos: 30000 }])
     expect(r.corpo.saldoCentavos).toBe(-30000)
   })
@@ -404,5 +451,24 @@ describe('abas de consulta: resumo, notas, financeiro, agendamentos, indicaçõe
     })
     const r = await api('GET', `/api/pacientes/${paciente.id}/indicacoes`)
     expect(r.corpo.indicados).toMatchObject([{ nome: 'Amiga Indicada' }])
+  })
+})
+
+describe('odontograma: dente sem coroa e dente removido', () => {
+  it('grava, devolve e valida os dentes; sem permissão de editar não muda', async () => {
+    const api = await entrarComo('PROFISSIONAL')
+    const { paciente } = await base(api)
+    const url = `/api/pacientes/${paciente.id}/odontograma`
+    expect((await api('GET', url)).corpo).toEqual({ semCoroa: [], removidos: [] })
+
+    const r = await api('PUT', url, { semCoroa: ['27', '27'], removidos: ['28'] })
+    expect(r.status).toBe(200)
+    expect((await api('GET', url)).corpo).toEqual({ semCoroa: ['27'], removidos: ['28'] })
+
+    expect((await api('PUT', url, { semCoroa: ['99'], removidos: [] })).status).toBe(400)
+
+    const recepcao = await entrarComo('RECEPCAO')
+    expect((await recepcao('PUT', url, { semCoroa: [], removidos: [] })).status).toBe(403)
+    expect((await api('GET', url)).corpo).toEqual({ semCoroa: ['27'], removidos: ['28'] })
   })
 })

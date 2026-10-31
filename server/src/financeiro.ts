@@ -388,7 +388,7 @@ export const GERADORES_FINANCEIRO: Record<string, Gerador> = {
   },
   'pacientes-orcamentos': async (data) => {
     const l = await db.orcamento.findMany({
-      where: { criadoEm: instantes(data) },
+      where: { criadoEm: instantes(data), excluidoEm: null },
       include: { paciente: true, profissional: true, itens: true },
       orderBy: { id: 'asc' },
     })

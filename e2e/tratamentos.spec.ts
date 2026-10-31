@@ -17,29 +17,36 @@ test('orçamento, contas, fluxo, conciliação, recibo e alerta de retorno', asy
   await buscaPac.fill('joão fictício silva')
   await buscaPac.press('Enter')
   await page.getByRole('link', { name: 'João Fictício Silva', exact: true }).click()
-  await page.getByRole('tab', { name: 'Orçamentos' }).click()
+  await page.getByRole('button', { name: 'Orçamentos', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Orçamentos e tratamentos' })).toBeVisible()
   await page.getByRole('button', { name: 'Novo orçamento' }).click()
   await expect(page.getByRole('button', { name: 'Aprovar' })).toHaveCount(0)
   await page.getByLabel('Buscar procedimento').fill('CANAL')
   await page.getByRole('button', { name: /unirradicular/ }).click()
-  await page.getByLabel('Dente ou região').fill('11')
-  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
+  await page.getByLabel(/^Dente ou região/).fill('11')
   await page
     .getByRole('dialog')
     .getByLabel('Profissional')
     .selectOption({ label: 'Dr. Fictício Barros' })
-  await page.getByLabel('Forma de pagamento').selectOption('Pix')
-  await page.getByLabel('Parcelas').selectOption('2')
+  // Sem forma/parcelas na criação; desconto em % mostra o valor em reais.
+  await expect(page.getByLabel('Forma de pagamento')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Porcentagem (%)' }).click()
+  await page.getByLabel('Desconto (%)').fill('10')
+  await expect(page.getByText(/= R\$\s[\d.,]+ de desconto/)).toBeVisible()
   await page.screenshot({ path: 'test-results/orcamento-editor.png', fullPage: true })
   await page.getByRole('button', { name: 'Aprovar' }).click()
+  await page
+    .getByRole('dialog')
+    .filter({ hasText: 'Aprovar este orçamento?' })
+    .getByRole('button', { name: 'Aprovar' })
+    .click()
   await expect(page.getByText('Orçamento aprovado')).toBeVisible()
   await expect(
     page.getByRole('cell', { name: 'Tratamento de canal (unirradicular) (11)' }),
   ).toBeVisible()
   await page.screenshot({ path: 'test-results/ficha-orcamentos.png', fullPage: true })
 
-  // Contas a receber: a parcela do orçamento aparece e pode ser recebida.
+  // Contas a receber: o orçamento vira uma conta à vista e pode ser recebida.
   await menu.getByRole('link', { name: 'Financeiro' }).click()
   await page.getByRole('tab', { name: 'Contas a Receber' }).click()
   await page
@@ -53,7 +60,10 @@ test('orçamento, contas, fluxo, conciliação, recibo e alerta de retorno', asy
         .join('/'),
     )
   await page.getByRole('button', { name: 'Listar' }).click()
-  const linha = page.getByRole('row', { name: /parcela 1\/2/ }).first()
+  const linha = page
+    .getByRole('row', { name: /Orçamento nº \d+/ })
+    .filter({ has: page.getByRole('button', { name: 'Receber' }) })
+    .first()
   await expect(linha).toBeVisible()
   await linha.getByRole('button', { name: 'Receber' }).click()
   await page.getByRole('button', { name: 'Confirmar' }).click()
@@ -100,7 +110,7 @@ test('orçamento, contas, fluxo, conciliação, recibo e alerta de retorno', asy
   await page.screenshot({ path: 'test-results/dre.png', fullPage: true })
 
   // Alerta de retorno pela agenda.
-  await menu.getByRole('link', { name: 'Agenda' }).click()
+  await menu.getByRole('link', { name: 'Agenda', exact: true }).click()
   await page.getByRole('button', { name: 'Novo ▾' }).click()
   await page.getByRole('button', { name: 'Alerta de retorno' }).click()
   const busca = page.getByPlaceholder('Nome ou sobrenome e ENTER')

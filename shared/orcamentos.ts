@@ -3,7 +3,6 @@
 export const STATUS_ORCAMENTO = {
   ABERTO: 'Em aberto',
   APROVADO: 'Aprovado',
-  REPROVADO: 'Reprovado',
   CANCELADO: 'Cancelado',
 } as const
 export type StatusOrcamento = keyof typeof STATUS_ORCAMENTO
@@ -42,3 +41,11 @@ export const umMesDepois = (iso: string) => vencimentos(iso, 2)[1]
 
 export const totalOrcamento = (itens: { valorCentavos: number }[], descontoCentavos = 0) =>
   Math.max(0, itens.reduce((s, i) => s + i.valorCentavos, 0) - descontoCentavos)
+
+/** Desconto em %: 10% de R$ 333,33 → R$ 33,33 (arredonda para o centavo). */
+export const descontoDoPercentual = (subtotalCentavos: number, percentual: number) =>
+  Math.round((subtotalCentavos * percentual) / 100)
+
+/** O mesmo desconto em %, com até 2 casas: R$ 30,00 de R$ 300,00 → 10. */
+export const percentualDoDesconto = (subtotalCentavos: number, descontoCentavos: number) =>
+  subtotalCentavos ? Math.round((descontoCentavos / subtotalCentavos) * 10000) / 100 : 0

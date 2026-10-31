@@ -532,14 +532,13 @@ if (!(await db.orcamento.count())) {
     })
   }
 
-  // Reprovado.
+  // Outro em aberto.
   await db.orcamento.create({
     data: {
       pacienteId: pacs[2].id,
       profissionalId: dentistas[2],
       criadoPorId: adminId,
-      status: 'REPROVADO',
-      motivoReprovacao: 'Paciente vai pensar',
+      observacoes: 'Paciente vai pensar',
       itens: { create: [item(procs[11], '46')] },
     },
   })
@@ -970,7 +969,7 @@ if (!(await db.trabalhoProtetico.count())) {
       enviadoEm: dias(-12),
     },
     {
-      etapa: 'RETORNO',
+      etapa: 'AGENDAMENTO',
       trabalho: 'Placa de bruxismo',
       dentes: null,
       cor: null,

@@ -56,10 +56,15 @@ describe('PT-24 (F-024) profissionais', () => {
   })
   it('inativos vêm por último na lista', async () => {
     const api = await entrarComo('ADMINISTRADOR')
-    const { corpo: a } = await api('POST', '/api/profissionais', { ...DENTISTA, nome: 'Dr. Alberto' })
+    const { corpo: a } = await api('POST', '/api/profissionais', {
+      ...DENTISTA,
+      nome: 'Dr. Alberto',
+    })
     await api('POST', '/api/profissionais', { ...DENTISTA, nome: 'Dr. Bruno' })
     await api('POST', `/api/profissionais/${a.id}/ativo`, { ativo: false })
-    const nomes = (await api('GET', '/api/profissionais')).corpo.map((p: { nome: string }) => p.nome)
+    const nomes = (await api('GET', '/api/profissionais')).corpo.map(
+      (p: { nome: string }) => p.nome,
+    )
     expect(nomes).toEqual(['Dr. Bruno', 'Dr. Alberto'])
   })
   it('exclui só quem já está inativo; o registro fica guardado', async () => {
@@ -70,7 +75,9 @@ describe('PT-24 (F-024) profissionais', () => {
     expect(ativo.corpo.erro).toMatch(/Inative/)
 
     await api('POST', `/api/profissionais/${p.id}/ativo`, { ativo: false })
-    expect((await (await entrarComo('RECEPCAO'))('DELETE', `/api/profissionais/${p.id}`)).status).toBe(403)
+    expect(
+      (await (await entrarComo('RECEPCAO'))('DELETE', `/api/profissionais/${p.id}`)).status,
+    ).toBe(403)
     expect((await api('DELETE', `/api/profissionais/${p.id}`)).status).toBe(200)
     expect((await api('GET', '/api/profissionais')).corpo).toEqual([])
     expect((await api('DELETE', `/api/profissionais/${p.id}`)).status).toBe(404)

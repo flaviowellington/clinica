@@ -5,13 +5,13 @@ import { db } from './db'
 import { conferirSenha, exigir, usuarioDe } from './auth'
 import { hojeNaClinica, normalizar } from '../../shared/regras'
 import { CATEGORIA_PADRAO_ENTRADA } from '../../shared/financeiro'
-import { dividirParcelas, totalOrcamento, umMesDepois, vencimentos } from '../../shared/orcamentos'
+import { totalOrcamento } from '../../shared/orcamentos'
+import { normalizarFaces } from '../../shared/prontuario'
 import type { Prisma } from './generated/prisma/client'
 import {
   CancelarOrcamentoDto,
   DesaprovarOrcamentoDto,
   OrcamentoDto,
-  ReprovarOrcamentoDto,
   RetornoDto,
 } from '../../shared/dtos'
 import { lerCorpo } from './dto'
@@ -132,7 +132,7 @@ const paraTela = (o: OrcamentoCompleto) => ({
 })
 
 const acharOrcamento = (req: Request) =>
-  db.orcamento.findUnique({ where: { id: id(req) }, include: incluir })
+  db.orcamento.findFirst({ where: { id: id(req), excluidoEm: null }, include: incluir })
 
 /** Orçamento lido pelo DTO; os itens ganham nome e valor da tabela (R-012: o valor pode ser editado). */
 async function lerOrcamento(b: z.output<typeof OrcamentoDto>) {
@@ -147,6 +147,7 @@ async function lerOrcamento(b: z.output<typeof OrcamentoDto>) {
       procedimentoId: i.procedimentoId,
       nome: p?.nome ?? '',
       dente: i.dente,
+      faces: i.dente ? normalizarFaces(i.faces) || null : null,
       valorCentavos: i.valorCentavos ?? p?.valorCentavos ?? 0,
     }
   })
@@ -158,9 +159,6 @@ async function lerOrcamento(b: z.output<typeof OrcamentoDto>) {
     dados: {
       observacoes: b.observacoes,
       descontoCentavos: b.descontoCentavos,
-      forma: b.forma,
-      parcelas: b.parcelas,
-      primeiroVencimento: b.primeiroVencimento ? dia(b.primeiroVencimento) : null,
     },
   }
 }
@@ -168,7 +166,7 @@ async function lerOrcamento(b: z.output<typeof OrcamentoDto>) {
 rotasOrcamentos.get('/', exigir('orcamento.ver'), async (req, res) => {
   const pacienteId = Number(req.query.pacienteId) || 0
   const lista = await db.orcamento.findMany({
-    where: { pacienteId },
+    where: { pacienteId, excluidoEm: null },
     include: incluir,
     orderBy: { id: 'desc' },
   })
@@ -204,6 +202,9 @@ rotasOrcamentos.put('/:id', exigir('orcamento.editar'), async (req, res) => {
   if (!o) return res.status(404).json({ erro: 'Orçamento não encontrado.' })
   if (o.status !== 'ABERTO')
     return res.status(409).json({ erro: 'Só dá para editar orçamento em aberto.' })
+  // Editar recria os itens: apagaria o que já foi executado.
+  if (o.itens.some((i) => i.executadoEm))
+    return res.status(409).json({ erro: 'Já há procedimento executado: desfaça a execução antes.' })
   const b = lerCorpo(OrcamentoDto, req.body, res)
   if (!b) return
   const { erros, itens, dados } = await lerOrcamento(b)
@@ -217,23 +218,14 @@ rotasOrcamentos.put('/:id', exigir('orcamento.editar'), async (req, res) => {
   res.json(paraTela(novo))
 })
 
-/** R-018 e R-019: aprovar lança a venda e cria as parcelas a receber. */
+/** R-018 e R-019: aprovar lança a venda e uma conta à vista; a forma se escolhe ao receber. */
 rotasOrcamentos.post('/:id/aprovar', exigir('orcamento.aprovar'), async (req, res) => {
   const o = await acharOrcamento(req)
   if (!o) return res.status(404).json({ erro: 'Orçamento não encontrado.' })
   if (o.status !== 'ABERTO')
     return res.status(409).json({ erro: 'Este orçamento não está em aberto.' })
-  if (!o.forma)
-    return res.status(400).json({ erro: 'Defina a forma de pagamento antes de aprovar.' })
   const total = totalOrcamento(o.itens, o.descontoCentavos)
   const u = usuarioDe(res)
-  const primeiro = o.primeiroVencimento
-    ? isoDe(o.primeiroVencimento)
-    : o.parcelas > 1
-      ? umMesDepois(hojeIso())
-      : hojeIso()
-  const datas = vencimentos(primeiro, o.parcelas)
-  const valores = dividirParcelas(total, o.parcelas)
   await db.$transaction([
     db.orcamento.update({
       where: { id: o.id },
@@ -251,38 +243,39 @@ rotasOrcamentos.post('/:id/aprovar', exigir('orcamento.aprovar'), async (req, re
         criadoPorId: u.id,
       },
     }),
-    db.contaFinanceira.createMany({
-      data: valores.map((v, i) => ({
-        tipo: 'RECEBER' as const,
-        descricao: `Orçamento nº ${o.id} – parcela ${i + 1}/${o.parcelas}`,
-        valorCentavos: v,
-        vencimento: dia(datas[i]),
-        forma: o.forma,
+    db.contaFinanceira.create({
+      data: {
+        tipo: 'RECEBER',
+        descricao: `Orçamento nº ${o.id}`,
+        valorCentavos: total,
+        vencimento: dia(hojeIso()),
         categoria: CATEGORIA_PADRAO_ENTRADA,
         pacienteId: o.pacienteId,
         orcamentoId: o.id,
-        parcela: i + 1,
-        totalParcelas: o.parcelas,
+        parcela: 1,
+        totalParcelas: 1,
         criadoPorId: u.id,
-      })),
+      },
     }),
   ])
   res.json(paraTela((await acharOrcamento(req))!))
 })
 
-rotasOrcamentos.post('/:id/reprovar', exigir('orcamento.editar'), async (req, res) => {
+/** Exclusão lógica: só orçamento em aberto, que não gerou venda nem parcelas. */
+rotasOrcamentos.delete('/:id', exigir('orcamento.editar'), async (req, res) => {
   const o = await acharOrcamento(req)
   if (!o) return res.status(404).json({ erro: 'Orçamento não encontrado.' })
   if (o.status !== 'ABERTO')
-    return res.status(409).json({ erro: 'Só dá para reprovar orçamento em aberto.' })
-  const b = lerCorpo(ReprovarOrcamentoDto, req.body, res)
-  if (!b) return
-  const novo = await db.orcamento.update({
+    return res
+      .status(409)
+      .json({ erro: 'Orçamento aprovado não pode ser excluído: desaprove ou cancele.' })
+  if (o.itens.some((i) => i.executadoEm))
+    return res.status(409).json({ erro: 'Já há procedimento executado: desfaça a execução antes.' })
+  await db.orcamento.update({
     where: { id: o.id },
-    data: { status: 'REPROVADO', motivoReprovacao: b.motivo },
-    include: incluir,
+    data: { excluidoEm: new Date(), excluidoPorId: usuarioDe(res).id },
   })
-  res.json(paraTela(novo))
+  res.json({ ok: true })
 })
 
 /** R-037: desaprovar pede a senha de quem está logado e desfaz venda e parcelas. */
@@ -354,16 +347,51 @@ rotasOrcamentos.post('/:id/cancelar', exigir('orcamento.cancelar'), async (req, 
 })
 
 /** Marca (ou desmarca) um procedimento de orçamento aprovado como executado. */
+/**
+ * Tira um procedimento de orçamento em aberto (pelo odontograma). A cópia fica no histórico de
+ * alterações; sem itens, o orçamento é excluído (ele precisa de pelo menos um, R-010).
+ */
+rotasOrcamentos.delete('/itens/:id', exigir('orcamento.editar'), async (req, res) => {
+  const item = await db.itemOrcamento.findUnique({
+    where: { id: id(req) },
+    include: { orcamento: { include: { _count: { select: { itens: true } } } } },
+  })
+  if (!item || item.orcamento.excluidoEm)
+    return res.status(404).json({ erro: 'Procedimento não encontrado.' })
+  if (item.orcamento.status !== 'ABERTO')
+    return res.status(409).json({
+      erro: 'Orçamento aprovado não muda: desaprove ou cancele em Orçamentos.',
+    })
+  const u = usuarioDe(res)
+  const { orcamento, ...antes } = item
+  await db.$transaction([
+    db.alteracao.create({
+      data: { tabela: 'ItemOrcamento', registroId: item.id, antes, usuarioId: u.id },
+    }),
+    db.itemOrcamento.delete({ where: { id: item.id } }),
+    ...(orcamento._count.itens === 1
+      ? [
+          db.orcamento.update({
+            where: { id: orcamento.id },
+            data: { excluidoEm: new Date(), excluidoPorId: u.id },
+          }),
+        ]
+      : []),
+  ])
+  res.json({ ok: true })
+})
+
 rotasOrcamentos.post('/itens/:id/executar', exigir('procedimento.executar'), async (req, res) => {
   const item = await db.itemOrcamento.findUnique({
     where: { id: id(req) },
     include: { orcamento: true },
   })
   if (!item) return res.status(404).json({ erro: 'Procedimento não encontrado.' })
-  if (item.orcamento.status !== 'APROVADO')
+  // Em aberto também executa: a clínica pode atender antes de aprovar ou receber.
+  if (item.orcamento.excluidoEm || !['ABERTO', 'APROVADO'].includes(item.orcamento.status))
     return res
       .status(409)
-      .json({ erro: 'Só procedimento de orçamento aprovado pode ser executado.' })
+      .json({ erro: 'Procedimento de orçamento cancelado ou excluído não pode ser executado.' })
   const novo = await db.itemOrcamento.update({
     where: { id: item.id },
     data: item.executadoEm

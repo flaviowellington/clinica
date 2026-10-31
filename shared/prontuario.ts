@@ -5,11 +5,39 @@ export const DENTES_VALIDOS = new Set(
   [...DENTES_PERMANENTES.flat(), ...DENTES_DECIDUOS.flat()].map(String),
 )
 
-export const STATUS_CLINICO = { EXECUTADO: 'Executado', EXISTENTE: 'Existente' } as const
+export const STATUS_CLINICO = {
+  A_REALIZAR: 'A realizar',
+  EXECUTADO: 'Executado',
+  EXISTENTE: 'Existente',
+} as const
 export type StatusClinico = keyof typeof STATUS_CLINICO
 
 /** Faces do dente na ordem de exibição (R-061, R-069). */
-export const FACES = ['V', 'P', 'M', 'D', 'O', 'C'] as const
+export const FACES = ['V', 'P', 'L', 'M', 'D', 'O', 'I', 'C'] as const
+
+export const NOME_FACE: Record<(typeof FACES)[number], string> = {
+  V: 'Vestibular',
+  P: 'Palatina',
+  L: 'Lingual',
+  M: 'Mesial',
+  D: 'Distal',
+  O: 'Oclusal',
+  I: 'Incisal',
+  C: 'Cervical',
+}
+
+/**
+ * As 6 porções clicáveis do dente no odontograma, nesta ordem de posição na tela:
+ * borda esquerda, centro da oclusal, borda direita, cervical, vista de baixo, vista de cima.
+ * Lado direito do paciente (quadrantes 1, 4, 5, 8) aparece à esquerda: lá a mesial fica à direita.
+ */
+export function facesDoDente(dente: string) {
+  const q = Number(dente[0])
+  const centro = Number(dente[1]) <= 3 ? 'I' : 'O'
+  const [baixo, cima] = [1, 2, 5, 6].includes(q) ? ['P', 'V'] : ['V', 'L']
+  const [esq, dir] = [1, 4, 5, 8].includes(q) ? ['D', 'M'] : ['M', 'D']
+  return [esq, centro, dir, 'C', baixo, cima] as (typeof FACES)[number][]
+}
 
 /** Só letras de face válidas, sem repetir, na ordem de FACES: "om" → "MO". */
 export const normalizarFaces = (texto: string | null | undefined) =>
@@ -18,6 +46,40 @@ export const normalizarFaces = (texto: string | null | undefined) =>
 /** "16" + "MO" → "16MO" (R-069). */
 export const denteComFaces = (dente: string | null, faces: string | null) =>
   dente ? `${dente}${faces ?? ''}` : ''
+
+/**
+ * Junta os registros de um mesmo lançamento em vários dentes ou faces: mesmo procedimento,
+ * situação, data, profissional, observações e orçamento. Mantém a ordem da lista.
+ * ponytail: não há id de lote; dois lançamentos idênticos no mesmo dia viram um grupo só.
+ */
+export function agruparProcedimentos<
+  T extends {
+    origem: string
+    nome: string
+    status: string
+    data: string
+    profissional: { id: number }
+    observacao: string | null
+    observacaoPaciente: string | null
+    orcamentoId: number | null
+  },
+>(itens: T[]) {
+  const grupos = new Map<string, T[]>()
+  for (const i of itens) {
+    const k = JSON.stringify([
+      i.origem,
+      i.nome,
+      i.status,
+      i.data,
+      i.profissional.id,
+      i.observacao,
+      i.observacaoPaciente,
+      i.orcamentoId,
+    ])
+    grupos.set(k, [...(grupos.get(k) ?? []), i])
+  }
+  return [...grupos.values()]
+}
 
 export const LIMITE_OBSERVACAO = 1500
 

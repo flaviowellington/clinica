@@ -21,6 +21,7 @@ import {
 } from '../../../shared/prontuario'
 import type { ModeloAnamnese } from '../../../shared/configuracoes'
 import { Dialogo } from './Dialogo'
+import { Icone } from './Icones'
 import { EditorAnamnese } from '../paginas/Configuracoes'
 
 interface Anamnese {
@@ -54,35 +55,66 @@ export function Anamneses({ paciente }: { paciente: Paciente }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="font-semibold">Anamnese</h2>
-        {podeEditar && (
-          <button className="botao py-1.5" onClick={() => setAberta('nova')}>
-            Nova anamnese
-          </button>
-        )}
-      </div>
+      <header className="cartao flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl">Anamnese</h2>
+          <p className="subtitulo">Histórico de saúde do paciente. Respostas marcadas viram alerta.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {podeEditar && atual && (
+            <button className="botao-leve" onClick={() => setAberta(atual)}>
+              Editar
+            </button>
+          )}
+          {podeEditar && (
+            <button className="botao" onClick={() => setAberta('nova')}>
+              <Icone nome="mais" className="h-4 w-4" />
+              Nova anamnese
+            </button>
+          )}
+        </div>
+      </header>
 
+      {lista.isPending && <p className="cartao text-suave">Carregando…</p>}
       {lista.data?.length === 0 && (
-        <p className="cartao text-suave">Este paciente ainda não tem anamnese.</p>
+        <div className="cartao flex flex-col items-center gap-2 py-10 text-center">
+          <span className="grid size-12 place-items-center rounded-full bg-primaria-clara text-primaria">
+            <Icone nome="documento" className="h-6 w-6" />
+          </span>
+          <p className="font-bold text-titulo">Nenhuma anamnese ainda</p>
+          <p className="text-suave">Este paciente ainda não tem anamnese.</p>
+        </div>
       )}
-      {atual && (
-        <VerAnamnese anamnese={atual} aoEditar={podeEditar ? () => setAberta(atual) : undefined} />
-      )}
+      {atual && <VerAnamnese anamnese={atual} />}
 
       {!!historico.length && (
-        <section className="cartao space-y-2">
-          <h3 className="font-semibold">Histórico</h3>
-          {historico.map((a) => (
-            <details key={a.id} className="rounded-md border border-borda p-3">
-              <summary>
-                Anamnese de {dataBR(a.criadoEm)} · respondida por {RESPONDENTE[a.respondente]}
-              </summary>
-              <div className="mt-3">
-                <Respostas anamnese={a} />
-              </div>
-            </details>
-          ))}
+        <section className="cartao overflow-hidden p-0">
+          <h3 className="border-b border-borda px-4 py-3 text-base">
+            Histórico <span className="etiqueta ml-1">{historico.length}</span>
+          </h3>
+          <div className="divide-y divide-borda">
+            {historico.map((a) => {
+              const n = alertasDaAnamnese(a.perguntas).length
+              return (
+                <details key={a.id} className="group">
+                  <summary className="flex list-none items-center gap-3 px-4 py-3 hover:bg-primaria-clara [&::-webkit-details-marker]:hidden">
+                    <Icone
+                      nome="direita"
+                      className="h-4 w-4 shrink-0 text-suave group-open:rotate-90"
+                    />
+                    <span className="font-bold">{dataBR(a.criadoEm)}</span>
+                    <span className="min-w-0 flex-1 truncate text-suave">
+                      {a.criadoPor.nome} · respondida por {RESPONDENTE[a.respondente]}
+                    </span>
+                    {n > 0 && <span className="etiqueta etiqueta-perigo">{alertasTexto(n)}</span>}
+                  </summary>
+                  <div className="border-t border-borda bg-superficie-2/50 p-4">
+                    <Respostas anamnese={a} />
+                  </div>
+                </details>
+              )
+            })}
+          </div>
         </section>
       )}
 
@@ -105,29 +137,43 @@ export function Anamneses({ paciente }: { paciente: Paciente }) {
   )
 }
 
-function VerAnamnese({ anamnese: a, aoEditar }: { anamnese: Anamnese; aoEditar?: () => void }) {
+const alertasTexto = (n: number) => (n === 1 ? '1 alerta' : `${n} alertas`)
+const detalheDoAlerta = (p: Pergunta) => (p.tipo === 'SIM_NAO' ? p.descricao : p.resposta)
+
+function VerAnamnese({ anamnese: a }: { anamnese: Anamnese }) {
   const alertas = alertasDaAnamnese(a.perguntas)
+  const respondidas = a.perguntas.filter((p) => p.resposta).length
   return (
-    <section className="cartao space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="font-semibold">
-            Atual{' '}
-            <span className="font-normal text-suave">
-              · criada em {dataBR(a.criadoEm)} por {a.criadoPor.nome} · respondida por{' '}
-              {RESPONDENTE[a.respondente]}
-            </span>
-          </h3>
-          {alertas.length > 0 && (
-            <p className="text-perigo">{alertas.length} resposta(s) com alerta</p>
-          )}
-        </div>
-        {aoEditar && (
-          <button className="botao-leve py-1.5" onClick={aoEditar}>
-            Editar
-          </button>
+    <section className="cartao space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="mr-1 text-base">Anamnese atual</h3>
+        <span className="etiqueta etiqueta-primaria">{dataBR(a.criadoEm)}</span>
+        <span className="etiqueta">Por {a.criadoPor.nome}</span>
+        <span className="etiqueta">Respondida por {RESPONDENTE[a.respondente]}</span>
+        <span className="etiqueta">
+          {respondidas}/{a.perguntas.length} respondidas
+        </span>
+        {a.alteradoEm.slice(0, 10) !== a.criadoEm.slice(0, 10) && (
+          <span className="text-xs text-suave">Editada em {dataBR(a.alteradoEm)}</span>
         )}
       </div>
+
+      {alertas.length > 0 && (
+        <div className="alerta-perigo space-y-2">
+          <p className="font-bold text-perigo">{alertasTexto(alertas.length)} nesta anamnese</p>
+          <ul className="flex flex-wrap gap-2">
+            {alertas.map((p) => (
+              <li key={p.texto} className="etiqueta etiqueta-perigo">
+                <span>
+                  {p.texto}
+                  {detalheDoAlerta(p) && <span className="font-normal">: {detalheDoAlerta(p)}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <Respostas anamnese={a} />
     </section>
   )
@@ -136,22 +182,39 @@ function VerAnamnese({ anamnese: a, aoEditar }: { anamnese: Anamnese; aoEditar?:
 function Respostas({ anamnese: a }: { anamnese: Anamnese }) {
   const alertas = new Set(alertasDaAnamnese(a.perguntas).map((p) => p.texto))
   return (
-    <div className="space-y-2">
-      <dl className="grid gap-x-6 gap-y-2 md:grid-cols-2">
-        {a.perguntas.map((p) => (
-          <div key={p.texto} className={alertas.has(p.texto) ? 'text-perigo' : ''}>
-            <dt className={alertas.has(p.texto) ? '' : 'text-suave'}>{p.texto}</dt>
-            <dd className="font-medium">
-              {p.resposta || '—'}
-              {p.descricao && <span className="font-normal"> · {p.descricao}</span>}
-            </dd>
-          </div>
-        ))}
+    <div className="space-y-3">
+      <dl className="grid gap-2 md:grid-cols-2">
+        {a.perguntas.map((p) => {
+          const alerta = alertas.has(p.texto)
+          return (
+            <div
+              key={p.texto}
+              className={`rounded-xl border px-3 py-2.5 ${
+                alerta ? 'border-perigo/40 bg-perigo/10' : 'border-borda bg-superficie'
+              }`}
+            >
+              <dt className={`text-xs ${alerta ? 'font-bold text-perigo' : 'text-suave'}`}>
+                {p.texto}
+              </dt>
+              <dd className="mt-0.5 flex flex-wrap items-baseline gap-x-2">
+                {p.resposta ? (
+                  <span className={`font-bold ${alerta ? 'text-perigo' : 'text-texto'}`}>
+                    {p.resposta}
+                  </span>
+                ) : (
+                  <span className="text-suave italic">Sem resposta</span>
+                )}
+                {p.descricao && <span className="text-texto">{p.descricao}</span>}
+              </dd>
+            </div>
+          )
+        })}
       </dl>
       {a.observacoes && (
-        <p>
-          <span className="text-suave">Observações:</span> {a.observacoes}
-        </p>
+        <div className="rounded-xl bg-superficie-2 px-3 py-2.5">
+          <p className="text-xs text-suave">Observações</p>
+          <p className="mt-0.5 whitespace-pre-line">{a.observacoes}</p>
+        </div>
       )}
     </div>
   )

@@ -147,8 +147,11 @@ describe('configurações', () => {
     expect((await admin('GET', '/api/configuracoes/modelosAnamnese')).corpo).toEqual([])
     const pergunta = { texto: 'Usa aparelho?', tipo: 'SIM_NAO', resposta: 'Sim' }
     expect(
-      (await admin('PUT', '/api/configuracoes/modelosAnamnese', [{ nome: '', perguntas: [pergunta] }]))
-        .status,
+      (
+        await admin('PUT', '/api/configuracoes/modelosAnamnese', [
+          { nome: '', perguntas: [pergunta] },
+        ])
+      ).status,
     ).toBe(400)
     expect(
       (await admin('PUT', '/api/configuracoes/modelosAnamnese', [{ nome: 'Orto', perguntas: [] }]))
