@@ -1,6 +1,12 @@
 // Configurações da clínica: valores padrão e validação de cada assunto.
 // O servidor guarda só o que a clínica mudou; o resto vem daqui.
-import { MODELOS_DOCUMENTO, MODELO_ANAMNESE, lerPerguntas, type Pergunta } from './prontuario'
+import {
+  ESPECIALIDADES_FICHA,
+  MODELOS_DOCUMENTO,
+  MODELO_ANAMNESE,
+  lerPerguntas,
+  type Pergunta,
+} from './prontuario'
 import { normalizar } from './regras'
 import { CATEGORIAS } from './agenda'
 
@@ -55,6 +61,8 @@ export const PADROES = {
     'Periodontia',
     'Prótese',
   ],
+  /** Tipos de ficha de especialidade (R-068); a clínica pode criar outros. */
+  especialidadesFicha: [...ESPECIALIDADES_FICHA] as string[],
   mensagens: {
     confirmacao:
       'Olá, {paciente}! Sua consulta na {clinica} está marcada para {data} às {horario}, com ' +
@@ -136,7 +144,8 @@ export function validarConfig(
         .filter((m) => m.nome)
       return { valor }
     }
-    case 'especialidades': {
+    case 'especialidades':
+    case 'especialidadesFicha': {
       if (!Array.isArray(bruto) || bruto.length > 100) return { erro: 'Lista inválida.' }
       const vistos = new Set<string>()
       const valor = bruto

@@ -488,12 +488,13 @@
   /* Contorno de campos e checkboxes: 3:1 contra a superfície (WCAG 1.4.11). Cartões seguem com --borda. */
   --borda-campo: color-mix(in srgb, var(--suave) 70%, var(--superficie));
 }
-/* Uva: borda de campo lavanda (puxada da primária), 3.5:1 no claro e 3.6:1 no escuro. */
+/* Uva: borda em repouso roxo claro, para não parecer selecionada (roxo pleno + brilho só no foco).
+   Contraste ~2.8:1 no claro e ~3:1 no escuro. */
 [data-paleta='uva'] {
-  --borda-campo: color-mix(in srgb, var(--primaria) 60%, var(--superficie));
+  --borda-campo: color-mix(in srgb, var(--primaria) 40%, var(--superficie));
 }
 [data-paleta='uva'][data-tema='escuro'] {
-  --borda-campo: color-mix(in srgb, var(--primaria) 65%, var(--superficie));
+  --borda-campo: color-mix(in srgb, var(--primaria) 55%, var(--superficie));
 }
 
 @theme inline {
@@ -630,7 +631,7 @@ body {
 
   /* ---------- Campos ---------- */
   .campo {
-    @apply w-full rounded-xl border-2 border-borda-campo bg-superficie px-3 py-2 outline-none placeholder:text-suave/70 hover:border-primaria/40 focus:border-primaria focus:ring-4 focus:ring-primaria/15 disabled:border-transparent disabled:bg-desativado disabled:text-desativado-texto [&[readonly]]:bg-superficie-2 [&[readonly]]:focus:ring-0 aria-[invalid=true]:border-perigo aria-[invalid=true]:ring-perigo/15;
+    @apply w-full rounded-xl border-2 border-borda-campo bg-superficie px-3 py-2 outline-none placeholder:text-suave/70 hover:border-primaria/60 focus:border-primaria focus:ring-4 focus:ring-primaria/15 disabled:border-transparent disabled:bg-desativado disabled:text-desativado-texto [&[readonly]]:bg-superficie-2 [&[readonly]]:focus:ring-0 aria-[invalid=true]:border-perigo aria-[invalid=true]:ring-perigo/15;
   }
 
   /* ---------- Botões ---------- */
@@ -848,10 +849,10 @@ body {
       color: var(--texto);
       box-shadow: 0 10px 30px -8px color-mix(in srgb, black 30%, transparent);
       max-height: 18rem;
-    /* Sempre abre para baixo (o navegador viraria para cima quando há mais espaço lá). */
-    position-area: block-end span-inline-end;
-    position-try-order: normal;
-    position-try-fallbacks: none;
+      /* Sempre abre para baixo (o navegador viraria para cima quando há mais espaço lá). */
+      position-area: block-end span-inline-end;
+      position-try-order: normal;
+      position-try-fallbacks: none;
     }
     select option {
       padding: 0.45rem 0.75rem;

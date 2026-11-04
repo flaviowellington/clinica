@@ -36,8 +36,9 @@ function idDoToken(token: string) {
 }
 
 /** Endereço público do sistema, para o link do e-mail (URL_PUBLICA no server/.env). */
-const linkConfirmacao = (id: number) =>
-  `${(process.env.URL_PUBLICA ?? process.env.ORIGEM_WEB ?? 'http://localhost:5173').replace(/\/$/, '')}/confirmar/${tokenConfirmacao(id)}`
+export const enderecoPublico = () =>
+  (process.env.URL_PUBLICA ?? process.env.ORIGEM_WEB ?? 'http://localhost:5173').replace(/\/$/, '')
+const linkConfirmacao = (id: number) => `${enderecoPublico()}/confirmar/${tokenConfirmacao(id)}`
 
 const incluir = {
   paciente: { select: { id: true, nome: true, celular: true, email: true } },

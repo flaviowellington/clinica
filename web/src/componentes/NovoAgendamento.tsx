@@ -819,7 +819,7 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
 const LISTRA =
   'bg-[repeating-linear-gradient(135deg,color-mix(in_srgb,var(--perigo)_22%,transparent)_0_3px,transparent_3px_8px)]'
 
-function Passo(props: {
+export function Passo(props: {
   n: number
   id: string
   titulo: string
@@ -910,7 +910,7 @@ function Legenda(props: { classe: string; children: ReactNode }) {
   )
 }
 
-function Resumo(props: { rotulo: string; children?: ReactNode }) {
+export function Resumo(props: { rotulo: string; children?: ReactNode }) {
   return (
     <div className="flex min-w-0 items-baseline gap-1.5">
       <dt className="text-xs text-suave">{props.rotulo}</dt>

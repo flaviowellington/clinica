@@ -89,6 +89,10 @@ export interface Agendamento {
   paciente: { id: number; nome: string; celular: string | null } | null
   profissional: { id: number; nome: string }
   criadoPor: { nome: string }
+  desmarcadoEm: string | null
+  motivoDesmarcacao: string | null
+  /** Parcelas vencidas e em aberto do paciente (R-032); só vem na lista da agenda. */
+  emAtrasoCentavos?: number
 }
 
 export const consultaProfissionais = queryOptions({

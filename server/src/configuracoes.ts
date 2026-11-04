@@ -60,20 +60,28 @@ rotasConfiguracoes.get('/:chave', async (req, res) => {
   res.json(await lerConfig(req.params.chave))
 })
 
-rotasConfiguracoes.put('/:chave', exigir('configuracao.editar'), async (req, res) => {
-  const chave = String(req.params.chave)
-  if (!ehChave(chave)) return res.status(404).json({ erro: 'Configuração não existe.' })
-  const v = validarConfig(chave, req.body)
-  if (v.erro !== undefined) return res.status(400).json({ erro: v.erro })
-  const valor = v.valor as object
-  const alteradoPorId = usuarioDe(res).id
-  await db.configuracao.upsert({
-    where: { chave },
-    create: { chave, valor, alteradoPorId },
-    update: { valor, alteradoPorId },
-  })
-  res.json(await lerConfig(chave))
-})
+// Os tipos de ficha são criados por quem preenche a ficha (o dentista), não só pelo Adm.
+rotasConfiguracoes.put(
+  '/:chave',
+  (req, res, next) =>
+    exigir(
+      req.params.chave === 'especialidadesFicha' ? 'prontuario.editar' : 'configuracao.editar',
+    )(req, res, next),
+  async (req, res) => {
+    const chave = String(req.params.chave)
+    if (!ehChave(chave)) return res.status(404).json({ erro: 'Configuração não existe.' })
+    const v = validarConfig(chave, req.body)
+    if (v.erro !== undefined) return res.status(400).json({ erro: v.erro })
+    const valor = v.valor as object
+    const alteradoPorId = usuarioDe(res).id
+    await db.configuracao.upsert({
+      where: { chave },
+      create: { chave, valor, alteradoPorId },
+      update: { valor, alteradoPorId },
+    })
+    res.json(await lerConfig(chave))
+  },
+)
 
 // ── Tabela de procedimentos (E-009) ─────────────────────────────────────────
 // A busca (GET) fica em tratamentos.ts; aqui o cadastro.

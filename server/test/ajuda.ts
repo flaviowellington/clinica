@@ -32,6 +32,7 @@ export function usarServidor() {
     await db.nota.deleteMany()
     await db.contaFinanceira.deleteMany()
     await db.itemOrcamento.deleteMany()
+    await db.autorizacao.deleteMany()
     await db.alertaRetorno.deleteMany()
     await db.lancamento.deleteMany()
     await db.orcamento.deleteMany()

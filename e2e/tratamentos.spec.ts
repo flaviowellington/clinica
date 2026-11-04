@@ -22,11 +22,13 @@ test('orçamento, contas, fluxo, conciliação, recibo e alerta de retorno', asy
   await page.getByRole('button', { name: 'Novo orçamento' }).click()
   await expect(page.getByRole('button', { name: 'Aprovar' })).toHaveCount(0)
   await page.getByLabel('Buscar procedimento').fill('CANAL')
-  await page.getByRole('button', { name: /unirradicular/ }).click()
+  await page.getByRole('checkbox', { name: /unirradicular/ }).check()
+  await expect(page.getByText(/1 selecionado · Total:/)).toBeVisible()
+  await page.getByRole('button', { name: 'Adicionar ao orçamento' }).click()
   await page.getByLabel(/^Dente ou região/).fill('11')
   await page
     .getByRole('dialog')
-    .getByLabel('Profissional')
+    .getByRole('combobox', { name: 'Profissional' })
     .selectOption({ label: 'Dr. Fictício Barros' })
   // Sem forma/parcelas na criação; desconto em % mostra o valor em reais.
   await expect(page.getByLabel('Forma de pagamento')).toHaveCount(0)
@@ -111,16 +113,17 @@ test('orçamento, contas, fluxo, conciliação, recibo e alerta de retorno', asy
 
   // Alerta de retorno pela agenda.
   await menu.getByRole('link', { name: 'Agenda', exact: true }).click()
-  await page.getByRole('button', { name: 'Novo ▾' }).click()
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click()
   await page.getByRole('button', { name: 'Alerta de retorno' }).click()
-  const busca = page.getByPlaceholder('Nome ou sobrenome e ENTER')
+  const alerta = page.getByRole('dialog')
+  const busca = alerta.getByPlaceholder('Buscar por nome, telefone ou CPF')
   await busca.fill('conceição')
   await busca.press('Enter')
-  await page
-    .getByRole('dialog')
-    .getByRole('button', { name: /^Conceição Fictícia Silva/ })
+  await alerta
+    .getByRole('button', { name: /Conceição Fictícia Silva/ })
+    .first()
     .click()
-  await page
+  await alerta
     .getByLabel('Retornar em')
     .fill(
       new Date(Date.now() + 10 * 86_400_000)
@@ -130,11 +133,11 @@ test('orçamento, contas, fluxo, conciliação, recibo e alerta de retorno', asy
         .reverse()
         .join('/'),
     )
-  await page.getByLabel('Profissional').selectOption({ label: 'Dra. Fictícia Andrade' })
-  await page.getByRole('button', { name: 'Criar alerta' }).click()
+  await alerta.getByLabel('Profissional').selectOption({ label: 'Dra. Fictícia Andrade' })
+  await alerta.getByRole('button', { name: 'Criar alerta' }).click()
   await expect(page.getByText('Alerta de retorno criado')).toBeVisible()
   await expect(
-    page.getByRole('complementary').getByRole('link', { name: 'Conceição Fictícia Silva' }),
+    page.getByRole('complementary').getByRole('button', { name: /Conceição Fictícia Silva/ }),
   ).not.toHaveCount(0)
   await page.screenshot({ path: 'test-results/agenda-retornos.png', fullPage: true })
 })

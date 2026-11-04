@@ -29,27 +29,27 @@ enum MotivoInativacao {
 }
 
 model Pessoa {
-  id          Int        @id @default(autoincrement())
-  tipo        TipoPessoa
-  nome        String
+  id              Int        @id @default(autoincrement())
+  tipo            TipoPessoa
+  nome            String
   /// Nome sem acento e em minúsculas, para a busca.
-  nomeBusca   String
-  nascimento  DateTime?  @db.Date
+  nomeBusca       String
+  nascimento      DateTime?  @db.Date
   /// Odontograma: dentes sem coroa (X na coroa) e dentes removidos (somem do desenho).
-  dentesSemCoroa  String[] @default([])
-  dentesRemovidos String[] @default([])
-  apelido     String?
-  cpf         String?
-  rg          String?
-  sexo        String?
-  estadoCivil String?
-  observacoes String?
+  dentesSemCoroa  String[]   @default([])
+  dentesRemovidos String[]   @default([])
+  apelido         String?
+  cpf             String?
+  rg              String?
+  sexo            String?
+  estadoCivil     String?
+  observacoes     String?
 
-  email        String?
-  celular      String?
-  telefone     String?
-  comoConheceu String?
-  indicadoPor  String?
+  email             String?
+  celular           String?
+  telefone          String?
+  comoConheceu      String?
+  indicadoPor       String?
   /// Texto livre quando "Como conheceu" é "Outros".
   comoConheceuOutro String?
 
@@ -95,6 +95,7 @@ model Pessoa {
 
   procedimentosClinicos     ProcedimentoClinico[] @relation("pacienteProcedimento")
   procedimentosClinicosProf ProcedimentoClinico[] @relation("profissionalProcedimento")
+  autorizacoes              Autorizacao[]
   anamneses                 Anamnese[]
   fichasEspecialidade       FichaEspecialidade[]  @relation("pacienteFicha")
   fichasEspecialidadeProf   FichaEspecialidade[]  @relation("profissionalFicha")
@@ -128,6 +129,7 @@ model Usuario {
   contasFinanceiras ContaFinanceira[]
 
   procedimentosClinicos ProcedimentoClinico[]
+  autorizacoes          Autorizacao[]
   anamneses             Anamnese[]
   fichasEspecialidade   FichaEspecialidade[]
   arquivos              Arquivo[]
@@ -263,21 +265,21 @@ model Lancamento {
 
 /// Lembrete para chamar o paciente de volta numa data (E-008).
 model AlertaRetorno {
-  id             Int       @id @default(autoincrement())
+  id             Int             @id @default(autoincrement())
   pacienteId     Int
-  paciente       Pessoa    @relation("pacienteRetorno", fields: [pacienteId], references: [id])
+  paciente       Pessoa          @relation("pacienteRetorno", fields: [pacienteId], references: [id])
   profissionalId Int
-  profissional   Pessoa    @relation("profissionalRetorno", fields: [profissionalId], references: [id])
-  data           DateTime  @db.Date
+  profissional   Pessoa          @relation("profissionalRetorno", fields: [profissionalId], references: [id])
+  data           DateTime        @db.Date
   motivo         String?
   /// Onde está o aviso automático (n8n). CONFIRMADO e DESMARCADO encerram o alerta.
   situacao       SituacaoRetorno @default(AGUARDANDO_ENVIO)
   /// Preenchido quando o paciente confirma ou desmarca: sai da lista de abertos.
   concluidoEm    DateTime?
   excluidoEm     DateTime?
-  criadoEm       DateTime  @default(now())
+  criadoEm       DateTime        @default(now())
   criadoPorId    Int
-  criadoPor      Usuario   @relation(fields: [criadoPorId], references: [id])
+  criadoPor      Usuario         @relation(fields: [criadoPorId], references: [id])
   mensagens      Mensagem[]
 
   @@index([data])
@@ -342,20 +344,25 @@ model Orcamento {
 
 /// Procedimento do orçamento; depois de aprovado, "a realizar" até ser executado (E-004).
 model ItemOrcamento {
-  id             Int          @id @default(autoincrement())
-  orcamentoId    Int
-  orcamento      Orcamento    @relation(fields: [orcamentoId], references: [id], onDelete: Cascade)
-  procedimentoId Int
-  procedimento   Procedimento @relation(fields: [procedimentoId], references: [id])
+  id                 Int          @id @default(autoincrement())
+  orcamentoId        Int
+  orcamento          Orcamento    @relation(fields: [orcamentoId], references: [id], onDelete: Cascade)
+  procedimentoId     Int
+  procedimento       Procedimento @relation(fields: [procedimentoId], references: [id])
   /// Cópia do nome: o orçamento não muda se a tabela mudar.
-  nome           String
+  nome               String
   /// Dente na numeração FDI ou região (R-014).
-  dente          String?
+  dente              String?
   /// Faces do dente, ex.: "MO" (vem do odontograma).
-  faces          String?
-  valorCentavos  Int
-  executadoEm    DateTime?
-  executadoPorId Int?
+  faces              String?
+  valorCentavos      Int
+  executadoEm        DateTime?
+  executadoPorId     Int?
+  /// Interna, e a que aparece no documento que o paciente assina.
+  observacao         String?
+  observacaoPaciente String?
+  autorizacaoId      Int?
+  autorizacao        Autorizacao? @relation(fields: [autorizacaoId], references: [id])
 }
 
 enum TipoContaFinanceira {
@@ -448,12 +455,44 @@ model ProcedimentoClinico {
   /// Interna, e a que aparece no documento do paciente (R-078).
   observacao         String?
   observacaoPaciente String?
+  autorizacaoId      Int?
+  autorizacao        Autorizacao?  @relation(fields: [autorizacaoId], references: [id])
   excluidoEm         DateTime?
   excluidoPorId      Int?
   criadoEm           DateTime      @default(now())
   criadoPorId        Int
   criadoPor          Usuario       @relation(fields: [criadoPorId], references: [id])
   alteradoEm         DateTime      @updatedAt
+
+  @@index([pacienteId])
+}
+
+/// Pedido para o paciente ler e assinar (pelo celular) procedimentos do plano de tratamento.
+/// Independe do pagamento: o orçamento se aprova depois do atendimento.
+model Autorizacao {
+  id             Int                      @id @default(autoincrement())
+  pacienteId     Int
+  paciente       Pessoa                   @relation(fields: [pacienteId], references: [id])
+  /// Cópia do que o paciente leu: o documento não muda depois de criado.
+  conteudo       Json
+  /// Segredo do link público.
+  token          String                   @unique
+  assinadoEm     DateTime?
+  assinanteNome  String?
+  /// Assinatura desenhada no celular (imagem PNG em data URL).
+  assinatura     String?
+  ip             String?
+  navegador      String?
+  canceladoEm    DateTime?
+  criadoEm       DateTime                 @default(now())
+  criadoPorId    Int
+  criadoPor      Usuario                  @relation(fields: [criadoPorId], references: [id])
+  /// Pedido de um planejamento (ficha de especialidade): o documento traz o plano inteiro.
+  fichaId        Int?
+  ficha          FichaEspecialidade?      @relation(fields: [fichaId], references: [id])
+  itensOrcamento ItemOrcamento[]
+  clinicos       ProcedimentoClinico[]
+  itensFicha     ItemFichaEspecialidade[]
 
   @@index([pacienteId])
 }
@@ -490,28 +529,41 @@ model FichaEspecialidade {
   profissionalId Int
   profissional   Pessoa                   @relation("profissionalFicha", fields: [profissionalId], references: [id])
   especialidade  String
-  observacoes    String?
+  /// Observações que se acrescentam e editam: [{ id, texto, em, autor, editadoEm? }]
+  notas          Json                     @default("[]")
+  status         String                   @default("Em andamento")
+  inicio         DateTime?                @db.Date
+  fim            DateTime?                @db.Date
+  /// [{ id, nome, data: 'aaaa-mm-dd' | null, executado, tipo? }] (shared/prontuario.ts)
+  etapas         Json                     @default("[]")
   excluidoEm     DateTime?
   excluidoPorId  Int?
   criadoEm       DateTime                 @default(now())
   criadoPorId    Int
   criadoPor      Usuario                  @relation(fields: [criadoPorId], references: [id])
   itens          ItemFichaEspecialidade[]
+  autorizacoes   Autorizacao[]
 
   @@index([pacienteId])
 }
 
 model ItemFichaEspecialidade {
-  id           Int                @id @default(autoincrement())
-  fichaId      Int
-  ficha        FichaEspecialidade @relation(fields: [fichaId], references: [id])
-  dente        String
-  procedimento String
-  status       String
-  observacao   String?
-  excluidoEm   DateTime?
-  criadoEm     DateTime           @default(now())
-  alteradoEm   DateTime           @updatedAt
+  id            Int                @id @default(autoincrement())
+  fichaId       Int
+  ficha         FichaEspecialidade @relation(fields: [fichaId], references: [id])
+  dente         String
+  /// Faces marcadas (ex.: "MO"); vazio = dente inteiro.
+  faces         String             @default("")
+  procedimento  String
+  status        String
+  observacao    String?
+  data          DateTime?          @db.Date
+  /// Enviado para o paciente assinar: não sai nem muda de dente, só de situação.
+  autorizacaoId Int?
+  autorizacao   Autorizacao?       @relation(fields: [autorizacaoId], references: [id])
+  excluidoEm    DateTime?
+  criadoEm      DateTime           @default(now())
+  alteradoEm    DateTime           @updatedAt
 }
 
 enum CategoriaArquivo {
@@ -597,31 +649,31 @@ enum EtapaProtetica {
 
 /// Ordem de serviço protética: um cartão do quadro (R-082).
 model TrabalhoProtetico {
-  id             Int            @id @default(autoincrement())
-  pacienteId     Int
-  paciente       Pessoa         @relation("pacienteProtetico", fields: [pacienteId], references: [id])
-  profissionalId Int
-  profissional   Pessoa         @relation("profissionalProtetico", fields: [profissionalId], references: [id])
-  laboratorio    String
+  id                 Int            @id @default(autoincrement())
+  pacienteId         Int
+  paciente           Pessoa         @relation("pacienteProtetico", fields: [pacienteId], references: [id])
+  profissionalId     Int
+  profissional       Pessoa         @relation("profissionalProtetico", fields: [profissionalId], references: [id])
+  laboratorio        String
   /// Contato do laboratório (telefone, WhatsApp, e-mail); o mais recente vale para o laboratório.
   laboratorioContato String?
-  trabalho       String
-  dentes         String?
-  cor            String?
-  etapa          EtapaProtetica @default(PRE_ENVIO)
-  prazo          DateTime?      @db.Date
-  valorCentavos  Int            @default(0)
-  enviadoEm      DateTime?      @db.Date
-  retornoEm      DateTime?      @db.Date
-  instaladoEm    DateTime?      @db.Date
-  observacoes    String?
-  movidoEm       DateTime?
-  movidoPorId    Int?
-  excluidoEm     DateTime?
-  excluidoPorId  Int?
-  criadoEm       DateTime       @default(now())
-  criadoPorId    Int
-  criadoPor      Usuario        @relation(fields: [criadoPorId], references: [id])
+  trabalho           String
+  dentes             String?
+  cor                String?
+  etapa              EtapaProtetica @default(PRE_ENVIO)
+  prazo              DateTime?      @db.Date
+  valorCentavos      Int            @default(0)
+  enviadoEm          DateTime?      @db.Date
+  retornoEm          DateTime?      @db.Date
+  instaladoEm        DateTime?      @db.Date
+  observacoes        String?
+  movidoEm           DateTime?
+  movidoPorId        Int?
+  excluidoEm         DateTime?
+  excluidoPorId      Int?
+  criadoEm           DateTime       @default(now())
+  criadoPorId        Int
+  criadoPor          Usuario        @relation(fields: [criadoPorId], references: [id])
 
   @@index([etapa])
 }

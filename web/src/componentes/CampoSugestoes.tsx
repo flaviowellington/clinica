@@ -51,6 +51,11 @@ export function CampoSugestoes({ value, onChange, sugestoes, className = '', ...
           setAberta(true)
           resto.onFocus?.(e)
         }}
+        // Clicar no campo já focado (ex.: depois de escolher) reabre a lista.
+        onClick={(e) => {
+          setAberta(true)
+          resto.onClick?.(e)
+        }}
         onBlur={(e) => {
           setAberta(false)
           resto.onBlur?.(e)

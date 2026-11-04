@@ -137,6 +137,44 @@ describe('desmarcar consulta (C-005, R-034)', () => {
     const { corpo: b } = await marcar()
     await api('PATCH', `/api/agenda/${b.id}/status`, { status: 'EM_ESPERA' })
     expect((await api('POST', `/api/agenda/${b.id}/desmarcar`, {})).status).toBe(409)
+
+    // "Mostrar desmarcadas": volta com o motivo, para o cartão riscar.
+    const com = (await api('GET', `/api/agenda?de=${SEGUNDA}&ate=${SEGUNDA}&desmarcadas=1`)).corpo
+    expect(com.find((x: { id: number }) => x.id === a.id)).toMatchObject({
+      motivoDesmarcacao: 'Paciente viajou',
+    })
+  })
+})
+
+describe('PT-32 selo financeiro do cartão (R-032)', () => {
+  it('só parcela vencida e em aberto conta como atraso', async () => {
+    const api = await entrarComo('RECEPCAO')
+    const { dentista, paciente } = await base(api)
+    const { corpo: a } = await api('POST', '/api/agenda', {
+      data: SEGUNDA,
+      inicio: '10:00',
+      profissionalId: dentista.id,
+      pacienteId: paciente.id,
+    })
+    const conta = (vencimento: string, valorCentavos: number) =>
+      db.contaFinanceira.create({
+        data: {
+          tipo: 'RECEBER',
+          descricao: 'Parcela',
+          valorCentavos,
+          vencimento: new Date(`${vencimento}T00:00:00Z`),
+          pacienteId: paciente.id,
+          criadoPorId: a.criadoPorId,
+        },
+      })
+    const atraso = async () =>
+      (await api('GET', `/api/agenda?de=${SEGUNDA}&ate=${SEGUNDA}`)).corpo.find(
+        (x: { id: number }) => x.id === a.id,
+      ).emAtrasoCentavos
+    await conta('2099-01-01', 30000) // a vencer: Financeiro OK
+    expect(await atraso()).toBe(0)
+    await conta('2020-01-01', 12000)
+    expect(await atraso()).toBe(12000)
   })
 })
 

@@ -275,6 +275,185 @@ describe('PT-68 ficha de especialidade com status por dente', () => {
     ])
   })
 
+  it('nasce com as etapas da especialidade; datas, etapas e status são editáveis', async () => {
+    const api = await entrarComo('PROFISSIONAL')
+    const { dentista, paciente } = await base(api)
+    const f = (
+      await api('POST', `/api/pacientes/${paciente.id}/fichas`, {
+        especialidade: 'Alinhadores',
+        profissionalId: dentista.id,
+      })
+    ).corpo
+    expect(f.status).toBe('Em andamento')
+    // Blocos fixos: avaliação, planejamento e aprovação no começo, finalização no fim.
+    expect(f.etapas.map((e: { nome: string; tipo?: string }) => [e.nome, e.tipo])).toEqual([
+      ['Avaliação', 'AVALIACAO'],
+      ['Planejamento', 'PLANEJAMENTO'],
+      ['Aprovação do caso', 'APROVACAO'],
+      ['Início do Tratamento', undefined],
+      ['Acompanhamento do Paciente', undefined],
+      ['Finalização', 'FINALIZACAO'],
+    ])
+    // Avaliação e planejamento nascem feitos no dia do início; o resto, por fazer.
+    expect(f.etapas.map((e: { executado: boolean }) => e.executado)).toEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+    ])
+    expect(f.etapas[0].data).toBe(f.inicio.slice(0, 10))
+    expect(f.etapas[1].data).toBe(f.inicio.slice(0, 10))
+    expect(f.etapas[2].data).toBeNull()
+
+    const url = `/api/prontuario/fichas/${f.id}`
+    const [aval, plan, aprov, , , fin] = f.etapas
+    // Tirar um bloco fixo não vale: ele volta (no lugar dele). Renomear vale.
+    const etapas = [
+      { ...plan, nome: 'Estudo do caso', data: '2026-10-30', executado: true },
+      { nome: 'Sessão extra', data: null, executado: false },
+    ]
+    const e = await api('PATCH', url, { inicio: '2026-10-30', etapas })
+    expect(e.status).toBe(200)
+    expect(e.corpo.etapas.map((x: { nome: string }) => x.nome)).toEqual([
+      'Avaliação',
+      'Estudo do caso',
+      'Aprovação do caso',
+      'Sessão extra',
+      'Finalização',
+    ])
+    expect(e.corpo.etapas[0].id).toBe(aval.id)
+    expect(e.corpo.etapas[1]).toMatchObject({ data: '2026-10-30', executado: true })
+    expect(e.corpo.etapas[2].id).toBe(aprov.id)
+    expect(e.corpo.etapas[4].id).toBe(fin.id)
+    expect(e.corpo.inicio).toMatch(/^2026-10-30/)
+    // A ordem é livre, inclusive dos blocos fixos.
+    const invertida = [...e.corpo.etapas].reverse()
+    const ordem = await api('PATCH', url, { etapas: invertida })
+    expect(ordem.corpo.etapas.map((x: { id: string }) => x.id)).toEqual(
+      invertida.map((x: { id: string }) => x.id),
+    )
+    expect(
+      (await api('PATCH', url, { etapas: e.corpo.etapas })).corpo.etapas.map(
+        (x: { id: string }) => x.id,
+      ),
+    ).toEqual(e.corpo.etapas.map((x: { id: string }) => x.id))
+    // A aprovação só se marca quando o paciente assina.
+    const marcar = await api('PATCH', url, {
+      etapas: e.corpo.etapas.map((x: { tipo?: string }) =>
+        x.tipo === 'APROVACAO' ? { ...x, executado: true } : x,
+      ),
+    })
+    expect(marcar.corpo.etapas[2].executado).toBe(false)
+    expect((await api('PATCH', url, { etapas: [{ nome: '', executado: true }] })).status).toBe(400)
+    expect((await api('PATCH', url, { status: 'Qualquer' })).status).toBe(400)
+
+    // Finalizar sem data de fim põe a de hoje.
+    const fim = await api('PATCH', url, { status: 'Finalizada' })
+    expect(fim.corpo.fim).toBeTruthy()
+    // A data de fim vai também para a etapa de finalização.
+    const finalizacao = (c: { etapas: { tipo?: string; data: string | null }[] }) =>
+      c.etapas.find((x) => x.tipo === 'FINALIZACAO')?.data
+    expect(finalizacao(fim.corpo)).toBe(fim.corpo.fim.slice(0, 10))
+    expect(finalizacao((await api('PATCH', url, { fim: '2026-12-20' })).corpo)).toBe('2026-12-20')
+
+    // Procedimento com data.
+    const i = await api('POST', `${url}/itens`, {
+      dente: '11',
+      procedimento: 'Attachment',
+      data: '2026-11-01',
+    })
+    expect(i.corpo.data).toMatch(/^2026-11-01/)
+
+    // Vários procedimentos em vários dentes de uma vez: um item para cada par.
+    // Como no odontograma: cada dente com suas faces.
+    const lote = await api('POST', `${url}/itens/lote`, {
+      procedimentos: ['Raspagem', 'Polimento'],
+      dentes: [
+        { dente: '16', faces: 'om' },
+        { dente: '17', faces: '' },
+        { dente: '26', faces: 'XYZ' },
+      ],
+      data: '2026-11-02',
+      observacao: 'Sob anestesia',
+    })
+    expect(lote.status).toBe(201)
+    expect(lote.corpo.criados).toBe(6)
+    const semDente = await api('POST', `${url}/itens/lote`, { procedimentos: ['X'], dentes: [] })
+    expect(semDente.status).toBe(400)
+    const denteRuim = await api('POST', `${url}/itens/lote`, {
+      procedimentos: ['X'],
+      dentes: [{ dente: '99' }],
+    })
+    expect(denteRuim.status).toBe(400)
+    const itens = (await api('GET', `/api/pacientes/${paciente.id}/fichas`)).corpo[0].itens
+    expect(itens).toHaveLength(7)
+    expect(itens.find((x: { dente: string }) => x.dente === '16')).toMatchObject({
+      faces: 'MO',
+      observacao: 'Sob anestesia',
+    })
+    expect(itens.find((x: { dente: string }) => x.dente === '26').faces).toBe('')
+
+    // Excluir a ficha só a esconde.
+    expect((await api('DELETE', url)).status).toBe(200)
+    expect((await api('GET', `/api/pacientes/${paciente.id}/fichas`)).corpo).toEqual([])
+  })
+
+  it('especialidade nova entra na lista da clínica e nasce com etapas padrão', async () => {
+    // Quem edita prontuário (o dentista) cria o tipo de ficha; as outras listas seguem só do Adm.
+    const api = await entrarComo('PROFISSIONAL')
+    const lista = (await api('GET', '/api/configuracoes/especialidadesFicha')).corpo
+    expect(lista).toContain('Alinhadores')
+    const nova = await api('PUT', '/api/configuracoes/especialidadesFicha', [
+      ...lista,
+      'Harmonização Orofacial',
+    ])
+    expect(nova.corpo).toContain('Harmonização Orofacial')
+    expect((await api('PUT', '/api/configuracoes/especialidades', ['X'])).status).toBe(403)
+    const recepcao = await entrarComo('RECEPCAO')
+    expect((await recepcao('PUT', '/api/configuracoes/especialidadesFicha', ['X'])).status).toBe(
+      403,
+    )
+
+    const { dentista, paciente } = await base(api)
+    const f = await api('POST', `/api/pacientes/${paciente.id}/fichas`, {
+      especialidade: 'Harmonização Orofacial',
+      profissionalId: dentista.id,
+    })
+    expect(f.status).toBe(201)
+    expect(f.corpo.etapas.map((e: { nome: string }) => e.nome)).toEqual([
+      'Avaliação',
+      'Planejamento',
+      'Aprovação do caso',
+      'Tratamento',
+      'Finalização',
+    ])
+  })
+
+  it('observações: a do cadastro vira a primeira; dá para acrescentar e editar depois', async () => {
+    const api = await entrarComo('PROFISSIONAL')
+    const { dentista, paciente } = await base(api)
+    const f = (
+      await api('POST', `/api/pacientes/${paciente.id}/fichas`, {
+        especialidade: 'Implantes',
+        profissionalId: dentista.id,
+        observacoes: 'Paciente ansioso',
+      })
+    ).corpo
+    expect(f.notas).toMatchObject([{ texto: 'Paciente ansioso' }])
+    const url = `/api/prontuario/fichas/${f.id}/notas`
+    expect((await api('POST', url, { texto: '' })).status).toBe(400)
+    const nova = await api('POST', url, { texto: 'Pedir tomografia' })
+    expect(nova.status).toBe(201)
+    expect(nova.corpo.notas).toHaveLength(2)
+    const id = nova.corpo.notas[1].id
+    const editada = await api('PATCH', `${url}/${id}`, { texto: 'Pedir tomografia e panorâmica' })
+    expect(editada.corpo.notas[1]).toMatchObject({ texto: 'Pedir tomografia e panorâmica' })
+    expect(editada.corpo.notas[1].editadoEm).toBeTruthy()
+    expect((await api('PATCH', `${url}/nao-existe`, { texto: 'x' })).status).toBe(404)
+  })
+
   it('especialidade fora da lista é recusada', async () => {
     const api = await entrarComo('PROFISSIONAL')
     const { dentista, paciente } = await base(api)

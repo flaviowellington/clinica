@@ -1,5 +1,6 @@
 // Abas da ficha do paciente (screens/S-003, rules/prontuario.md).
 // Nada do prontuário é apagado de verdade, e cada alteração guarda o valor antigo (BR-003).
+import { randomBytes } from 'node:crypto'
 import express, { Router, type Request, type Response } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
@@ -7,6 +8,9 @@ import { pode, type Acao } from '../../shared/permissoes'
 import { hojeNaClinica, normalizar } from '../../shared/regras'
 import {
   DENTES_VALIDOS,
+  comEtapasFixas,
+  etapasDaFicha,
+  type EtapaFicha,
   MODELOS_DOCUMENTO,
   alertasDaAnamnese,
   faltandoObrigatorias,
@@ -14,19 +18,24 @@ import {
   normalizarFaces,
   type Pergunta,
 } from '../../shared/prontuario'
-import type { CategoriaArquivo } from './generated/prisma/client'
+import type { CategoriaArquivo, Prisma } from './generated/prisma/client'
+import type { ConteudoAutorizacao } from './autorizacoes'
 import {
   AnamneseDto,
   ArquivoDto,
   DocumentoDto,
+  EditarFichaDto,
   FichaEspecialidadeDto,
   ItemFichaDto,
+  LoteItensFichaDto,
   NotaDto,
+  NotaFichaDto,
   ProcedimentoClinicoDto,
   StatusItemFichaDto,
   TextoDocumentoDto,
 } from '../../shared/dtos'
 import { lerCorpo } from './dto'
+import { lerConfig } from './configuracoes'
 
 const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
@@ -44,7 +53,10 @@ const guardarAntes = (tabela: string, antes: { id: number }, usuarioId: number) 
 const ehProfissional = async (pid: number) =>
   !!(await db.pessoa.findFirst({ where: { id: pid, tipo: 'PROFISSIONAL', excluidoEm: null } }))
 
+const diaIso = (iso: string) => new Date(`${iso}T00:00:00Z`)
 const pessoaCurta = { select: { id: true, nome: true } } as const
+/** Pedido de assinatura do paciente (plano de tratamento). */
+const comAutorizacao = { select: { id: true, assinadoEm: true, assinanteNome: true } } as const
 
 // ── Rotas por paciente: /api/pacientes/:id/... ──────────────────────────────
 export const rotasFichaPaciente = Router()
@@ -180,7 +192,7 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
   const [clinicos, itens] = await Promise.all([
     db.procedimentoClinico.findMany({
       where: { pacienteId, excluidoEm: null },
-      include: { profissional: pessoaCurta },
+      include: { profissional: pessoaCurta, autorizacao: comAutorizacao },
     }),
     // Em aberto ou aprovado: tudo; cancelado: só o que chegou a ser feito; excluído: nada.
     db.itemOrcamento.findMany({
@@ -191,7 +203,10 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
           { executadoEm: { not: null } },
         ],
       },
-      include: { orcamento: { include: { profissional: pessoaCurta } } },
+      include: {
+        orcamento: { include: { profissional: pessoaCurta } },
+        autorizacao: comAutorizacao,
+      },
     }),
   ])
   const lista = [
@@ -207,6 +222,7 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       profissional: c.profissional,
       observacao: c.observacao,
       observacaoPaciente: c.observacaoPaciente,
+      autorizacao: c.autorizacao,
       orcamentoId: null as number | null,
       orcamentoStatus: null as string | null,
       valorCentavos: null as number | null,
@@ -221,8 +237,9 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       status: i.executadoEm ? ('EXECUTADO' as const) : ('A_REALIZAR' as const),
       data: isoDe(i.executadoEm ?? i.orcamento.aprovadoEm ?? i.orcamento.criadoEm),
       profissional: i.orcamento.profissional,
-      observacao: null,
-      observacaoPaciente: null,
+      observacao: i.observacao,
+      observacaoPaciente: i.observacaoPaciente,
+      autorizacao: i.autorizacao,
       orcamentoId: i.orcamentoId,
       orcamentoStatus: i.orcamento.status as string | null,
       valorCentavos: i.valorCentavos as number | null,
@@ -291,38 +308,103 @@ rotasFichaPaciente.put('/:id/odontograma', exigir('prontuario.editar'), async (r
   res.json({ semCoroa, removidos })
 })
 
-// ── Fichas de especialidade (R-068) ─────────────────────────────────────────
+// ── Fichas de especialidade (R-068): os planejamentos ───────────────────────
 const comItens = {
-  itens: { where: { excluidoEm: null }, orderBy: { id: 'asc' } },
+  itens: {
+    where: { excluidoEm: null },
+    orderBy: { id: 'asc' },
+    include: { autorizacao: comAutorizacao },
+  },
   profissional: pessoaCurta,
+  autorizacoes: {
+    where: { canceladoEm: null },
+    select: { assinadoEm: true, conteudo: true },
+    orderBy: { id: 'asc' },
+  },
 } as const
+type FichaDoBanco = Prisma.FichaEspecialidadeGetPayload<{ include: typeof comItens }>
+
+/** Etapas que o paciente assinou: id → nome e data do documento (o último assinado vale). */
+function etapasAssinadas(pedidos: { assinadoEm: Date | null; conteudo: unknown }[]) {
+  const m = new Map<string, { nome: string; data: string | null }>()
+  for (const a of pedidos)
+    if (a.assinadoEm)
+      for (const e of (a.conteudo as ConteudoAutorizacao).etapas ?? []) m.set(e.id, e)
+  return m
+}
+
+/**
+ * O planejamento como a tela usa: blocos fixos no lugar, a aprovação marcada pela assinatura
+ * e o que já foi assinado (travado). ALTERADO: assinado, mas com coisa nova para assinar.
+ */
+function montarFicha({ autorizacoes, etapas, ...f }: FichaDoBanco) {
+  const assinadas = etapasAssinadas(autorizacoes)
+  const ultima = autorizacoes.findLast((a) => a.assinadoEm)?.assinadoEm
+  const lista = comEtapasFixas(etapas as Partial<EtapaFicha>[]).map((e) => ({
+    ...e,
+    ...(e.tipo === 'APROVACAO' && {
+      executado: !!ultima,
+      data: ultima ? hojeNaClinica(ultima) : e.data,
+    }),
+    travada: assinadas.has(e.id),
+  }))
+  const novo = f.itens.some((i) => !i.autorizacao) || lista.some((e) => !e.travada)
+  const situacao = autorizacoes.some((a) => !a.assinadoEm)
+    ? 'AGUARDANDO'
+    : !ultima
+      ? 'NAO_ENVIADO'
+      : novo
+        ? 'ALTERADO'
+        : 'APROVADO'
+  return { ...f, etapas: lista, aprovacao: { situacao, assinadoEm: ultima ?? null } }
+}
+
+const novoId = () => randomBytes(4).toString('hex')
 
 rotasFichaPaciente.get('/:id/fichas', exigir('prontuario.ver'), async (_req, res) => {
-  res.json(
-    await db.fichaEspecialidade.findMany({
-      where: { pacienteId: pacienteDe(res), excluidoEm: null },
-      include: comItens,
-      orderBy: { id: 'desc' },
-    }),
-  )
+  const lista = await db.fichaEspecialidade.findMany({
+    where: { pacienteId: pacienteDe(res), excluidoEm: null },
+    include: comItens,
+    orderBy: { id: 'desc' },
+  })
+  res.json(lista.map(montarFicha))
 })
 
 rotasFichaPaciente.post('/:id/fichas', exigir('prontuario.editar'), async (req, res) => {
   const b = lerCorpo(FichaEspecialidadeDto, req.body, res)
   if (!b) return
+  const especialidade = (await lerConfig('especialidadesFicha')).find(
+    (e) => normalizar(e) === normalizar(b.especialidade),
+  )
+  if (!especialidade)
+    return res
+      .status(400)
+      .json({ erro: ERRO_CAMPOS, erros: { especialidade: 'Escolha a especialidade.' } })
   if (!(await ehProfissional(b.profissionalId)))
     return res
       .status(400)
       .json({ erro: ERRO_CAMPOS, erros: { profissionalId: 'Escolha o profissional.' } })
+  const u = usuarioDe(res)
+  const hoje = hojeNaClinica()
+  // Avaliação e planejamento já nascem feitos no dia do início (dá para mudar depois).
+  const etapas = etapasDaFicha(especialidade).map((e) =>
+    e.tipo === 'AVALIACAO' || e.tipo === 'PLANEJAMENTO' ? { ...e, data: hoje, executado: true } : e,
+  )
   const f = await db.fichaEspecialidade.create({
     data: {
-      ...b,
+      especialidade,
+      profissionalId: b.profissionalId,
       pacienteId: pacienteDe(res),
-      criadoPorId: usuarioDe(res).id,
+      criadoPorId: u.id,
+      inicio: diaIso(hoje),
+      etapas: etapas as object[],
+      notas: b.observacoes
+        ? [{ id: novoId(), texto: b.observacoes, em: new Date().toISOString(), autor: u.nome }]
+        : [],
     },
     include: comItens,
   })
-  res.status(201).json(f)
+  res.status(201).json(montarFicha(f))
 })
 
 // ── Fotos e exames (R-076, R-077) ───────────────────────────────────────────
@@ -566,24 +648,191 @@ rotasProntuario.delete('/procedimentos/:id', exigir('prontuario.editar'), async 
   res.json({ ok: true })
 })
 
+const acharFicha = (req: Request) =>
+  db.fichaEspecialidade.findFirst({ where: { id: id(req), excluidoEm: null } })
+
+rotasProntuario.patch('/fichas/:id', exigir('prontuario.editar'), async (req, res) => {
+  const f = await acharFicha(req)
+  if (!f) return res.status(404).json(NAO_ACHOU)
+  const b = lerCorpo(EditarFichaDto, req.body, res)
+  if (!b) return
+  if (b.profissionalId && !(await ehProfissional(b.profissionalId)))
+    return res
+      .status(400)
+      .json({ erro: ERRO_CAMPOS, erros: { profissionalId: 'Escolha o profissional.' } })
+  const { inicio, fim, etapas, ...resto } = b
+  let novas: EtapaFicha[] | undefined
+  const lerAssinadas = async () =>
+    etapasAssinadas(
+      await db.autorizacao.findMany({
+        where: { fichaId: f.id, canceladoEm: null, assinadoEm: { not: null } },
+        select: { assinadoEm: true, conteudo: true },
+      }),
+    )
+  if (etapas) {
+    // Ordem livre. Bloco fixo que não veio volta como estava; etapa nova ganha id.
+    const atuais = comEtapasFixas(f.etapas as Partial<EtapaFicha>[])
+    const enviadas: Partial<EtapaFicha>[] = etapas.map((e) => ({ ...e, id: e.id || novoId() }))
+    novas = comEtapasFixas(enviadas, atuais)
+    // Etapa que o paciente assinou não sai e guarda nome e data; só o executado muda.
+    for (const [eid, antes] of await lerAssinadas()) {
+      const e = novas.find((x) => x.id === eid)
+      if (!e)
+        return res
+          .status(409)
+          .json({ erro: 'Etapa aprovada pelo paciente não pode sair do planejamento.' })
+      Object.assign(e, { nome: antes.nome, data: antes.data })
+    }
+    // A aprovação se marca pela assinatura (montarFicha).
+    for (const e of novas) if (e.tipo === 'APROVACAO') e.executado = false
+  }
+  const dataOuNada = (v: string | null | undefined) =>
+    v === undefined ? undefined : v && diaIso(v)
+  // Finalizar sem data de fim põe a de hoje.
+  const fimFinal = fim === undefined && b.status === 'Finalizada' && !f.fim ? hojeNaClinica() : fim
+  // A data de fim vai também para a etapa de finalização (se o paciente não a assinou).
+  if (fimFinal) {
+    novas ??= comEtapasFixas(f.etapas as Partial<EtapaFicha>[])
+    const fin = novas.find((e) => e.tipo === 'FINALIZACAO')
+    if (fin && !(await lerAssinadas()).has(fin.id)) fin.data = fimFinal.slice(0, 10)
+  }
+  const [, nova] = await db.$transaction([
+    guardarAntes('FichaEspecialidade', f, usuarioDe(res).id),
+    db.fichaEspecialidade.update({
+      where: { id: f.id },
+      data: {
+        ...resto,
+        ...(novas && { etapas: novas as object[] }),
+        inicio: dataOuNada(inicio),
+        fim: dataOuNada(fimFinal),
+      },
+      include: comItens,
+    }),
+  ])
+  res.json(montarFicha(nova))
+})
+
+rotasProntuario.delete('/fichas/:id', exigir('prontuario.editar'), async (req, res) => {
+  const f = await acharFicha(req)
+  if (!f) return res.status(404).json(NAO_ACHOU)
+  const u = usuarioDe(res)
+  await db.$transaction([
+    guardarAntes('FichaEspecialidade', f, u.id),
+    db.fichaEspecialidade.update({
+      where: { id: f.id },
+      data: { excluidoEm: new Date(), excluidoPorId: u.id },
+    }),
+  ])
+  res.json({ ok: true })
+})
+
+/** Observações do planejamento: acrescentar e editar (quem e quando ficam gravados). */
+interface Nota {
+  id: string
+  texto: string
+  em: string
+  autor: string | null
+  editadoEm?: string
+}
+
+rotasProntuario.post('/fichas/:id/notas', exigir('prontuario.editar'), async (req, res) => {
+  const f = await acharFicha(req)
+  if (!f) return res.status(404).json(NAO_ACHOU)
+  const b = lerCorpo(NotaFichaDto, req.body, res, null)
+  if (!b) return
+  const nota: Nota = {
+    id: novoId(),
+    texto: b.texto,
+    em: new Date().toISOString(),
+    autor: usuarioDe(res).nome,
+  }
+  const nova = await db.fichaEspecialidade.update({
+    where: { id: f.id },
+    data: { notas: [...(f.notas as object[]), nota] },
+    include: comItens,
+  })
+  res.status(201).json(montarFicha(nova))
+})
+
+rotasProntuario.patch('/fichas/:id/notas/:nota', exigir('prontuario.editar'), async (req, res) => {
+  const f = await acharFicha(req)
+  if (!f) return res.status(404).json(NAO_ACHOU)
+  const notas = f.notas as unknown as Nota[]
+  if (!notas.some((n) => n.id === req.params.nota))
+    return res.status(404).json({ erro: 'Observação não encontrada.' })
+  const b = lerCorpo(NotaFichaDto, req.body, res, null)
+  if (!b) return
+  const editadoEm = new Date().toISOString()
+  const [, nova] = await db.$transaction([
+    guardarAntes('FichaEspecialidade', f, usuarioDe(res).id),
+    db.fichaEspecialidade.update({
+      where: { id: f.id },
+      data: {
+        notas: notas.map((n) =>
+          n.id === req.params.nota ? { ...n, texto: b.texto, editadoEm } : n,
+        ) as object[],
+      },
+      include: comItens,
+    }),
+  ])
+  res.json(montarFicha(nova))
+})
+
 rotasProntuario.post('/fichas/:id/itens', exigir('prontuario.editar'), async (req, res) => {
-  const f = await db.fichaEspecialidade.findFirst({ where: { id: id(req), excluidoEm: null } })
+  const f = await acharFicha(req)
   if (!f) return res.status(404).json(NAO_ACHOU)
   const b = lerCorpo(ItemFichaDto, req.body, res)
   if (!b) return
-  const i = await db.itemFichaEspecialidade.create({ data: { ...b, fichaId: f.id } })
+  const i = await db.itemFichaEspecialidade.create({
+    data: { ...b, data: b.data && diaIso(b.data), fichaId: f.id },
+  })
   res.status(201).json(i)
 })
+
+rotasProntuario.post('/fichas/:id/itens/lote', exigir('prontuario.editar'), async (req, res) => {
+  const f = await acharFicha(req)
+  if (!f) return res.status(404).json(NAO_ACHOU)
+  const b = lerCorpo(LoteItensFichaDto, req.body, res, null)
+  if (!b) return
+  const data = b.data && diaIso(b.data)
+  // Mesmo dente duas vezes: fica o último (com as faces dele).
+  const dentes = new Map(b.dentes.map((d) => [d.dente, normalizarFaces(d.faces)]))
+  const { count } = await db.itemFichaEspecialidade.createMany({
+    data: b.procedimentos.flatMap((procedimento) =>
+      [...dentes].map(([dente, faces]) => ({
+        fichaId: f.id,
+        dente,
+        faces,
+        procedimento,
+        status: b.status,
+        observacao: b.observacao,
+        data,
+      })),
+    ),
+  })
+  res.status(201).json({ criados: count })
+})
+
+/** Enviado ao paciente (esperando ou assinado): não sai nem muda de dente, só de situação. */
+const ENVIADO = { erro: 'Procedimento enviado ao paciente: só a situação pode mudar.' }
 
 rotasProntuario.patch('/fichas/itens/:id', exigir('prontuario.editar'), async (req, res) => {
   const i = await db.itemFichaEspecialidade.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!i) return res.status(404).json(NAO_ACHOU)
   const b = lerCorpo(StatusItemFichaDto, req.body, res, null)
   if (!b) return
-  const status = b.status ?? i.status
+  if ((b.dente !== undefined || b.faces !== undefined) && i.autorizacaoId)
+    return res.status(409).json(ENVIADO)
   const [, novo] = await db.$transaction([
     guardarAntes('ItemFichaEspecialidade', i, usuarioDe(res).id),
-    db.itemFichaEspecialidade.update({ where: { id: i.id }, data: { status } }),
+    db.itemFichaEspecialidade.update({
+      where: { id: i.id },
+      data: {
+        status: b.status ?? i.status,
+        ...(b.dente && { dente: b.dente }),
+        ...(b.faces !== undefined && { faces: normalizarFaces(b.faces) }),
+      },
+    }),
   ])
   res.json(novo)
 })
@@ -591,6 +840,7 @@ rotasProntuario.patch('/fichas/itens/:id', exigir('prontuario.editar'), async (r
 rotasProntuario.delete('/fichas/itens/:id', exigir('prontuario.editar'), async (req, res) => {
   const i = await db.itemFichaEspecialidade.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!i) return res.status(404).json(NAO_ACHOU)
+  if (i.autorizacaoId) return res.status(409).json(ENVIADO)
   await db.$transaction([
     guardarAntes('ItemFichaEspecialidade', i, usuarioDe(res).id),
     db.itemFichaEspecialidade.update({ where: { id: i.id }, data: { excluidoEm: new Date() } }),

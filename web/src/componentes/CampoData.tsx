@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { isoLocal } from '../api'
 import { Icone } from './Icones'
 import { MiniCalendario } from './MiniCalendario'
@@ -55,7 +55,31 @@ export function CampoData(props: {
   }
   const [aberto, setAberto] = useState(false)
   const campo = useRef<HTMLInputElement>(null)
+  const caixa = useRef<HTMLDivElement>(null)
   const iso = paraIso(texto)
+
+  // Calendário flutuante na camada do topo (popover): fica acima de qualquer container, sem
+  // ser cortado por rolagem; segue o campo e sobe se não couber embaixo.
+  useLayoutEffect(() => {
+    const el = caixa.current
+    if (!aberto || !el || props.calendarioNoFluxo) return
+    el.showPopover()
+    const posicionar = () => {
+      const r = campo.current!.getBoundingClientRect()
+      const { offsetWidth: l, offsetHeight: a } = el
+      const embaixo = r.bottom + 4 + a <= innerHeight || r.top - 4 - a < 0
+      el.style.inset = 'auto'
+      el.style.left = `${Math.max(8, Math.min(r.right - l, innerWidth - l - 8))}px`
+      el.style.top = `${embaixo ? r.bottom + 4 : r.top - 4 - a}px`
+    }
+    posicionar()
+    addEventListener('scroll', posicionar, true)
+    addEventListener('resize', posicionar)
+    return () => {
+      removeEventListener('scroll', posicionar, true)
+      removeEventListener('resize', posicionar)
+    }
+  }, [aberto, props.calendarioNoFluxo])
 
   function mudar(novo: string, campo?: HTMLInputElement) {
     setTexto(novo)
@@ -109,10 +133,12 @@ export function CampoData(props: {
       </button>
       {aberto && (
         <div
+          ref={caixa}
+          popover={props.calendarioNoFluxo ? undefined : 'manual'}
           className={
             props.calendarioNoFluxo
               ? 'mt-1 w-full max-w-64'
-              : 'absolute top-full right-0 z-40 mt-1 w-64 shadow-lg'
+              : 'fixed m-0 w-64 overflow-visible border-0 bg-transparent p-0 shadow-lg'
           }
         >
           <MiniCalendario

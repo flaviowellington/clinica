@@ -29,6 +29,7 @@ import { confirmar } from './Confirmar'
 import { Icone } from './Icones'
 import { CampoSugestoes } from './CampoSugestoes'
 import { FormProcedimento } from '../paginas/Configuracoes'
+import { Passo, Resumo } from './NovoAgendamento'
 
 interface Item {
   id?: number
@@ -39,6 +40,8 @@ interface Item {
   faces?: string | null
   valorCentavos: number
   executadoEm?: string | null
+  observacao?: string | null
+  observacaoPaciente?: string | null
 }
 interface Orcamento {
   id: number
@@ -86,12 +89,18 @@ export function SeloOrcamento({ status }: { status: StatusOrcamento }) {
 export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const [aberto, setAberto] = useState<Orcamento | 'novo' | null>(null)
+  // Orçamentos marcados na lista para somar os valores.
+  const [marcados, setMarcados] = useState<number[]>([])
   const lista = useQuery({
     queryKey: ['orcamentos', paciente.id],
     queryFn: async () =>
       (await api.get<Orcamento[]>('/orcamentos', { params: { pacienteId: paciente.id } })).data,
   })
   const titulo = aberto === 'novo' ? 'Novo orçamento' : aberto ? `Orçamento nº ${aberto.id}` : ''
+  const selecionados = lista.data?.filter((o) => marcados.includes(o.id)) ?? []
+  const todos = !!lista.data?.length && selecionados.length === lista.data.length
+  const alternar = (id: number) =>
+    setMarcados(marcados.includes(id) ? marcados.filter((m) => m !== id) : [...marcados, id])
   const qc = useQueryClient()
   const excluir = useMutation({
     mutationFn: (id: number) => api.delete(`/orcamentos/${id}`),
@@ -119,6 +128,14 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
           <table className="w-full text-left">
             <thead className="border-b border-borda text-suave">
               <tr>
+                <th className="w-10 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    aria-label="Selecionar todos os orçamentos"
+                    checked={todos}
+                    onChange={() => setMarcados(todos ? [] : lista.data.map((o) => o.id))}
+                  />
+                </th>
                 {['Nº', 'Data', 'Situação', 'Tratamento', 'Profissional', 'Valor'].map((t) => (
                   <th key={t} className="px-3 py-2 font-medium">
                     {t}
@@ -134,6 +151,15 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
                   className="group cursor-pointer border-b border-borda last:border-0 hover:bg-primaria-clara"
                   onClick={() => setAberto(o)}
                 >
+                  {/* Clicar na caixa só marca; o resto da linha abre o orçamento. */}
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Selecionar orçamento nº ${o.id}`}
+                      checked={marcados.includes(o.id)}
+                      onChange={() => alternar(o.id)}
+                    />
+                  </td>
                   <td className="px-3 py-2">{o.id}</td>
                   <td className="px-3 py-2">{dataBR(o.criadoEm)}</td>
                   <td className="px-3 py-2">
@@ -173,6 +199,27 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
           </table>
         </div>
       )}
+      {selecionados.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 border-primaria bg-primaria-clara px-4 py-3">
+          <div>
+            <p className="text-suave">
+              {selecionados.length}{' '}
+              {selecionados.length === 1 ? 'orçamento selecionado' : 'orçamentos selecionados'}
+            </p>
+            <p className="text-2xl">
+              Total:{' '}
+              <strong>
+                {reais(
+                  totalOrcamento(selecionados.map((o) => ({ valorCentavos: o.totalCentavos }))),
+                )}
+              </strong>
+            </p>
+          </div>
+          <button type="button" className="botao-leve py-1.5" onClick={() => setMarcados([])}>
+            Limpar seleção
+          </button>
+        </div>
+      )}
       <Dialogo aberto={!!aberto} aoFechar={() => setAberto(null)} titulo={titulo} largo>
         {aberto === 'novo' && (
           <EditorOrcamento paciente={paciente} aoTerminar={() => setAberto(null)} />
@@ -196,6 +243,158 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
   )
 }
 
+const paraItem = (p: Procedimento): Item => ({
+  procedimentoId: p.id,
+  nome: p.nome,
+  dente: null,
+  valorCentavos: p.valorCentavos,
+})
+
+/** Busca na tabela de preços com seleção de vários procedimentos e o total dos marcados. */
+function ListaProcedimentos(props: { botao: string; aoConfirmar: (ps: Procedimento[]) => void }) {
+  const { data: eu } = useSuspenseQuery(consultaEu)
+  const [busca, setBusca] = useState('')
+  const [cadastrando, setCadastrando] = useState(false)
+  // Marcados sobrevivem a novas buscas.
+  const [marcados, setMarcados] = useState<Procedimento[]>([])
+  const alternar = (p: Procedimento) =>
+    setMarcados(
+      marcados.some((m) => m.id === p.id)
+        ? marcados.filter((m) => m.id !== p.id)
+        : [...marcados, p],
+    )
+  const confirmar = () => {
+    props.aoConfirmar(marcados)
+    setMarcados([])
+    setBusca('')
+  }
+  const tabela = useQuery({
+    queryKey: ['procedimentos', busca],
+    queryFn: async () =>
+      (await api.get<Procedimento[]>('/procedimentos', { params: { busca } })).data,
+  })
+  return (
+    // Busca e bandeja ficam sempre à vista; só a lista do meio rola.
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="relative shrink-0">
+        <Icone
+          nome="busca"
+          className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-suave"
+        />
+        <input
+          type="search"
+          className="campo pl-9"
+          placeholder="Buscar procedimento (qualquer parte do nome)"
+          aria-label="Buscar procedimento"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+        />
+      </div>
+      <ul className="min-h-32 flex-1 overflow-y-auto rounded-xl border border-borda max-lg:max-h-64">
+        {pode(eu.perfis, 'configuracao.editar') &&
+          !tabela.data?.some((p) => normalizar(p.nome) === normalizar(busca.trim())) && (
+            <li>
+              <button
+                type="button"
+                onClick={() => setCadastrando(true)}
+                className="flex w-full items-center gap-2 border-b border-borda bg-superficie-2 px-3 py-2.5 text-left hover:bg-primaria-clara focus-visible:bg-primaria-clara"
+              >
+                <Icone nome="mais" className="h-5 w-5 shrink-0 text-suave" />
+                <span className="min-w-0 truncate">
+                  Novo procedimento{busca.trim() && ': '}
+                  {busca.trim() && <span className="font-bold">{busca.trim()}</span>}
+                </span>
+              </button>
+            </li>
+          )}
+        {tabela.data?.length === 0 && (
+          <li className="px-3 py-3 text-suave">Nenhum procedimento encontrado.</li>
+        )}
+        {tabela.data?.map((p) => {
+          const sel = marcados.some((m) => m.id === p.id)
+          return (
+            <li key={p.id}>
+              <label
+                className={`flex w-full cursor-pointer items-center gap-2.5 border-b border-borda px-3 py-2 last:border-b-0 ${sel ? 'bg-primaria-clara' : 'hover:bg-superficie-2'}`}
+              >
+                <input type="checkbox" checked={sel} onChange={() => alternar(p)} />
+                <span className="min-w-0 flex-1">
+                  <span className={`block truncate ${sel ? 'font-bold text-primaria' : ''}`}>
+                    {p.nome}
+                  </span>
+                  {p.especialidade && (
+                    <span className="block truncate text-xs text-suave">{p.especialidade}</span>
+                  )}
+                </span>
+                <span className="font-bold whitespace-nowrap text-suave tabular-nums">
+                  {reais(p.valorCentavos)}
+                </span>
+              </label>
+            </li>
+          )
+        })}
+      </ul>
+      {marcados.length > 0 && (
+        <div className="shrink-0 space-y-2 rounded-xl border border-primaria/25 bg-primaria-clara p-2.5">
+          <ul className="flex max-h-20 flex-wrap gap-1.5 overflow-y-auto">
+            {marcados.map((m) => (
+              <li
+                key={m.id}
+                className="flex items-center gap-1 rounded-full bg-superficie py-0.5 pr-0.5 pl-2.5 text-xs font-bold"
+              >
+                <span className="max-w-48 truncate">{m.nome}</span>
+                <button
+                  type="button"
+                  className="grid size-5 place-items-center rounded-full text-suave hover:bg-perigo/10 hover:text-perigo"
+                  aria-label={`Tirar ${m.nome}`}
+                  title="Tirar"
+                  onClick={() => alternar(m)}
+                >
+                  <Icone nome="fechar" className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-auto text-sm">
+              {marcados.length} {marcados.length === 1 ? 'selecionado' : 'selecionados'} · Total:{' '}
+              <strong>{reais(totalOrcamento(marcados))}</strong>
+            </span>
+            <button
+              type="button"
+              className="botao-fantasma botao-pequeno"
+              onClick={() => setMarcados([])}
+            >
+              Limpar
+            </button>
+            {props.botao && (
+              <button type="button" className="botao botao-pequeno" onClick={confirmar}>
+                <Icone nome="mais" className="h-3.5 w-3.5" />
+                {props.botao}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      <Dialogo
+        aberto={cadastrando}
+        aoFechar={() => setCadastrando(false)}
+        titulo="Novo procedimento"
+      >
+        {cadastrando && (
+          <FormProcedimento
+            nomeInicial={busca.trim()}
+            aoTerminar={(salvo) => {
+              setCadastrando(false)
+              if (salvo) setMarcados([...marcados, salvo])
+            }}
+          />
+        )}
+      </Dialogo>
+    </div>
+  )
+}
+
 function EditorOrcamento(props: {
   paciente: Paciente
   orcamento?: Orcamento
@@ -214,25 +413,11 @@ function EditorOrcamento(props: {
   const [descontoFixo, setDescontoFixo] = useState(o?.descontoCentavos ?? 0)
   const [percentual, setPercentual] = useState(0)
   const [observacoes, setObservacoes] = useState(o?.observacoes ?? '')
-  // Busca na tabela: cada clique entra direto nos itens (rascunho local até salvar, R-011).
-  const [busca, setBusca] = useState('')
-  const [cadastrando, setCadastrando] = useState(false)
-  const escolher = (p: Procedimento) => {
+  const escolher = (ps: Procedimento[]) =>
     // R-012: valor da tabela, editável na linha.
-    setItens([
-      ...itens,
-      { procedimentoId: p.id, nome: p.nome, dente: null, valorCentavos: p.valorCentavos },
-    ])
-    setBusca('')
-  }
+    setItens([...itens, ...ps.map(paraItem)])
   const mudarItem = (n: number, d: Partial<Item>) =>
     setItens(itens.map((i, x) => (x === n ? { ...i, ...d } : i)))
-
-  const tabela = useQuery({
-    queryKey: ['procedimentos', busca],
-    queryFn: async () =>
-      (await api.get<Procedimento[]>('/procedimentos', { params: { busca } })).data,
-  })
 
   const subtotal = totalOrcamento(itens)
   const desconto =
@@ -248,12 +433,17 @@ function EditorOrcamento(props: {
   const corpo = () => ({
     pacienteId: props.paciente.id,
     profissionalId,
-    itens: itens.map(({ procedimentoId, dente, faces, valorCentavos }) => ({
-      procedimentoId,
-      dente,
-      faces,
-      valorCentavos,
-    })),
+    // As observações do plano de tratamento vão junto para não se perderem ao editar.
+    itens: itens.map(
+      ({ procedimentoId, dente, faces, valorCentavos, observacao, observacaoPaciente }) => ({
+        procedimentoId,
+        dente,
+        faces,
+        valorCentavos,
+        observacao,
+        observacaoPaciente,
+      }),
+    ),
     descontoCentavos: desconto,
     observacoes,
   })
@@ -280,215 +470,208 @@ function EditorOrcamento(props: {
     },
   })
   const erros = errosDosCampos(salvar.error)
+  const profissional = prof?.profissionais.find((p) => p.id === profissionalId)
   return (
-    <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <p>
-          <span className="text-suave">Paciente: </span>
-          <strong>{props.paciente.nome}</strong>
-        </p>
-        <label>
-          <span className="rotulo">Profissional</span>
-          <CampoSelect
-            value={profissionalId}
-            onChange={(e) => setProfissionalId(Number(e.target.value) || '')}
-            opcoes={prof?.profissionais.map((p) => [p.id, p.nome] as const)}
-          />
-          {erros.profissionalId && <p className="mt-1 text-perigo">{erros.profissionalId}</p>}
-        </label>
-      </div>
-      {(erros.itens || erros.descontoCentavos) && (
-        <p className="text-perigo">{erros.itens ?? erros.descontoCentavos}</p>
-      )}
-
-      <fieldset className="space-y-2 rounded-lg border border-borda p-3">
-        <legend className="px-1 font-medium">Adicionar procedimento</legend>
-        <input
-          type="search"
-          className="campo"
-          placeholder="Buscar procedimento (qualquer parte do nome)"
-          aria-label="Buscar procedimento"
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-        />
-        <ul className="max-h-48 overflow-y-auto rounded-md border border-borda">
-          {pode(eu.perfis, 'configuracao.editar') &&
-            !tabela.data?.some((p) => normalizar(p.nome) === normalizar(busca.trim())) && (
-              <li>
-                <button
-                  type="button"
-                  onClick={() => setCadastrando(true)}
-                  className="flex w-full items-center gap-2 border-b border-borda bg-superficie-2 px-3 py-2.5 text-left hover:bg-primaria-clara focus-visible:bg-primaria-clara"
-                >
-                  <Icone nome="mais" className="h-5 w-5 shrink-0 text-suave" />
-                  <span className="min-w-0 truncate">
-                    Novo procedimento{busca.trim() && ': '}
-                    {busca.trim() && <span className="font-bold">{busca.trim()}</span>}
-                  </span>
-                </button>
-              </li>
-            )}
-          {tabela.data?.length === 0 && (
-            <li className="px-3 py-2 text-suave">Nenhum procedimento encontrado.</li>
-          )}
-          {tabela.data?.map((p) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                onClick={() => escolher(p)}
-                className="flex w-full justify-between px-3 py-1.5 text-left hover:bg-primaria-clara"
-              >
-                <span>
-                  {p.nome}
-                  {p.especialidade && <span className="text-suave"> · {p.especialidade}</span>}
-                </span>
-                <span className="text-suave">{reais(p.valorCentavos)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        <Dialogo
-          aberto={cadastrando}
-          aoFechar={() => setCadastrando(false)}
-          titulo="Novo procedimento"
-        >
-          {cadastrando && (
-            <FormProcedimento
-              nomeInicial={busca.trim()}
-              aoTerminar={(salvo) => {
-                setCadastrando(false)
-                if (salvo) escolher(salvo)
-              }}
+    // Mesmo formato do "Adicionar" da agenda: altura fixa, colunas que rolam por dentro e
+    // rodapé sempre à vista, para os botões nunca ficarem escondidos.
+    <div className="flex flex-col gap-4 lg:h-[min(760px,calc(100dvh-11rem))]">
+      <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+        {/* ---------- O que entra ---------- */}
+        <div className="flex min-h-0 flex-col gap-5">
+          <Passo n={1} id="passo-profissional" titulo="Profissional" feito={!!profissionalId}>
+            <CampoSelect
+              aria-label="Profissional"
+              value={profissionalId}
+              onChange={(e) => setProfissionalId(Number(e.target.value) || '')}
+              opcoes={prof?.profissionais.map((p) => [p.id, p.nome] as const)}
             />
-          )}
-        </Dialogo>
-      </fieldset>
+            {erros.profissionalId && <p className="erro-campo">{erros.profissionalId}</p>}
+          </Passo>
 
-      {itens.length > 0 && (
-        <table className="w-full text-left">
-          <thead className="border-b border-borda text-suave">
-            <tr>
-              <th className="py-1 font-medium">Procedimento</th>
-              <th className="py-1 font-medium">Dente ou região</th>
-              <th className="py-1 font-medium">Valor</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {itens.map((i, n) => (
-              <tr key={n} className="border-b border-borda">
-                <td className="py-1.5 pr-3">{i.nome}</td>
-                <td className="w-40 py-1.5 pr-3">
-                  <CampoSugestoes
-                    sugestoes={TODOS_DENTES}
-                    value={i.dente ?? ''}
-                    onChange={(v) => mudarItem(n, { dente: v || null })}
-                    placeholder="Ex.: 16"
-                    aria-label={`Dente ou região: ${i.nome}`}
-                  />
-                  {i.faces && <span className="text-xs text-suave">Faces: {i.faces}</span>}
-                </td>
-                <td className="w-40 py-1.5 pr-3">
-                  <CampoReais
-                    id={`valor-item-${n}`}
-                    rotulo={`Valor: ${i.nome}`}
-                    rotuloOculto
-                    valor={i.valorCentavos}
-                    aoMudar={(v) => mudarItem(n, { valorCentavos: v })}
-                  />
-                </td>
-                <td className="w-10 py-1.5 text-right">
-                  <button
-                    type="button"
-                    className="botao-fantasma botao-icone text-perigo"
-                    aria-label={`Remover ${i.nome}`}
-                    title="Remover"
-                    onClick={() => setItens(itens.filter((_, x) => x !== n))}
-                  >
-                    <Icone nome="fechar" className="h-4 w-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <div className="flex flex-wrap items-end gap-3">
-        <fieldset>
-          <legend className="rotulo">Tipo de desconto</legend>
-          <div className="flex overflow-hidden rounded-lg border border-borda">
-            {(
-              [
-                ['REAIS', 'Valor fixo (R$)'],
-                ['PERCENTUAL', 'Porcentagem (%)'],
-              ] as const
-            ).map(([m, rotulo]) => (
-              <button
-                key={m}
-                type="button"
-                aria-pressed={modoDesconto === m}
-                onClick={() => trocarModo(m)}
-                className={`px-3 py-2 ${modoDesconto === m ? 'bg-primaria text-sobre-primaria' : 'bg-superficie hover:bg-superficie-2'}`}
-              >
-                {rotulo}
-              </button>
-            ))}
-          </div>
-        </fieldset>
-        <div className="w-44">
-          {modoDesconto === 'REAIS' ? (
-            <CampoReais
-              id="desconto"
-              rotulo="Desconto"
-              valor={descontoFixo}
-              aoMudar={setDescontoFixo}
-            />
-          ) : (
-            <label>
-              <span className="rotulo">Desconto (%)</span>
-              <input
-                type="number"
-                className="campo"
-                min={0}
-                max={100}
-                step={0.01}
-                value={percentual || ''}
-                onChange={(e) => setPercentual(Math.min(100, Math.max(0, Number(e.target.value))))}
-              />
-            </label>
-          )}
+          <Passo
+            n={2}
+            id="passo-procedimentos"
+            titulo="Procedimentos"
+            feito={itens.length > 0}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <ListaProcedimentos botao="Adicionar ao orçamento" aoConfirmar={escolher} />
+          </Passo>
         </div>
-        {/* Conta automática: mostra o desconto no outro formato. */}
-        {subtotal > 0 && desconto > 0 && (
-          <p className="pb-2 text-suave">
-            {modoDesconto === 'REAIS'
-              ? `= ${percentualDoDesconto(subtotal, desconto).toLocaleString('pt-BR')}% do subtotal`
-              : `= ${reais(desconto)} de desconto`}
-          </p>
-        )}
+
+        {/* ---------- Como fica ---------- */}
+        <Passo
+          n={3}
+          id="passo-itens"
+          titulo="Itens do orçamento"
+          feito={itens.length > 0}
+          extra={
+            itens.length > 0 && (
+              <span className="etiqueta etiqueta-primaria">
+                {itens.length} {itens.length === 1 ? 'item' : 'itens'}
+              </span>
+            )
+          }
+          className="flex min-h-0 flex-col"
+        >
+          <div className="flex min-h-0 flex-1 flex-col gap-3 rounded-2xl border border-borda bg-superficie-2 p-3 sm:p-4">
+            {(erros.itens || erros.descontoCentavos) && (
+              <p className="alerta-perigo shrink-0">{erros.itens ?? erros.descontoCentavos}</p>
+            )}
+            {!itens.length ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-borda px-4 py-10 text-center text-suave">
+                <Icone nome="dente" className="h-8 w-8" />
+                <p className="max-w-64 text-sm">
+                  Marque os procedimentos ao lado e use “Adicionar ao orçamento”.
+                </p>
+              </div>
+            ) : (
+              <ul className="-mx-1 min-h-0 flex-1 space-y-2 overflow-y-auto px-1 max-lg:max-h-[50vh]">
+                {itens.map((i, n) => (
+                  <li
+                    key={n}
+                    // Grade fixa: a lixeira fica sempre na última coluna; nome longo quebra a linha.
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-borda bg-superficie p-2.5 sm:grid-cols-[minmax(0,1fr)_7rem_8rem_auto]"
+                  >
+                    <div className="col-span-3 min-w-0 sm:col-span-1">
+                      <p className="font-bold break-words">{i.nome}</p>
+                      {i.faces && <p className="text-xs text-suave">Faces: {i.faces}</p>}
+                    </div>
+                    <div>
+                      <CampoSugestoes
+                        sugestoes={TODOS_DENTES}
+                        value={i.dente ?? ''}
+                        onChange={(v) => mudarItem(n, { dente: v || null })}
+                        placeholder="Dente"
+                        aria-label={`Dente ou região: ${i.nome}`}
+                      />
+                    </div>
+                    <div>
+                      <CampoReais
+                        id={`valor-item-${n}`}
+                        rotulo={`Valor: ${i.nome}`}
+                        rotuloOculto
+                        valor={i.valorCentavos}
+                        aoMudar={(v) => mudarItem(n, { valorCentavos: v })}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="botao-fantasma botao-icone text-suave hover:bg-perigo/10 hover:text-perigo"
+                      aria-label={`Remover ${i.nome}`}
+                      title="Remover"
+                      onClick={() => setItens(itens.filter((_, x) => x !== n))}
+                    >
+                      <Icone nome="lixeira" className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="shrink-0 space-y-3 border-t border-borda pt-3">
+              <div className="flex flex-wrap items-end gap-3">
+                <fieldset>
+                  <legend className="rotulo text-sm">Desconto</legend>
+                  <div className="flex rounded-xl bg-superficie p-1">
+                    {(
+                      [
+                        ['REAIS', 'Valor fixo (R$)'],
+                        ['PERCENTUAL', 'Porcentagem (%)'],
+                      ] as const
+                    ).map(([m, rotulo]) => (
+                      <button
+                        key={m}
+                        type="button"
+                        aria-pressed={modoDesconto === m}
+                        onClick={() => trocarModo(m)}
+                        className={`rounded-lg px-3 py-1.5 text-sm font-bold ${modoDesconto === m ? 'bg-primaria text-sobre-primaria' : 'text-suave hover:text-texto'}`}
+                      >
+                        {rotulo}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+                <div className="w-36">
+                  {modoDesconto === 'REAIS' ? (
+                    <CampoReais
+                      id="desconto"
+                      rotulo="Desconto"
+                      rotuloOculto
+                      valor={descontoFixo}
+                      aoMudar={setDescontoFixo}
+                    />
+                  ) : (
+                    <label>
+                      <span className="sr-only">Desconto (%)</span>
+                      <input
+                        type="number"
+                        className="campo"
+                        min={0}
+                        max={100}
+                        step={0.01}
+                        placeholder="0"
+                        value={percentual || ''}
+                        onChange={(e) =>
+                          setPercentual(Math.min(100, Math.max(0, Number(e.target.value))))
+                        }
+                      />
+                    </label>
+                  )}
+                </div>
+                {/* Conta automática: mostra o desconto no outro formato. */}
+                {subtotal > 0 && desconto > 0 && (
+                  <p className="pb-2 text-sm text-suave">
+                    {modoDesconto === 'REAIS'
+                      ? `= ${percentualDoDesconto(subtotal, desconto).toLocaleString('pt-BR')}% do subtotal`
+                      : `= ${reais(desconto)} de desconto`}
+                  </p>
+                )}
+              </div>
+              <dl className="space-y-0.5 text-sm">
+                <div className="flex justify-between text-suave">
+                  <dt>Subtotal</dt>
+                  <dd className="tabular-nums">{reais(subtotal)}</dd>
+                </div>
+                {desconto > 0 && (
+                  <div className="flex justify-between text-suave">
+                    <dt>Desconto</dt>
+                    <dd className="tabular-nums">− {reais(desconto)}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          </div>
+        </Passo>
       </div>
 
-      <div className="space-y-1 rounded-lg bg-primaria-clara p-3 text-right">
-        <p className="text-suave">Subtotal: {reais(subtotal)}</p>
-        {desconto > 0 && <p className="text-suave">Desconto: − {reais(desconto)}</p>}
-        <p className="text-lg">
-          Total: <strong>{reais(total)}</strong>
-        </p>
-      </div>
+      <details className="group shrink-0 rounded-xl border border-borda" open={!!o?.observacoes}>
+        <summary className="flex items-center justify-between gap-2 px-3 py-2 font-bold [&::-webkit-details-marker]:hidden">
+          <span>Observações</span>
+          <span className="text-suave group-open:rotate-180">▾</span>
+        </summary>
+        <div className="border-t border-borda p-3">
+          <textarea
+            aria-label="Observações"
+            className="campo"
+            rows={2}
+            value={observacoes}
+            onChange={(e) => setObservacoes(e.target.value)}
+          />
+        </div>
+      </details>
 
-      <label className="block">
-        <span className="rotulo">Observações</span>
-        <textarea
-          className="campo"
-          rows={2}
-          value={observacoes}
-          onChange={(e) => setObservacoes(e.target.value)}
-        />
-      </label>
-
-      <div className="flex flex-wrap justify-end gap-2">
-        <div className="flex gap-2">
+      {/* ---------- Resumo ---------- */}
+      <footer className="flex shrink-0 flex-wrap items-center gap-3 border-t border-borda pt-4">
+        <dl className="flex w-full min-w-0 flex-wrap items-baseline gap-x-5 gap-y-1 text-sm sm:w-auto sm:flex-1">
+          <Resumo rotulo="Paciente">{props.paciente.nome}</Resumo>
+          <Resumo rotulo="Com">{profissional?.nome}</Resumo>
+          <div className="flex items-baseline gap-1.5">
+            <dt className="text-xs text-suave">Total</dt>
+            <dd className="text-xl font-extrabold text-titulo tabular-nums">{reais(total)}</dd>
+          </div>
+        </dl>
+        <div className="ml-auto flex gap-2">
           <button type="button" className="botao-leve" onClick={props.aoTerminar}>
             Cancelar
           </button>
@@ -521,7 +704,7 @@ function EditorOrcamento(props: {
             </>
           )}
         </div>
-      </div>
+      </footer>
     </div>
   )
 }

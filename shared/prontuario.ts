@@ -174,6 +174,97 @@ export const ESPECIALIDADES_FICHA = [
   'Toxina Botulínica Terapêutica',
 ] as const
 
+export const STATUS_FICHA = ['Em andamento', 'Finalizada', 'Suspensa'] as const
+
+/**
+ * Blocos fixos em todo planejamento: não saem e ficam no lugar (avaliação sempre a primeira).
+ * A aprovação do caso se marca sozinha quando o paciente assina; o nome de todos pode mudar.
+ */
+export const ETAPAS_FIXAS = {
+  AVALIACAO: 'Avaliação',
+  PLANEJAMENTO: 'Planejamento',
+  APROVACAO: 'Aprovação do caso',
+  FINALIZACAO: 'Finalização',
+} as const
+export type TipoEtapa = keyof typeof ETAPAS_FIXAS
+
+export interface EtapaFicha {
+  id: string
+  nome: string
+  data: string | null
+  executado: boolean
+  tipo?: TipoEtapa
+}
+
+/** Etapas do meio, entre a aprovação e a finalização; especialidade da clínica usa a padrão. */
+const ETAPAS_FICHA: Record<(typeof ESPECIALIDADES_FICHA)[number], string[]> = {
+  Alinhadores: ['Início do Tratamento', 'Acompanhamento do Paciente'],
+  Endodontia: ['Acesso e Preparo', 'Obturação', 'Restauração'],
+  Implantes: ['Cirurgia', 'Osseointegração', 'Prótese'],
+  Ortodontia: ['Documentação', 'Instalação', 'Manutenções', 'Contenção'],
+  Ortopédica: ['Documentação', 'Instalação', 'Acompanhamento'],
+  Periodontia: ['Raspagem', 'Reavaliação', 'Controle Periodontal'],
+  'Toxina Botulínica Estética': ['Aplicação', 'Retorno'],
+  'Toxina Botulínica Terapêutica': ['Aplicação', 'Retorno'],
+}
+
+/** Etapas com que o planejamento nasce: os blocos fixos e as da especialidade. */
+export const etapasDaFicha = (especialidade: string) =>
+  comEtapasFixas(
+    (ETAPAS_FICHA[especialidade as (typeof ESPECIALIDADES_FICHA)[number]] ?? ['Tratamento']).map(
+      (nome, i) => ({ id: `e${i + 1}`, nome }),
+    ),
+  )
+
+const minusculo = (t: string) => t.trim().toLocaleLowerCase('pt-BR')
+
+/**
+ * Garante os blocos fixos, mantendo a ordem que veio (a ordem é livre).
+ * Faltando um, ele volta: de `antigas` se estiver lá, senão novo, no lugar padrão (avaliação,
+ * planejamento e aprovação no começo, finalização no fim). Ficha antiga: a etapa de mesmo nome
+ * vira o bloco. Sem id, ganha um.
+ */
+export function comEtapasFixas(
+  etapas: Partial<EtapaFicha>[],
+  antigas: EtapaFicha[] = [],
+): EtapaFicha[] {
+  const FIXAS = ['AVALIACAO', 'PLANEJAMENTO', 'APROVACAO', 'FINALIZACAO'] as const
+  const vistos = new Set<string>()
+  const lista: EtapaFicha[] = etapas.map((e, i) => {
+    const tipo = e.tipo && e.tipo in ETAPAS_FIXAS && !vistos.has(e.tipo) ? e.tipo : undefined
+    if (tipo) vistos.add(tipo)
+    return {
+      id: e.id || `e${i}`,
+      nome: e.nome ?? '',
+      data: e.data ?? null,
+      executado: !!e.executado,
+      ...(tipo && { tipo }),
+    }
+  })
+  FIXAS.forEach((tipo, n) => {
+    if (vistos.has(tipo)) return
+    const mesmoNome = lista.find(
+      (e) => !e.tipo && minusculo(e.nome) === minusculo(ETAPAS_FIXAS[tipo]),
+    )
+    if (mesmoNome) return void (mesmoNome.tipo = tipo)
+    const volta = antigas.find((e) => e.tipo === tipo) ?? {
+      id: tipo.toLowerCase(),
+      nome: ETAPAS_FIXAS[tipo],
+      data: null,
+      executado: false,
+    }
+    // Logo depois do bloco anterior; a finalização no fim.
+    const lugar =
+      tipo === 'FINALIZACAO'
+        ? lista.length
+        : n && lista.findIndex((e) => e.tipo === FIXAS[n - 1]) + 1
+    lista.splice(lugar, 0, { ...volta, tipo })
+  })
+  return lista
+}
+
+export const LIMITE_ETAPAS = 30
+
 export const STATUS_DENTE_FICHA = [
   'Em avaliação',
   'Em tratamento',

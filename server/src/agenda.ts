@@ -19,6 +19,7 @@ import { lerCorpo } from './dto'
 import type { Prisma } from './generated/prisma/client'
 import { lerConfig } from './configuracoes'
 import { validarConfig } from '../../shared/configuracoes'
+import { hojeNaClinica } from '../../shared/regras'
 
 const comDados = {
   paciente: { select: { id: true, nome: true, celular: true } },
@@ -69,14 +70,32 @@ rotasAgenda.get('/', exigir('agenda.ver'), async (req, res) => {
   const lista = await db.agendamento.findMany({
     where: {
       excluidoEm: null,
-      desmarcadoEm: null,
+      ...(req.query.desmarcadas !== '1' && { desmarcadoEm: null }),
       data: { gte: dia(de), lte: dia(ate) },
       ...(ids.length && { profissionalId: { in: ids } }),
     },
     include: comDados,
     orderBy: [{ data: 'asc' }, { inicio: 'asc' }],
   })
-  res.json(lista.map(paraTela))
+  // Selo do cartão (R-032): só parcelas vencidas e em aberto contam como atraso.
+  const pacientes = [...new Set(lista.flatMap((a) => (a.pacienteId ? [a.pacienteId] : [])))]
+  const atrasos = await db.contaFinanceira.groupBy({
+    by: ['pacienteId'],
+    where: {
+      tipo: 'RECEBER',
+      status: 'ABERTA',
+      pacienteId: { in: pacientes },
+      vencimento: { lt: new Date(`${hojeNaClinica()}T00:00:00Z`) },
+    },
+    _sum: { valorCentavos: true },
+  })
+  const atraso = new Map(atrasos.map((x) => [x.pacienteId, x._sum.valorCentavos ?? 0]))
+  res.json(
+    lista.map((a) => ({
+      ...paraTela(a),
+      emAtrasoCentavos: a.pacienteId ? (atraso.get(a.pacienteId) ?? 0) : 0,
+    })),
+  )
 })
 
 rotasAgenda.post('/', exigir('agenda.editar'), async (req, res) => {

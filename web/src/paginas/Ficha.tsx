@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import {
   api,
@@ -20,7 +20,7 @@ import { NovoRetorno } from '../componentes/Retornos'
 import { Situacao, whatsapp } from './Pacientes'
 import { Icone, type NomeIcone } from '../componentes/Icones'
 import { OrcamentosPaciente } from '../componentes/Orcamentos'
-import { FichasEspecialidade, Odontograma, PlanoFichaClinica } from '../componentes/Clinico'
+import { FichasEspecialidade, Odontograma } from '../componentes/Clinico'
 import { Anamneses } from '../componentes/Anamnese'
 import { Arquivos } from '../componentes/Arquivos'
 import { Documentos } from '../componentes/Documentos'
@@ -37,12 +37,11 @@ const ABAS_FICHA = [
   { id: 'anamnese', rotulo: 'Anamnese', acao: 'anamnese.ver', grupo: 'Clínico' },
   {
     id: 'especialidades',
-    rotulo: 'Fichas Especialidades',
+    rotulo: 'Plano e Ficha Clínica',
     acao: 'prontuario.ver',
     grupo: 'Clínico',
   },
   { id: 'odontograma', rotulo: 'Odontograma', acao: 'prontuario.ver', grupo: 'Clínico' },
-  { id: 'plano', rotulo: 'Plano e Ficha Clínica', acao: 'prontuario.ver', grupo: 'Clínico' },
   { id: 'documentos', rotulo: 'Documentos', acao: 'prontuario.ver', grupo: 'Arquivos' },
   { id: 'exames', rotulo: 'Exames', acao: 'prontuario.ver', grupo: 'Arquivos' },
   { id: 'fotos', rotulo: 'Fotos', acao: 'fotos.ver', grupo: 'Arquivos' },
@@ -67,7 +66,9 @@ export function Ficha() {
 
   const abas = ABAS_FICHA.filter((a) => pode(eu.perfis, a.acao))
   const { aba: daUrl } = useSearch({ from: '/logado/pacientes/$id' })
-  const aba: AbaFicha = abas.find((a) => a.id === daUrl)?.id ?? 'visao-geral'
+  // O antigo ?aba=plano agora fica dentro de Plano e Ficha Clínica.
+  const aba: AbaFicha =
+    abas.find((a) => a.id === (daUrl === 'plano' ? 'especialidades' : daUrl))?.id ?? 'visao-geral'
   const trocarAba = (a: AbaFicha) =>
     navegar({
       to: '/pacientes/$id',
@@ -162,10 +163,19 @@ export function Ficha() {
   )
 
   return (
-    <div>
+    // Em tela grande a ficha ocupa a janela: o cabeçalho fica parado e só o conteúdo rola.
+    <div className="lg:flex lg:h-[calc(100vh-2rem)] lg:flex-col">
       {/* Cabeçalho fixo em todas as seções: quem é o paciente, alertas de saúde e ações. */}
-      <header className="cartao mb-4 p-0 shadow-sm">
+      <header className="cartao mb-4 shrink-0 p-0 shadow-sm">
         <div className="flex flex-wrap items-center gap-4 p-4">
+          <Link
+            to="/pacientes"
+            className="botao-leve botao-icone size-10 shrink-0"
+            aria-label="Voltar para pacientes"
+            title="Voltar para pacientes"
+          >
+            <Icone nome="esquerda" />
+          </Link>
           <div className="grid size-13 shrink-0 place-items-center rounded-full bg-primaria-clara text-lg font-extrabold text-primaria">
             {iniciais}
           </div>
@@ -173,26 +183,26 @@ export function Ficha() {
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl">{p.nome}</h1>
               <Situacao ativo={p.ativo} />
+              {!!alertas.data?.length && (
+                <div role="alert" className="contents">
+                  {alertas.data.map((a) => (
+                    <button
+                      key={a.texto}
+                      className="etiqueta etiqueta-perigo"
+                      title="Ver anamnese"
+                      onClick={() => trocarAba('anamnese')}
+                    >
+                      {a.texto.replace(/[?]$/, '')}: {a.resposta}
+                      {a.descricao && ` (${a.descricao})`}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <p className="text-suave">
               {[p.nascimento && `${idade(p.nascimento)} anos`, p.sexo].filter(Boolean).join(' · ')}
             </p>
           </div>
-          {!!alertas.data?.length && (
-            <div role="alert" className="flex flex-wrap gap-1.5">
-              {alertas.data.map((a) => (
-                <button
-                  key={a.texto}
-                  className="etiqueta etiqueta-perigo"
-                  title="Ver anamnese"
-                  onClick={() => trocarAba('anamnese')}
-                >
-                  {a.texto.replace(/[?]$/, '')}: {a.resposta}
-                  {a.descricao && ` (${a.descricao})`}
-                </button>
-              ))}
-            </div>
-          )}
           <div className="ml-auto flex flex-wrap gap-2">
             {p.celular && (
               <a className="botao" href={whatsapp(p.celular)} target="_blank" rel="noreferrer">
@@ -253,7 +263,9 @@ export function Ficha() {
         </nav>
       </header>
 
-      <div className="min-w-0 space-y-4">
+      {/* key: trocar de seção volta a rolagem ao topo. */}
+      <div key={aba} className="min-w-0 space-y-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+
         {!p.ativo && p.motivoInativacao && (
           <p className="cartao border-perigo/40">
             Inativo por: {MOTIVOS_INATIVACAO[p.motivoInativacao]}
@@ -265,7 +277,6 @@ export function Ficha() {
         {naVisao && <VisaoGeral paciente={p} irPara={trocarAba} />}
         {aba === 'orcamentos' && <OrcamentosPaciente paciente={p} />}
         {aba === 'fotos' && <Arquivos paciente={p} categoria="FOTO" />}
-        {aba === 'plano' && <PlanoFichaClinica paciente={p} />}
         {aba === 'especialidades' && <FichasEspecialidade paciente={p} />}
         {aba === 'odontograma' && <Odontograma paciente={p} />}
         {aba === 'anamnese' && <Anamneses paciente={p} />}

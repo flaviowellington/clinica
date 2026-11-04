@@ -41,6 +41,12 @@ function transportador() {
 export async function enviarEmail(m: { para: string; assunto: string; texto: string }) {
   if (!emailConfigurado())
     throw new ErroEnvio('O e-mail da clínica ainda não foi configurado (server/.env).', 503)
+  // Engano comum: pôr o e-mail no lugar do servidor.
+  if (process.env.SMTP_HOST?.includes('@'))
+    throw new ErroEnvio(
+      'No server/.env, SMTP_HOST é o servidor (ex.: smtp.gmail.com), não o e-mail. O e-mail vai em SMTP_USUARIO.',
+      503,
+    )
   await transportador().sendMail({
     from: process.env.EMAIL_REMETENTE || process.env.SMTP_USUARIO,
     to: m.para,

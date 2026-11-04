@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import {
   api,
@@ -113,6 +113,93 @@ function LegendaCategorias() {
 }
 const nomeDe = (a: Agendamento) => a.paciente?.nome ?? a.titulo ?? 'Compromisso'
 
+/** Com um balão aberto, o bloco dele ganha contorno e os outros apagam; desmarcada fica apagada. */
+const realce = (a: Agendamento, destaque?: number) =>
+  a.id === destaque
+    ? 'z-20 ring-2 ring-primaria ring-offset-1 ring-offset-superficie shadow-lg'
+    : destaque !== undefined || a.desmarcadoEm
+      ? 'opacity-40'
+      : ''
+
+const LARGURA_BALAO = 400 // px
+const MARGEM = 8 // px
+
+/**
+ * Balão preso a um elemento: abre à direita dele, ou à esquerda se não couber,
+ * e acompanha a rolagem. Esc ou clique fora fecha.
+ */
+function Balao(props: { ancora: HTMLElement; aoFechar: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const fechar = useRef(props.aoFechar)
+  fechar.current = props.aoFechar
+
+  useLayoutEffect(() => {
+    const posicionar = () => {
+      const r = props.ancora.getBoundingClientRect()
+      const altura = ref.current?.offsetHeight ?? 0
+      const largura = Math.min(LARGURA_BALAO, innerWidth - 2 * MARGEM)
+      const direita = r.right + MARGEM
+      const esquerda = r.left - MARGEM - largura
+      const left =
+        direita + largura <= innerWidth - MARGEM
+          ? direita
+          : esquerda >= MARGEM
+            ? esquerda
+            : Math.max(MARGEM, innerWidth - largura - MARGEM) // tela estreita: por cima
+      const top = Math.min(Math.max(MARGEM, r.top), innerHeight - altura - MARGEM)
+      setPos({ top: Math.max(MARGEM, top), left })
+    }
+    posicionar()
+    const fora = (e: PointerEvent) => {
+      const alvo = e.target as Node
+      if (!ref.current?.contains(alvo) && !props.ancora.contains(alvo)) fechar.current()
+    }
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && fechar.current()
+    // O conteúdo muda de altura (ex.: "Desmarcar" abre o campo de motivo): reposiciona.
+    const tamanho = new ResizeObserver(posicionar)
+    if (ref.current) tamanho.observe(ref.current)
+    addEventListener('scroll', posicionar, true)
+    addEventListener('resize', posicionar)
+    document.addEventListener('pointerdown', fora)
+    document.addEventListener('keydown', esc)
+    ref.current?.focus()
+    return () => {
+      tamanho.disconnect()
+      removeEventListener('scroll', posicionar, true)
+      removeEventListener('resize', posicionar)
+      document.removeEventListener('pointerdown', fora)
+      document.removeEventListener('keydown', esc)
+      props.ancora.focus() // o foco volta para o bloco clicado
+    }
+  }, [props.ancora])
+
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label="Agendamento"
+      tabIndex={-1}
+      className="fixed z-50 max-h-[calc(100vh-1rem)] overflow-y-auto rounded-2xl border border-borda bg-superficie p-5 text-texto shadow-2xl outline-none"
+      style={{
+        width: `min(${LARGURA_BALAO}px, calc(100vw - ${2 * MARGEM}px))`,
+        top: pos?.top ?? -9999,
+        left: pos?.left ?? -9999,
+      }}
+    >
+      <button
+        type="button"
+        onClick={props.aoFechar}
+        aria-label="Fechar"
+        className="absolute top-3 right-3 grid size-8 place-items-center rounded-full text-suave hover:bg-superficie-2"
+      >
+        <Icone nome="fechar" className="h-4 w-4" />
+      </button>
+      {props.children}
+    </div>
+  )
+}
+
 /** filtrosNoTopo: "Agenda 2", sem a lateral; filtros numa barra e a grade na largura toda. */
 export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
   const { data: eu } = useSuspenseQuery(consultaEu)
@@ -129,7 +216,12 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
   const [novo, setNovo] = useState<Inicial | null>(null)
   const [menu, setMenu] = useState(false)
   const [retorno, setRetorno] = useState(false)
-  const [aberto, setAberto] = useState<Agendamento | null>(null)
+  // O bloco clicado: o balão do cartão abre ao lado dele.
+  const [aberto, setAberto] = useState<{ a: Agendamento; el: HTMLElement } | null>(null)
+  // Clicar de novo no mesmo bloco fecha o balão.
+  const abrir = (a: Agendamento, el: HTMLElement) =>
+    setAberto((atual) => (atual?.a.id === a.id ? null : { a, el }))
+  const [comDesmarcadas, setComDesmarcadas] = useState(false)
   const [mover, setMover] = useState<{
     a: Agendamento
     data: string
@@ -147,8 +239,13 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
 
   const [de, ate] = periodo(visao, data)
   const lista = useQuery({
-    queryKey: ['agenda', de, ate],
-    queryFn: async () => (await api.get<Agendamento[]>('/agenda', { params: { de, ate } })).data,
+    queryKey: ['agenda', de, ate, comDesmarcadas],
+    queryFn: async () =>
+      (
+        await api.get<Agendamento[]>('/agenda', {
+          params: { de, ate, desmarcadas: comDesmarcadas ? 1 : undefined },
+        })
+      ).data,
   })
   const termo = (busca ?? '').trim().toLocaleLowerCase('pt-BR')
   const achados = prof.profissionais.filter((p) =>
@@ -495,7 +592,8 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
               colunas={colunas}
               itens={itens}
               podeEditar={podeEditar}
-              aoAbrir={setAberto}
+              aoAbrir={abrir}
+              destaque={aberto?.a.id}
               aoNovo={(inicio, profissionalId) => abrirNovo({ inicio, profissionalId })}
               aoSoltar={(a, inicio, profissionalId) =>
                 setMover({ a, data, inicio, profissionalId })
@@ -509,7 +607,8 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
               hoje={hoje}
               itens={itens}
               carregando={lista.isPending}
-              aoAbrir={setAberto}
+              aoAbrir={abrir}
+              destaque={aberto?.a.id}
               aoDia={(d) => {
                 setData(d)
                 setVisao('dia')
@@ -521,14 +620,26 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
               de={de}
               mes={data.slice(0, 7)}
               hoje={hoje}
-              itens={itens}
+              itens={itens.filter((a) => !a.desmarcadoEm)}
               aoDia={(d) => {
                 setData(d)
                 setVisao('dia')
               }}
             />
           )}
-          <LegendaCategorias />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <LegendaCategorias />
+            {visao !== 'mes' && (
+              <label className="flex items-center gap-2 px-1 text-xs font-bold text-suave">
+                <input
+                  type="checkbox"
+                  checked={comDesmarcadas}
+                  onChange={(e) => setComDesmarcadas(e.target.checked)}
+                />
+                Mostrar desmarcadas
+              </label>
+            )}
+          </div>
         </section>
       </div>
 
@@ -545,11 +656,11 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
         <NovoRetorno aoTerminar={() => setRetorno(false)} />
       </Dialogo>
 
-      <Dialogo aberto={!!aberto} aoFechar={() => setAberto(null)} titulo="Agendamento">
-        {aberto && (
-          <CartaoConsulta a={aberto} podeEditar={podeEditar} aoFechar={() => setAberto(null)} />
-        )}
-      </Dialogo>
+      {aberto && (
+        <Balao key={aberto.a.id} ancora={aberto.el} aoFechar={() => setAberto(null)}>
+          <CartaoConsulta a={aberto.a} podeEditar={podeEditar} aoFechar={() => setAberto(null)} />
+        </Balao>
+      )}
 
       <Dialogo aberto={!!mover} aoFechar={() => setMover(null)} titulo="Mover agendamento">
         {mover && (
@@ -592,7 +703,9 @@ function VisaoDia(props: {
   colunas: { id: number; nome: string; corAgenda: string | null }[]
   itens: Agendamento[]
   podeEditar: boolean
-  aoAbrir: (a: Agendamento) => void
+  aoAbrir: (a: Agendamento, el: HTMLElement) => void
+  /** Agendamento com o balão aberto: fica em destaque, os outros apagam. */
+  destaque?: number
   aoNovo: (inicio: string, profissionalId: number) => void
   aoSoltar: (a: Agendamento, inicio: string, profissionalId: number) => void
 }) {
@@ -646,8 +759,9 @@ function VisaoDia(props: {
               <p className="truncate text-xs font-bold text-suave">
                 Pacientes:{' '}
                 {
-                  props.itens.filter((a) => a.profissional.id === c.id && a.tipo === 'CONSULTA')
-                    .length
+                  props.itens.filter(
+                    (a) => a.profissional.id === c.id && a.tipo === 'CONSULTA' && !a.desmarcadoEm,
+                  ).length
                 }
               </p>
             </div>
@@ -726,21 +840,21 @@ function VisaoDia(props: {
                   <button
                     key={a.id}
                     type="button"
-                    draggable={props.podeEditar}
+                    draggable={props.podeEditar && !a.desmarcadoEm}
                     onDragStart={(e) => e.dataTransfer.setData('text/plain', String(a.id))}
-                    onClick={() => props.aoAbrir(a)}
+                    onClick={(e) => props.aoAbrir(a, e.currentTarget)}
                     className={`@container absolute z-10 flex flex-col justify-center overflow-hidden rounded-md border-l-4 px-1.5 text-left text-xs leading-tight shadow-sm hover:z-20 hover:brightness-95 ${
                       encaixe ? 'outline-2 -outline-offset-2 outline-aviso outline-dashed' : ''
-                    }`}
+                    } ${a.desmarcadoEm ? 'line-through' : ''} ${realce(a, props.destaque)}`}
                     style={{
                       top: topo + 2,
                       height: altura - 4,
                       left: `calc(${(coluna / colunas) * 100}% + 4px)`,
                       width: `calc(${100 / colunas}% - ${colunas > 1 ? 6 : 8}px)`,
                       backgroundColor: clara(corDe(a), 35),
-                      borderLeftColor: STATUS[a.status].cor,
+                      borderLeftColor: a.desmarcadoEm ? 'var(--perigo)' : STATUS[a.status].cor,
                     }}
-                    title={`${encaixe ? 'Encaixe: ' : ''}${nomeDe(a)}, ${a.inicio}–${a.fim} · ${STATUS[a.status].rotulo}`}
+                    title={`${encaixe ? 'Encaixe: ' : ''}${nomeDe(a)}, ${a.inicio}–${a.fim} · ${a.desmarcadoEm ? 'Desmarcado' : STATUS[a.status].rotulo}`}
                   >
                     {encaixe && (
                       <span className="hidden w-fit rounded bg-aviso @min-[5.5rem]:block px-1 text-[10px] leading-3.5 font-bold text-superficie uppercase">
@@ -751,7 +865,9 @@ function VisaoDia(props: {
                       <span className="font-bold">{nomeDe(a)}</span>, {a.inicio}–{a.fim}
                     </span>
                     {altura > ALTURA && a.tipo === 'CONSULTA' && (
-                      <span className="truncate text-suave">{STATUS[a.status].rotulo}</span>
+                      <span className="truncate text-suave">
+                        {a.desmarcadoEm ? 'Desmarcado' : STATUS[a.status].rotulo}
+                      </span>
                     )}
                   </button>
                 )
@@ -790,7 +906,9 @@ function VisaoSemana(props: {
   hoje: string
   itens: Agendamento[]
   carregando: boolean
-  aoAbrir: (a: Agendamento) => void
+  aoAbrir: (a: Agendamento, el: HTMLElement) => void
+  /** Agendamento com o balão aberto: fica em destaque, os outros apagam. */
+  destaque?: number
   aoDia: (d: string) => void
 }) {
   const corDe = useCorDe()
@@ -803,6 +921,7 @@ function VisaoSemana(props: {
     >
       {dias.map((d, i) => {
         const doDia = props.itens.filter((a) => a.data === d)
+        const ativos = doDia.filter((a) => !a.desmarcadoEm).length
         return (
           <div
             key={d}
@@ -823,8 +942,8 @@ function VisaoSemana(props: {
                   {d.slice(8)}/{d.slice(5, 7)}
                 </span>
               </span>
-              {doDia.length > 0 && (
-                <span className="etiqueta etiqueta-primaria tabular-nums">{doDia.length}</span>
+              {ativos > 0 && (
+                <span className="etiqueta etiqueta-primaria tabular-nums">{ativos}</span>
               )}
             </button>
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
@@ -836,13 +955,13 @@ function VisaoSemana(props: {
               {doDia.map((a) => (
                 <button
                   key={a.id}
-                  onClick={() => props.aoAbrir(a)}
-                  className="block w-full truncate rounded-md border-l-4 px-1.5 py-1 text-left text-xs hover:brightness-95"
+                  onClick={(e) => props.aoAbrir(a, e.currentTarget)}
+                  className={`block w-full truncate rounded-md border-l-4 px-1.5 py-1 text-left text-xs hover:brightness-95 ${a.desmarcadoEm ? 'line-through' : ''} ${realce(a, props.destaque)}`}
                   style={{
                     backgroundColor: `${corDe(a)}26`,
-                    borderLeftColor: STATUS[a.status].cor,
+                    borderLeftColor: a.desmarcadoEm ? 'var(--perigo)' : STATUS[a.status].cor,
                   }}
-                  title={`${a.profissional.nome} · ${STATUS[a.status].rotulo}`}
+                  title={`${a.profissional.nome} · ${a.desmarcadoEm ? 'Desmarcado' : STATUS[a.status].rotulo}`}
                 >
                   <span className="font-bold tabular-nums">{a.inicio}</span> {nomeDe(a)}
                 </button>

@@ -6,6 +6,7 @@ import {
   api,
   consultaConfig,
   consultaEu,
+  consultaProfissionais,
   cpfBR,
   dataBR,
   isoLocal,
@@ -22,6 +23,7 @@ import {
 import { Dialogo } from './Dialogo'
 import { CampoSelect } from './CampoSelect'
 import { confirmar } from './Confirmar'
+import { Icone } from './Icones'
 
 export interface Documento {
   id: number
@@ -39,7 +41,14 @@ interface Profissional {
   cro: string | null
 }
 
-const ROTULO_VARIAVEL = { horario: 'Horário do atendimento', dias: 'Afastamento (ex.: 1 dia)' }
+const ROTULO_VARIAVEL = { horario: 'Horário do atendimento', dias: 'Afastamento' }
+/** Cor do ícone de cada modelo, para reconhecer o tipo na lista sem ler. */
+const TOM: Record<string, string> = {
+  atestado: 'bg-aviso/15 text-aviso',
+  comparecimento: 'bg-primaria-clara text-primaria',
+  receita: 'bg-sucesso/15 text-sucesso',
+}
+const tom = (modelo: string) => TOM[modelo] ?? 'bg-superficie-2 text-suave'
 
 export function Documentos({ paciente }: { paciente: Paciente }) {
   const { data: eu } = useSuspenseQuery(consultaEu)
@@ -61,65 +70,105 @@ export function Documentos({ paciente }: { paciente: Paciente }) {
   const podeEditar = pode(eu.perfis, 'prontuario.editar')
 
   return (
-    <section className="cartao space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="font-semibold">Documentos</h2>
+    <div className="space-y-4">
+      <header className="cartao flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl">Documentos</h2>
+          <p className="subtitulo">Atestados, declarações e receitas emitidos para o paciente.</p>
+        </div>
         {podeEditar && (
-          <button className="botao py-1.5" onClick={() => setNovo(true)}>
+          <button className="botao" onClick={() => setNovo(true)}>
+            <Icone nome="mais" className="h-4 w-4" />
             Novo documento
           </button>
         )}
-      </div>
-      {lista.data?.length === 0 && (
-        <p className="text-suave">Nenhum documento. Gere atestados, declarações e receitas.</p>
-      )}
-      {!!lista.data?.length && (
-        <table className="w-full text-left">
-          <thead className="border-b border-borda text-suave">
-            <tr>
-              {['Data', 'Documento', 'Profissional', ''].map((t) => (
-                <th key={t} className="px-3 py-2 font-medium">
-                  {t}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {lista.data.map((d) => (
-              <tr key={d.id} className="border-b border-borda last:border-0">
-                <td className="px-3 py-2">{dataBR(d.criadoEm)}</td>
-                <td className="px-3 py-2">{d.titulo}</td>
-                <td className="px-3 py-2">{d.profissional?.nome ?? '—'}</td>
-                <td className="px-3 py-2 text-right whitespace-nowrap">
-                  <Link
-                    to="/documento/$id"
-                    params={{ id: String(d.id) }}
-                    className="text-primaria hover:underline"
+      </header>
+
+      <section className="cartao overflow-hidden p-0">
+        {lista.isPending && <p className="px-4 py-10 text-center text-suave">Carregando…</p>}
+        {lista.isError && (
+          <p className="px-4 py-10 text-center text-perigo">{mensagemDeErro(lista.error)}</p>
+        )}
+        {lista.data?.length === 0 && (
+          <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+            <span className="grid size-14 place-items-center rounded-full bg-primaria-clara text-primaria">
+              <Icone nome="arquivo" className="h-7 w-7" />
+            </span>
+            <div>
+              <p className="font-bold text-titulo">Nenhum documento ainda</p>
+              <p className="text-suave">
+                Gere atestados, declarações e receitas a partir dos modelos.
+              </p>
+            </div>
+            {podeEditar && (
+              <button className="botao-leve botao-pequeno" onClick={() => setNovo(true)}>
+                <Icone nome="mais" className="h-3.5 w-3.5" />
+                Novo documento
+              </button>
+            )}
+          </div>
+        )}
+        <ul className="divide-y divide-borda">
+          {lista.data?.map((d) => (
+            <li
+              key={d.id}
+              className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 hover:bg-superficie-2"
+            >
+              <span
+                className={`grid size-11 shrink-0 place-items-center rounded-xl ${tom(d.modelo)}`}
+              >
+                <Icone nome="arquivo" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-bold text-titulo">{d.titulo}</p>
+                <p className="text-suave">
+                  <span className="tabular-nums">{dataBR(d.criadoEm)}</span>
+                  {' · '}
+                  {d.profissional?.nome ?? 'Sem profissional'}
+                </p>
+              </div>
+              <div className="flex items-center gap-1">
+                <Link
+                  to="/documento/$id"
+                  params={{ id: String(d.id) }}
+                  className="botao-leve botao-pequeno"
+                >
+                  <Icone nome="imprimir" className="h-4 w-4" />
+                  Abrir e imprimir
+                </Link>
+                {podeEditar && (
+                  <button
+                    className="botao-fantasma botao-icone text-perigo hover:bg-perigo/10"
+                    aria-label={`Excluir ${d.titulo}`}
+                    title="Excluir"
+                    disabled={excluir.isPending}
+                    onClick={async () =>
+                      (await confirmar(
+                        `Excluir o documento "${d.titulo}"? Ele fica guardado no histórico.`,
+                      )) && excluir.mutate(d.id)
+                    }
                   >
-                    Abrir e imprimir
-                  </Link>
-                  {podeEditar && (
-                    <button
-                      className="ml-3 text-perigo hover:underline"
-                      onClick={async () =>
-                        (await confirmar(
-                          `Excluir o documento "${d.titulo}"? Ele fica guardado no histórico.`,
-                        )) && excluir.mutate(d.id)
-                      }
-                    >
-                      Excluir
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+                    <Icone nome="lixeira" className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
       <Dialogo aberto={novo} aoFechar={() => setNovo(false)} titulo="Novo documento" largo>
         <NovoDocumento paciente={paciente} aoTerminar={() => setNovo(false)} />
       </Dialogo>
-    </section>
+    </div>
+  )
+}
+
+function Passo({ n, texto }: { n: number; texto: string }) {
+  return (
+    <p className="text-xs font-extrabold tracking-wide text-suave uppercase">
+      Passo {n} de 2 · {texto}
+    </p>
   )
 }
 
@@ -132,11 +181,14 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
       (await api.get<Profissional[]>('/profissionais', { params: { ativos: 1 } })).data,
   })
   const { data: eu } = useSuspenseQuery(consultaEu)
+  // O profissional começa como o usuário logado, quando ele é dentista.
+  const meuId = useQuery(consultaProfissionais).data?.meuId ?? ''
   const modelos = useQuery(consultaConfig('documentos')).data
   const clinica = useQuery(consultaConfig('clinica')).data
   const medicamentos = useQuery(consultaConfig('medicamentos')).data ?? []
   const [modelo, setModelo] = useState<ModeloDocumento>('atestado')
-  const [profissionalId, setProfissionalId] = useState<number | ''>('')
+  const [escolhido, setEscolhido] = useState<number | '' | null>(null)
+  const profissionalId = escolhido ?? meuId
   const [valores, setValores] = useState<Record<string, string>>({})
   const [inicial, setInicial] = useState<string | null>(null)
   const [texto, setTexto] = useState('')
@@ -177,17 +229,11 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
 
   if (inicial !== null)
     return (
-      <div className="space-y-3">
-        <label className="block">
-          <span className="rotulo">{MODELOS_DOCUMENTO[modelo].titulo}</span>
-          <textarea
-            className="campo font-serif"
-            rows={14}
-            value={texto}
-            onChange={(e) => setTexto(e.target.value)}
-            autoFocus
-          />
-        </label>
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Passo n={2} texto="Revise o texto" />
+          <span className={`etiqueta ${tom(modelo)}`}>{MODELOS_DOCUMENTO[modelo].titulo}</span>
+        </div>
         {modelo === 'receita' && medicamentos.length > 0 && (
           <label className="block">
             <span className="rotulo">Inserir medicamento</span>
@@ -211,11 +257,23 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
             />
           </label>
         )}
-        <p className="text-suave">
-          Revise o texto. O botão Salvar libera depois da primeira edição.
-        </p>
-        <div className="flex justify-end gap-2">
+        <label className="block">
+          <span className="rotulo">Texto do documento</span>
+          <textarea
+            className="campo font-serif text-base leading-relaxed"
+            rows={14}
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            autoFocus
+          />
+          <span className="ajuda">
+            {texto.includes('________') && 'Complete os trechos “________” que ficaram sem valor. '}
+            O botão Salvar libera depois da primeira edição.
+          </span>
+        </label>
+        <div className="flex flex-wrap justify-between gap-2">
           <button className="botao-leve" onClick={() => setInicial(null)}>
+            <Icone nome="esquerda" className="h-4 w-4" />
             Voltar
           </button>
           <button
@@ -223,7 +281,7 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
             disabled={texto === inicial || !texto.trim() || salvar.isPending}
             onClick={() => salvar.mutate()}
           >
-            Salvar
+            {salvar.isPending ? 'Salvando…' : 'Salvar'}
           </button>
         </div>
       </div>
@@ -231,27 +289,42 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
 
   return (
     <form
-      className="space-y-3"
+      className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
         abrirEditor()
       }}
     >
+      <Passo n={1} texto="Preencha os dados" />
+      <fieldset>
+        <legend className="rotulo">Modelo</legend>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {(Object.keys(MODELOS_DOCUMENTO) as ModeloDocumento[]).map((id) => (
+            <label
+              key={id}
+              className="flex items-center gap-3 rounded-xl border-2 border-borda p-3 hover:border-primaria/50 has-checked:border-primaria has-checked:bg-primaria-clara has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-primaria"
+            >
+              <input
+                type="radio"
+                name="modelo"
+                className="sr-only"
+                checked={modelo === id}
+                onChange={() => setModelo(id)}
+              />
+              <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${tom(id)}`}>
+                <Icone nome="arquivo" className="h-4 w-4" />
+              </span>
+              <span className="font-bold">{MODELOS_DOCUMENTO[id].titulo}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label>
-          <span className="rotulo">Modelo</span>
-          <CampoSelect
-            value={modelo}
-            onChange={(e) => setModelo(e.target.value as ModeloDocumento)}
-            vazio={false}
-            opcoes={Object.entries(MODELOS_DOCUMENTO).map(([id, m]) => [id, m.titulo] as const)}
-          />
-        </label>
         <label>
           <span className="rotulo">Profissional</span>
           <CampoSelect
             value={profissionalId}
-            onChange={(e) => setProfissionalId(Number(e.target.value) || '')}
+            onChange={(e) => setEscolhido(Number(e.target.value) || '')}
             opcoes={profissionais.data?.map((p) => [p.id, p.nome] as const)}
           />
         </label>
@@ -273,6 +346,7 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
         </button>
         <button className="botao" disabled={!profissionalId}>
           Abrir editor
+          <Icone nome="direita" className="h-4 w-4" />
         </button>
       </div>
     </form>

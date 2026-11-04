@@ -9,11 +9,12 @@ import { CANAIS, STATUS } from './agenda'
 import { FORMAS, TIPOS_LANCAMENTO } from './financeiro'
 import {
   DENTES_VALIDOS,
-  ESPECIALIDADES_FICHA,
   LIMITE_OBSERVACAO,
   MODELOS_DOCUMENTO,
   STATUS_CLINICO,
   STATUS_DENTE_FICHA,
+  STATUS_FICHA,
+  LIMITE_ETAPAS,
 } from './prontuario'
 import { ETAPAS } from './protetico'
 import { PERFIS } from './permissoes'
@@ -349,6 +350,8 @@ export const OrcamentoDto = z.object({
           valorCentavos: centavos().nullable().catch(null),
           dente: texto(40),
           faces: texto(20),
+          observacao: texto(LIMITE_OBSERVACAO),
+          observacaoPaciente: texto(LIMITE_OBSERVACAO),
         }),
       )
       .min(1, 'Adicione pelo menos um procedimento.'),
@@ -359,6 +362,54 @@ export const OrcamentoDto = z.object({
     .catch(0)
     .transform((v) => Math.max(0, v)),
   observacoes: texto(LIMITE_OBSERVACAO),
+})
+
+/** Procedimentos do plano que vão para o paciente assinar (um ou vários). */
+export const AutorizacaoDto = z.object({
+  pacienteId: idObrigatorio('Paciente não encontrado.'),
+  /** Plano escrito pelo profissional; vai no documento que o paciente assina. */
+  plano: texto(5000),
+  itens: z
+    .array(
+      z.object({
+        origem: z.enum(['CLINICO', 'ORCAMENTO']),
+        id: z.number().int().positive(),
+        // O que o profissional escreveu sobre o procedimento ao enviar (vai no documento).
+        // Sem o campo, vale a observação para o paciente já gravada.
+        texto: texto(LIMITE_OBSERVACAO).optional(),
+      }),
+      { error: 'Escolha pelo menos um procedimento.' },
+    )
+    .min(1, 'Escolha pelo menos um procedimento.')
+    .max(200),
+})
+
+/**
+ * Planejamento inteiro para o paciente assinar. Comentários para o documento: um por
+ * procedimento (pelo nome) e um por etapa (pelo id).
+ */
+export const AutorizacaoFichaDto = z.object({
+  fichaId: idObrigatorio('Planejamento não encontrado.'),
+  plano: texto(5000),
+  procedimentos: z.record(z.string().max(200), texto(LIMITE_OBSERVACAO)).default({}),
+  etapas: z.record(z.string().max(40), texto(LIMITE_OBSERVACAO)).default({}),
+})
+
+/** Pedidos em aberto que viram um só (um link, um documento). */
+export const JuntarAutorizacoesDto = z.object({
+  ids: z
+    .array(z.number().int().positive(), { error: 'Escolha os pedidos.' })
+    .min(2, 'Escolha pelo menos dois pedidos para juntar.')
+    .max(50),
+})
+
+/** O que o paciente manda ao assinar pelo celular. */
+export const AssinarAutorizacaoDto = z.object({
+  nome: textoObrigatorio('Escreva seu nome completo.', 200),
+  assinatura: z
+    .string({ error: 'Assine no quadro.' })
+    .startsWith('data:image/png;base64,', 'Assine no quadro.')
+    .max(150_000, 'Assinatura grande demais.'),
 })
 
 export const DesaprovarOrcamentoDto = z.object({ senha: qualquerTexto })
@@ -419,29 +470,78 @@ export const ProcedimentoClinicoDto = z.object({
 })
 
 export const FichaEspecialidadeDto = z.object({
-  especialidade: z.enum(ESPECIALIDADES_FICHA, { error: 'Escolha a especialidade.' }),
+  // A lista vem da configuração da clínica (o servidor confere).
+  especialidade: textoObrigatorio('Escolha a especialidade.', 80),
   profissionalId: idObrigatorio('Escolha o profissional.'),
+  /** Vira a primeira observação. */
   observacoes: texto(LIMITE_OBSERVACAO),
+})
+
+/** Uma observação do planejamento (acrescentar ou editar). */
+export const NotaFichaDto = z.object({
+  texto: textoObrigatorio('Escreva a observação.', LIMITE_OBSERVACAO),
+})
+
+/** Edição da ficha: só muda o que vier. */
+export const EditarFichaDto = z.object({
+  status: z.enum(STATUS_FICHA, { error: 'Status inválido.' }).optional(),
+  profissionalId: idObrigatorio('Escolha o profissional.').optional(),
+  inicio: dataOpcional.optional(),
+  fim: dataOpcional.optional(),
+  // Os blocos fixos e as etapas já assinadas são conferidos no servidor.
+  etapas: z
+    .array(
+      z.object({
+        id: z.string().max(40).optional(),
+        tipo: z.enum(['AVALIACAO', 'PLANEJAMENTO', 'APROVACAO', 'FINALIZACAO']).optional(),
+        nome: textoObrigatorio('Dê um nome à etapa.', 80),
+        data: dataOpcional.default(null),
+        executado: z.boolean().default(false),
+      }),
+    )
+    .max(LIMITE_ETAPAS, `No máximo ${LIMITE_ETAPAS} etapas.`)
+    .optional(),
 })
 
 const statusDente = z.enum(STATUS_DENTE_FICHA, { error: 'Status inválido.' })
 
+const denteFicha = z.preprocess(
+  limpo(),
+  z
+    .string({ error: 'Informe o dente (numeração FDI).' })
+    .refine((d) => DENTES_VALIDOS.has(d), 'Informe o dente (numeração FDI).'),
+)
+const procedimentoFicha = textoObrigatorio('Informe o procedimento.', 200)
+
 export const ItemFichaDto = z.object({
   // R-068: o procedimento da ficha exige dente.
-  dente: z.preprocess(
-    limpo(),
-    z
-      .string({ error: 'Informe o dente (numeração FDI).' })
-      .refine((d) => DENTES_VALIDOS.has(d), 'Informe o dente (numeração FDI).'),
-  ),
-  procedimento: textoObrigatorio('Informe o procedimento.', 200),
+  dente: denteFicha,
+  procedimento: procedimentoFicha,
   status: z.preprocess((v) => limpo()(v) ?? STATUS_DENTE_FICHA[0], statusDente),
+  observacao: texto(LIMITE_OBSERVACAO),
+  data: dataOpcional.default(null),
+})
+
+/** Vários procedimentos em vários dentes: um item para cada par. */
+export const LoteItensFichaDto = z.object({
+  procedimentos: z
+    .array(procedimentoFicha)
+    .min(1, 'Escolha ao menos um procedimento.')
+    .max(20, 'No máximo 20 procedimentos de uma vez.'),
+  dentes: z
+    .array(z.object({ dente: denteFicha, faces: z.string().max(10).default('') }))
+    .min(1, 'Escolha ao menos um dente.')
+    .max(52, 'Dentes demais.'),
+  status: z.preprocess((v) => limpo()(v) ?? STATUS_DENTE_FICHA[0], statusDente),
+  data: dataOpcional.default(null),
   observacao: texto(LIMITE_OBSERVACAO),
 })
 
-/** Sem status, fica o que já estava. */
+/** Só muda o que vier. Dente e faces não mudam depois de enviado ao paciente. */
 export const StatusItemFichaDto = z.object({
   status: z.preprocess(limpo(), statusDente.nullable()),
+  dente: denteFicha.optional(),
+  faces: z.string().max(10).optional(),
 })
 
 export const ArquivoDto = z.object({

@@ -83,19 +83,25 @@ export const COR_PADRAO = '#0f766e'
 
 /**
  * Especialidade: busca na lista da clínica enquanto digita e oferece adicionar o que foi
- * digitado (mesmo padrão da busca de paciente). Usado no profissional e no procedimento.
- * O rótulo do formulário precisa ter id="p-esp-rotulo".
+ * digitado (mesmo padrão da busca de paciente). Usado no profissional, no procedimento e,
+ * com chave="especialidadesFicha", na ficha de especialidade.
+ * O rótulo do formulário precisa ter o id passado em "rotulo" (padrão "p-esp-rotulo").
  */
 export function CampoEspecialidade({
   inicial,
   naLinha = false,
+  chave = 'especialidades',
+  rotulo = 'p-esp-rotulo',
 }: {
   inicial: string
   /** A lista abre empurrando o que vem abaixo, em vez de flutuar (para janelas pequenas). */
   naLinha?: boolean
+  /** Qual lista da clínica: a dos profissionais ou a dos tipos de ficha. */
+  chave?: 'especialidades' | 'especialidadesFicha'
+  rotulo?: string
 }) {
   const qc = useQueryClient()
-  const especialidades = useQuery(consultaConfig('especialidades'))
+  const especialidades = useQuery(consultaConfig(chave))
   const [valor, setValor] = useState(inicial)
   const [texto, setTexto] = useState(inicial)
   const [aberta, setAberta] = useState(false)
@@ -114,14 +120,10 @@ export function CampoEspecialidade({
   }
   const adicionar = useMutation({
     mutationFn: async (nome: string) =>
-      (
-        await api.put<string[]>('/configuracoes/especialidades', [
-          ...(especialidades.data ?? []),
-          nome,
-        ])
-      ).data,
+      (await api.put<string[]>(`/configuracoes/${chave}`, [...(especialidades.data ?? []), nome]))
+        .data,
     onSuccess: (lista, nome) => {
-      qc.setQueryData(['config', 'especialidades'], lista)
+      qc.setQueryData(['config', chave], lista)
       escolher(lista.find((e) => normalizar(e) === normalizar(nome)) ?? nome)
       setCriando(false)
       avisar('Especialidade adicionada')
@@ -145,7 +147,7 @@ export function CampoEspecialidade({
     >
       <input type="hidden" name="especialidade" value={valor} />
       <CampoBusca
-        rotulo="p-esp-rotulo"
+        rotulo={rotulo}
         placeholder="Buscar ou adicionar"
         valor={texto}
         aoMudar={(v) => {
@@ -203,11 +205,7 @@ export function CampoEspecialidade({
           O stopPropagation impede o envio de subir (pela árvore do React) até aquele form. */}
       {createPortal(
         <div onSubmit={(e) => e.stopPropagation()}>
-          <Dialogo
-            aberto={criando}
-            aoFechar={() => setCriando(false)}
-            titulo="Nova especialidade"
-          >
+          <Dialogo aberto={criando} aoFechar={() => setCriando(false)} titulo="Nova especialidade">
             <form
               className="space-y-4"
               onSubmit={(e) => {
@@ -532,11 +530,7 @@ export function Profissionais() {
         </section>
       )}
 
-      <Dialogo
-        aberto={!!confirmando}
-        aoFechar={fecharConfirmacao}
-        titulo={textos?.titulo ?? ''}
-      >
+      <Dialogo aberto={!!confirmando} aoFechar={fecharConfirmacao} titulo={textos?.titulo ?? ''}>
         {confirmando && textos && (
           <form
             className="space-y-4"

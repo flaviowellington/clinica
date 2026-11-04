@@ -3,21 +3,21 @@ import dotenv from 'dotenv'
 
 const env = dotenv.config({ path: 'server/.env', quiet: true }).parsed ?? {}
 
+// Seções da ficha na ordem do menu (agrupadas: Paciente, Atendimento, Clínico, Arquivos, Outros).
 const TODAS = [
   'Visão Geral',
+  'Agendamentos',
   'Orçamentos',
-  'Financeiro',
-  'Fotos',
-  'Plano e Ficha Clínica',
-  'Fichas Especialidades',
-  'Odontograma',
   'Anamnese',
+  'Plano e Ficha Clínica',
+  'Odontograma',
   'Documentos',
   'Exames',
-  'Recibos',
-  'Agendamentos',
+  'Fotos',
   'Indicações',
 ]
+const secoes = (page: Page) =>
+  page.getByRole('navigation', { name: 'Seções da ficha' }).getByRole('button')
 
 async function abrirFicha(page: Page, login: string) {
   await page.goto('/entrar')
@@ -29,13 +29,13 @@ async function abrirFicha(page: Page, login: string) {
   await expect(page.getByRole('heading', { name: /Ana Fictícia Oliveira/ })).toBeVisible()
 }
 
-test('S-003: a ficha tem as 13 abas; anamnese obrigatória e alerta (PT-58, PT-59, PT-74)', async ({
+test('S-003: a ficha tem as 10 seções (aprovação de procedimentos e planejamentos ficam em Plano e Ficha Clínica); anamnese obrigatória e alerta (PT-58, PT-59, PT-74)', async ({
   page,
 }) => {
   await abrirFicha(page, 'admin')
-  await expect(page.getByRole('tab')).toHaveText(TODAS)
+  await expect(secoes(page)).toHaveText(TODAS)
 
-  await page.getByRole('tab', { name: 'Anamnese' }).click()
+  await secoes(page).filter({ hasText: 'Anamnese' }).click()
   await expect(page).toHaveURL(/aba=anamnese/)
   await page.getByRole('button', { name: 'Nova anamnese' }).click()
   const dialogo = page.getByRole('dialog')
@@ -57,12 +57,12 @@ test('S-003: a ficha tem as 13 abas; anamnese obrigatória e alerta (PT-58, PT-5
 
 test('permissões: Recepção vê só as abas da sua função', async ({ page }) => {
   await abrirFicha(page, 'recepcao1')
-  await expect(page.getByRole('tab')).toHaveText([
+  await expect(secoes(page)).toHaveText([
     'Visão Geral',
-    'Orçamentos',
-    'Fotos',
-    'Anamnese',
     'Agendamentos',
+    'Orçamentos',
+    'Anamnese',
+    'Fotos',
     'Indicações',
   ])
 })
@@ -98,13 +98,13 @@ test('odontograma: faces marcadas vão preenchidas ao procedimento; dentição m
     .getByPlaceholder('Busque na tabela ou escreva')
     .fill('Restauração em resina (1 face)')
   await dialogo.getByPlaceholder('Busque na tabela ou escreva').press('Tab')
-  // "A realizar" mostra o preço da tabela e o total, e vira orçamento em aberto.
-  await dialogo.getByLabel('A realizar').check()
+  // "A realizar" já vem marcado: mostra o preço da tabela e o total, e vira orçamento em aberto.
+  await expect(dialogo.getByLabel('A realizar')).toBeChecked()
   await expect(dialogo.getByLabel('Valor por dente')).toHaveValue(/250,00/)
   await expect(dialogo).toContainText('Total: R$ 500,00')
   await dialogo.getByLabel('Profissional *').selectOption({ index: 1 })
   await dialogo.getByRole('button', { name: 'Salvar' }).click()
-  await expect(page.getByText(/Orçamento nº \d+ criado em Orçamentos/)).toBeVisible()
+  await expect(page.getByText(/Adicionado ao plano \(orçamento nº \d+ em aberto\)/)).toBeVisible()
   // Janela larga: a lista fica ao lado do odontograma; os dois dentes num cartão só.
   const grupo = page.getByRole('listitem').filter({ hasText: '11VD' })
   await expect(grupo).toHaveCount(1)
@@ -121,6 +121,7 @@ test('odontograma: faces marcadas vão preenchidas ao procedimento; dentição m
   await page.getByRole('button', { name: 'Adicionar procedimento' }).click()
   await dialogo.getByPlaceholder('Busque na tabela ou escreva').fill('Restauração de teste')
   await dialogo.getByPlaceholder('Busque na tabela ou escreva').press('Tab')
+  await dialogo.getByLabel('Executado').check()
   await dialogo.getByLabel('Profissional *').selectOption({ index: 1 })
   await dialogo.getByRole('button', { name: 'Salvar' }).click()
   await expect(page.getByText('12V', { exact: true })).toBeVisible()
@@ -158,6 +159,7 @@ test('odontograma: faces marcadas vão preenchidas ao procedimento; dentição m
   await page.getByRole('button', { name: 'Adicionar procedimento' }).click()
   await dialogo.getByPlaceholder('Busque na tabela ou escreva').fill('Clareamento de teste')
   await dialogo.getByPlaceholder('Busque na tabela ou escreva').press('Tab')
+  await dialogo.getByLabel('Executado').check()
   await dialogo.getByLabel('Profissional *').selectOption({ index: 1 })
   await dialogo.getByRole('button', { name: 'Salvar' }).click()
   const clareamento = page.getByRole('listitem').filter({ hasText: 'Clareamento de teste' })

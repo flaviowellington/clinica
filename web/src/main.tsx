@@ -23,7 +23,7 @@ import '@fontsource/nunito/latin-800.css'
 import './index.css'
 import { api, consultaEu } from './api'
 import { Confirmacao } from './componentes/Confirmar'
-import { PALETAS, useAvisos, useTema, type Paleta } from './estado'
+import { PALETAS, avisar, useAvisos, useTema, type Paleta } from './estado'
 import { pode } from '../../shared/permissoes'
 import { Entrar } from './paginas/Entrar'
 import { Pacientes } from './paginas/Pacientes'
@@ -41,6 +41,7 @@ import { Configuracoes } from './paginas/Configuracoes'
 import { Protetico } from './paginas/Protetico'
 import { Confirmacoes } from './paginas/Confirmacoes'
 import { ConfirmarPresenca } from './paginas/ConfirmarPresenca'
+import { AutorizarPlano } from './paginas/AutorizarPlano'
 import { Painel } from './paginas/Painel'
 import { Importacao } from './paginas/Importacao'
 import { Estilos } from './paginas/Estilos'
@@ -111,6 +112,8 @@ function SeletorPaleta() {
 const RECARREGAR: Record<string, string[][]> = {
   agenda: [['agenda'], ['confirmacoes'], ['agendamentos-paciente']],
   retornos: [['retornos']],
+  autorizacoes: [['autorizacoes'], ['procedimentos'], ['fichas']],
+  assinatura: [['autorizacoes'], ['procedimentos'], ['fichas']],
 }
 
 /** Tempo real: ouve os avisos do servidor e recarrega o que outra máquina mudou. */
@@ -127,7 +130,11 @@ function useTempoReal() {
       if (caiu) Object.keys(RECARREGAR).forEach(recarregar)
       caiu = false
     }
-    fonte.onmessage = (e) => recarregar(JSON.parse(e.data).assunto)
+    fonte.onmessage = (e) => {
+      const { assunto } = JSON.parse(e.data)
+      recarregar(assunto)
+      if (assunto === 'assinatura') avisar('Um paciente acabou de assinar o plano de tratamento')
+    }
     return () => fonte.close()
   }, [qc])
 }
@@ -356,11 +363,18 @@ const confirmar = createRoute({
   path: '/confirmar/$token',
   component: ConfirmarPresenca,
 })
+// Pública: o paciente lê e assina o plano de tratamento pelo celular.
+const autorizar = createRoute({
+  getParentRoute: () => raiz,
+  path: '/autorizar/$token',
+  component: AutorizarPlano,
+})
 
 const router = createRouter({
   routeTree: raiz.addChildren([
     entrar,
     confirmar,
+    autorizar,
     estilos,
     fontes,
     logado.addChildren([
@@ -396,7 +410,10 @@ declare module '@tanstack/react-router' {
 // Sem sugestões do navegador nos campos; quem define autoComplete (login, senha) mantém o seu.
 document.addEventListener('focusin', (e) => {
   const el = e.target
-  if ((el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && !el.hasAttribute('autocomplete'))
+  if (
+    (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) &&
+    !el.hasAttribute('autocomplete')
+  )
     el.setAttribute('autocomplete', 'off')
 })
 

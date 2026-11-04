@@ -4,8 +4,22 @@ import { db } from './db'
 import { gerarHash } from './auth'
 import { deflateSync, crc32 } from 'node:zlib'
 import { normalizar } from '../../shared/regras'
-import { MODELO_ANAMNESE, MODELOS_DOCUMENTO, preencherModelo } from '../../shared/prontuario'
-import type { MotivoInativacao, Perfil, Prisma, StatusAgenda } from './generated/prisma/client'
+import { randomBytes } from 'node:crypto'
+import {
+  MODELO_ANAMNESE,
+  MODELOS_DOCUMENTO,
+  denteComFaces,
+  etapasDaFicha,
+  preencherModelo,
+} from '../../shared/prontuario'
+import { TERMO } from './autorizacoes'
+import type {
+  MotivoInativacao,
+  Perfil,
+  Prisma,
+  StatusAgenda,
+  StatusClinico,
+} from './generated/prisma/client'
 
 if (process.env.NODE_ENV === 'production') throw new Error('O seed não roda em produção.')
 const senha = process.env.SEED_SENHA
@@ -17,8 +31,47 @@ const data = (iso: string) => new Date(`${iso}T00:00:00Z`)
 const hoje = data(new Date().toLocaleDateString('sv'))
 const dias = (n: number) => new Date(hoje.getTime() + n * 86_400_000)
 
-/** PNG de uma cor só, para as fotos fictícias (sem precisar de arquivo de imagem). */
-function pngLiso(largura: number, altura: number, [r, g, b]: readonly number[]) {
+type Cor = readonly number[]
+/**
+ * Desenho bem simples (fundo + elipses) que vira PNG: gera as imagens fictícias de fotos e
+ * exames sem precisar de arquivo de imagem. A cor da elipse pode depender de d (0 no centro,
+ * 1 na borda), o que dá um sombreado; "dentro" recorta o desenho (ex.: só dentro da boca);
+ * "forma" acima de 2 deixa a elipse mais quadrada (bom para dentes).
+ */
+function tela(largura: number, altura: number, fundo: (x: number, y: number) => Cor) {
+  const px = Buffer.alloc(largura * altura * 3)
+  const pintar = (x: number, y: number, cor: Cor) => px.set(cor, (y * largura + x) * 3)
+  for (let y = 0; y < altura; y++) for (let x = 0; x < largura; x++) pintar(x, y, fundo(x, y))
+  return {
+    elipse(
+      cx: number,
+      cy: number,
+      rx: number,
+      ry: number,
+      cor: Cor | ((d: number) => Cor),
+      o: { graus?: number; forma?: number; dentro?: (x: number, y: number) => boolean } = {},
+    ) {
+      const { graus = 0, forma = 2, dentro } = o
+      const [sen, cos] = [Math.sin((graus * Math.PI) / 180), Math.cos((graus * Math.PI) / 180)]
+      const r = Math.ceil(Math.hypot(rx, ry))
+      for (let y = Math.max(0, Math.round(cy - r)); y < Math.min(altura, cy + r); y++)
+        for (let x = Math.max(0, Math.round(cx - r)); x < Math.min(largura, cx + r); x++) {
+          const [u, v] = [(x - cx) * cos + (y - cy) * sen, (y - cy) * cos - (x - cx) * sen]
+          const d = Math.abs(u / rx) ** forma + Math.abs(v / ry) ** forma
+          if (d <= 1 && (!dentro || dentro(x, y)))
+            pintar(x, y, typeof cor === 'function' ? cor(d) : cor)
+        }
+    },
+    png: () => png(largura, altura, px),
+  }
+}
+const naElipse = (cx: number, cy: number, rx: number, ry: number) => (x: number, y: number) =>
+  ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1
+/** Mistura duas cores: t = 0 é a primeira, t = 1 a segunda. */
+const misturar = (a: Cor, b: Cor, t: number) => a.map((v, i) => Math.round(v + (b[i] - v) * t))
+const cinza = (v: number) => [v, v, v].map((c) => Math.max(0, Math.min(255, Math.round(c))))
+
+function png(largura: number, altura: number, px: Buffer) {
   const pedaco = (tipo: string, dados: Buffer) => {
     const tam = Buffer.alloc(4)
     tam.writeUInt32BE(dados.length)
@@ -31,14 +84,156 @@ function pngLiso(largura: number, altura: number, [r, g, b]: readonly number[]) 
   cab.writeUInt32BE(largura, 0)
   cab.writeUInt32BE(altura, 4)
   cab.set([8, 2, 0, 0, 0], 8) // 8 bits, RGB
-  const linha = Buffer.from([0, ...Array.from({ length: largura }, () => [r, g, b]).flat()])
+  const linhas = Array.from({ length: altura }, (_, y) =>
+    Buffer.concat([Buffer.from([0]), px.subarray(y * largura * 3, (y + 1) * largura * 3)]),
+  )
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     pedaco('IHDR', cab),
-    pedaco('IDAT', deflateSync(Buffer.concat(Array(altura).fill(linha)))),
+    pedaco('IDAT', deflateSync(Buffer.concat(linhas))),
     pedaco('IEND', Buffer.alloc(0)),
   ])
 }
+const pngLiso = (largura: number, altura: number, cor: Cor) =>
+  tela(largura, altura, () => cor).png()
+
+/** PDF de uma página com as linhas de texto (Helvetica, acentos em latin1). */
+function pdfTexto(linhas: string[]) {
+  const escapar = (l: string) => l.replace(/[\\()]/g, '\\$&')
+  const conteudo = `BT /F1 12 Tf 60 790 Td 18 TL ${linhas.map((l) => `(${escapar(l)}) '`).join(' ')} ET`
+  const objetos = [
+    '<</Type/Catalog/Pages 2 0 R>>',
+    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>',
+    '<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>',
+    `<</Length ${conteudo.length}>>stream\n${conteudo}\nendstream`,
+  ]
+  let pdf = '%PDF-1.4\n'
+  const posicoes = objetos.map((o, i) => {
+    const pos = pdf.length
+    pdf += `${i + 1} 0 obj${o}endobj\n`
+    return pos
+  })
+  const xref = pdf.length
+  pdf +=
+    `xref\n0 ${objetos.length + 1}\n0000000000 65535 f \n` +
+    posicoes.map((p) => `${String(p).padStart(10, '0')} 00000 n \n`).join('') +
+    `trailer<</Size ${objetos.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF`
+  return Buffer.from(pdf, 'latin1')
+}
+
+// ── Imagens fictícias, desenhadas uma vez e repetidas em todos os pacientes ──
+const dente = (claro: number, escuro: number) => (d: number) => cinza(claro - (claro - escuro) * d)
+const esmalte = (d: number) => misturar([250, 248, 240], [205, 195, 175], d)
+
+function panoramica() {
+  const t = tela(640, 320, (x, y) => cinza(70 - Math.hypot((x - 320) / 3.2, (y - 160) / 1.6) * 0.5))
+  t.elipse(320, 165, 300, 150, dente(95, 60)) // osso
+  const plano = (x: number) => 165 - 0.00055 * (x - 320) ** 2 // curva de Spee (sorriso)
+  for (let i = 0; i < 16; i++) {
+    const x = 80 + i * 32
+    const meio = Math.abs(i - 7.5)
+    const largura = meio > 4.5 ? 15 : meio > 2.5 ? 13 : 11
+    const graus = Math.atan(-0.0006 * (x - 320)) * (180 / Math.PI)
+    for (const lado of [-1, 1]) {
+      if (lado === 1 && i === 13) continue // dente ausente (36)
+      const y = plano(x)
+      t.elipse(x, y + lado * 70, largura * 0.55, 44, dente(165, 115), { graus }) // raiz
+      t.elipse(x, y + lado * 24, largura, 23, dente(230, 160), { graus, forma: 2.6 }) // coroa
+      if ((i === 4 || i === 12) && lado === -1) t.elipse(x, y - 14, 7, 8, cinza(252)) // restauração
+    }
+  }
+  return t.png()
+}
+
+function periapical() {
+  const t = tela(260, 340, (x, y) => cinza(55 + 25 * Math.sin(x / 40) * Math.cos(y / 60)))
+  for (const [x, tratado] of [
+    [60, false],
+    [130, true],
+    [200, false],
+  ] as const) {
+    t.elipse(x, 215, 19, 110, dente(175, 125)) // raiz
+    t.elipse(x, 92, 33, 58, dente(235, 170), { forma: 3 }) // coroa
+    t.elipse(x, 112, 9, 32, cinza(115)) // câmara pulpar
+    t.elipse(x, 225, 3, 92, cinza(tratado ? 252 : 115)) // canal (branco quando tratado)
+  }
+  return t.png()
+}
+
+function sorriso() {
+  const t = tela(520, 340, (x, y) =>
+    misturar([232, 186, 155], [190, 140, 115], Math.hypot(x - 260, y - 170) / 300),
+  )
+  t.elipse(260, 185, 205, 100, (d) => misturar([200, 90, 100], [160, 65, 75], d)) // lábios
+  t.elipse(260, 185, 175, 62, [70, 22, 30]) // boca
+  const dentro = naElipse(260, 185, 175, 62)
+  const larguras = [30, 24, 24, 21, 19, 18]
+  let [sup, inf] = [0, 0]
+  for (const [i, l] of larguras.entries()) {
+    for (const lado of [-1, 1]) {
+      const li = l * 0.72
+      t.elipse(260 + lado * (inf + li / 2), 228, li / 2 - 0.5, 22, esmalte, { forma: 3, dentro })
+      t.elipse(260 + lado * (sup + l / 2), 165 + i, l / 2 - 0.5, 34 - i * 2.5, esmalte, {
+        forma: 3,
+        dentro,
+      })
+    }
+    sup += l
+    inf += l * 0.72
+  }
+  t.elipse(260, 128, 175, 30, (d) => misturar([230, 135, 145], [205, 110, 120], d), { dentro }) // gengiva
+  return t.png()
+}
+
+function oclusal() {
+  const t = tela(440, 360, (x, y) =>
+    misturar([60, 35, 40], [20, 12, 14], Math.hypot(x - 220, y - 180) / 260),
+  )
+  t.elipse(220, 210, 180, 180, (d) => misturar([225, 130, 135], [185, 95, 105], d)) // palato
+  for (let i = 0; i < 14; i++) {
+    const a = -1.3 + i * 0.2
+    const [dx, dy] = [150 * Math.cos(a), 220 * Math.sin(a)] // tangente do arco
+    const meio = Math.abs(i - 6.5)
+    const ry = meio > 4 ? 21 : meio > 2 ? 16 : meio > 1 ? 13 : 9
+    const [x, y] = [220 + 150 * Math.sin(a), 315 - 220 * Math.cos(a)]
+    const graus = (Math.atan2(dy, dx) * 180) / Math.PI
+    t.elipse(x, y, Math.hypot(dx, dy) * 0.1, ry, esmalte, { graus, forma: 2.5 })
+    if (i === 1) t.elipse(x, y, 8, 9, [160, 160, 168], { graus }) // amálgama
+  }
+  return t.png()
+}
+
+const IMAGENS_FICTICIAS = [
+  { categoria: 'FOTO', pasta: 'Inicial', nome: 'sorriso-frontal.png', dados: sorriso() },
+  { categoria: 'FOTO', pasta: 'Inicial', nome: 'oclusal-superior.png', dados: oclusal() },
+  {
+    categoria: 'FOTO',
+    pasta: 'Pós-tratamento',
+    nome: 'sorriso-frontal-final.png',
+    dados: sorriso(),
+  },
+  { categoria: 'EXAME', pasta: 'Radiografias', nome: 'panoramica.png', dados: panoramica() },
+  { categoria: 'EXAME', pasta: 'Radiografias', nome: 'periapical-11-21.png', dados: periapical() },
+  {
+    categoria: 'EXAME',
+    pasta: null,
+    nome: 'laudo-radiografico-ficticio.pdf',
+    dados: pdfTexto([
+      'LAUDO RADIOGRÁFICO (EXEMPLO FICTÍCIO)',
+      '',
+      'Exame: radiografia panorâmica',
+      'Clínica de radiologia fictícia',
+      '',
+      'Dentição permanente. Ausência do dente 36.',
+      'Restaurações radiopacas nos dentes 14 e 25.',
+      'Tratamento endodôntico no dente 11, sem lesão periapical.',
+      'Nível ósseo dentro da normalidade.',
+      '',
+      'Documento gerado pelo seed de desenvolvimento. Não é um exame real.',
+    ]),
+  },
+] as const
 
 /** CPF com dígitos verificadores corretos, a partir de 9 dígitos quaisquer. */
 function cpfFicticio(base: string) {
@@ -248,7 +443,15 @@ if (gerar.length) {
   const hhmm = (min: number) =>
     `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
   const minAgora = agora.getHours() * 60 + agora.getMinutes()
-  const categorias = ['Consulta', 'Consulta', 'Retorno', 'Avaliação', 'Periódico', 'Ortopedia', 'Cirurgia']
+  const categorias = [
+    'Consulta',
+    'Consulta',
+    'Retorno',
+    'Avaliação',
+    'Periódico',
+    'Ortopedia',
+    'Cirurgia',
+  ]
   const observacoes = [
     'Paciente ansioso, explicar o procedimento.',
     'Trazer exames.',
@@ -257,7 +460,14 @@ if (gerar.length) {
   ]
   const linhas: Prisma.AgendamentoUncheckedCreateInput[] = []
 
-  const consulta = (dia: Date, n: number, prof: number, ini: number, fim: number, encaixe = false) => {
+  const consulta = (
+    dia: Date,
+    n: number,
+    prof: number,
+    ini: number,
+    fim: number,
+    encaixe = false,
+  ) => {
     const categoria = um(categorias)
     let status: StatusAgenda = sorte() < 0.35 ? 'CONFIRMADO' : 'AGENDADO'
     let chegou: number | null = null
@@ -292,7 +502,9 @@ if (gerar.length) {
       confirmadoPor: status === 'CONFIRMADO' ? um(['Paciente', 'Recepção Fictícia Um']) : null,
       desmarcadoEm: desmarcada ? agora : null,
       desmarcadoPorId: desmarcada ? recepcaoId : null,
-      motivoDesmarcacao: desmarcada ? um(['Paciente pediu para remarcar', 'Viagem', 'Doente']) : null,
+      motivoDesmarcacao: desmarcada
+        ? um(['Paciente pediu para remarcar', 'Viagem', 'Doente'])
+        : null,
       criadoPorId: sorte() < 0.5 ? adminId : recepcaoId,
     })
   }
@@ -304,11 +516,13 @@ if (gerar.length) {
 
     // Compromissos do dia: reunião toda quarta no almoço, curso numa sexta, manutenção.
     const compromissos: { titulo: string; prof: number; ini: number; fim: number }[] = []
-    if (semana === 3) compromissos.push({ titulo: 'Reunião semanal da equipe', prof: 0, ini: 720, fim: 780 })
+    if (semana === 3)
+      compromissos.push({ titulo: 'Reunião semanal da equipe', prof: 0, ini: 720, fim: 780 })
     if (semana === 5 && n > 7 && n < 15)
       for (const prof of dentistas.keys())
         compromissos.push({ titulo: 'Curso de atualização', prof, ini: 840, fim: 1080 })
-    if (n === 3) compromissos.push({ titulo: 'Manutenção do equipamento', prof: 1, ini: 900, fim: 990 })
+    if (n === 3)
+      compromissos.push({ titulo: 'Manutenção do equipamento', prof: 1, ini: 900, fim: 990 })
     for (const c of compromissos.filter((c) => gerar.includes(c.prof)))
       linhas.push({
         tipo: 'COMPROMISSO',
@@ -330,7 +544,7 @@ if (gerar.length) {
     const fimDia = semana === 6 ? 720 : 1140 // sábado só de manhã
     for (const prof of gerar) {
       const blocos: [number, number][] = []
-      for (let t = 480; t < fimDia; ) {
+      for (let t = 480; t < fimDia;) {
         const fim = Math.min(t + um([15, 30, 30, 30, 45, 60]), fimDia)
         if (!bloqueado(prof, t, fim) && sorte() < ocupacao) {
           consulta(dia, n, prof, t, fim)
@@ -857,22 +1071,6 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
       },
     })
 
-  await db.fichaEspecialidade.create({
-    data: {
-      pacienteId: completo.id,
-      profissionalId: dr,
-      especialidade: 'Endodontia',
-      observacoes: 'Dor espontânea no 36 (fictício).',
-      criadoPorId: adminId,
-      itens: {
-        create: [
-          { dente: '36', procedimento: 'Tratamento de canal', status: 'Em tratamento' },
-          { dente: '37', procedimento: 'Teste de vitalidade', status: 'Em avaliação' },
-        ],
-      },
-    },
-  })
-
   const docAtestado = preencherModelo(MODELOS_DOCUMENTO.atestado.texto, {
     paciente: completo.nome,
     cpf: completo.cpf?.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'),
@@ -906,42 +1104,514 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
     ],
   })
 
-  // Fotos (imagens geradas aqui, de cor lisa) e um exame em PDF, todos fictícios.
-  for (const [nome, cor, pasta] of [
-    ['frontal-inicial.png', [15, 118, 110], 'Inicial'],
-    ['oclusal-inicial.png', [56, 189, 248], 'Inicial'],
-    ['frontal-final.png', [234, 179, 8], 'Pós-tratamento'],
-  ] as const) {
-    const dados = pngLiso(160, 110, cor)
-    await db.arquivo.create({
+  console.log(`Prontuário completo criado para "${completo.nome}".`)
+}
+
+// ── Fotos, exames e documentos em todos os pacientes (as mesmas imagens repetidas) ──
+{
+  const profissionais = await db.pessoa.findMany({ where: { id: { in: [dra, dr] } } })
+  const pacientesTodos = await db.pessoa.findMany({ where: { tipo: 'PACIENTE', excluidoEm: null } })
+  let comArquivos = 0
+  for (const [n, p] of pacientesTodos.entries()) {
+    // Marca pela panorâmica: banco antigo (com as fotos lisas) também recebe as novas.
+    if (!(await db.arquivo.count({ where: { pacienteId: p.id, nome: 'panoramica.png' } }))) {
+      await db.arquivo.createMany({
+        data: IMAGENS_FICTICIAS.map((a, i) => ({
+          pacienteId: p.id,
+          categoria: a.categoria,
+          pasta: a.pasta,
+          nome: a.nome,
+          tipo: a.nome.endsWith('.pdf') ? 'application/pdf' : 'image/png',
+          tamanho: a.dados.length,
+          dados: new Uint8Array(a.dados),
+          criadoEm: dias(a.pasta === 'Pós-tratamento' ? -10 : -60 + i),
+          criadoPorId: adminId,
+        })),
+      })
+      comArquivos++
+    }
+    if (await db.documento.count({ where: { pacienteId: p.id } })) continue
+    const prof = profissionais[n % profissionais.length]
+    const valores = (diasAtras: number) => ({
+      paciente: p.nome,
+      cpf: p.cpf?.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'),
+      profissional: prof.nome,
+      cro: prof.cro,
+      data: dias(-diasAtras).toISOString().slice(0, 10).split('-').reverse().join('/'),
+      cidade: 'Cidade Fictícia',
+      horario: '09:30',
+      dias: '1 dia',
+    })
+    const docs = [
+      ['comparecimento', 45],
+      ['atestado', 30],
+      ['receita', 30],
+    ] as const
+    await db.documento.createMany({
+      data: docs.map(([modelo, diasAtras]) => ({
+        pacienteId: p.id,
+        profissionalId: prof.id,
+        modelo,
+        titulo: MODELOS_DOCUMENTO[modelo].titulo,
+        texto: preencherModelo(MODELOS_DOCUMENTO[modelo].texto, valores(diasAtras)).replace(
+          '1. ',
+          '1. Paracetamol 750 mg - 1 comprimido de 6 em 6 horas, se houver dor (fictício)',
+        ),
+        criadoEm: dias(-diasAtras),
+        criadoPorId: adminId,
+      })),
+    })
+  }
+  console.log(`Fotos e exames fictícios criados para ${comArquivos} pacientes.`)
+}
+
+// ── Anamnese em 70% dos pacientes; metade delas com alerta (35% do total) ──
+{
+  const todos = await db.pessoa.findMany({
+    where: { tipo: 'PACIENTE', excluidoEm: null },
+    orderBy: { id: 'asc' },
+  })
+  // O paciente completo já tem anamnese com alerta (alergia): entra na conta.
+  const outros = todos.filter((p) => p.id !== completo.id)
+  const nAnamnese = Math.round(todos.length * 0.7) - 1
+  const nAlerta = Math.round(todos.length * 0.35) - 1
+  /** Espalha "quantos" escolhidos por "total" posições: true na posição i se ela é escolhida. */
+  const espalhar = (i: number, quantos: number, total: number) =>
+    Math.floor(((i + 1) * quantos) / total) > Math.floor((i * quantos) / total)
+  const ALERTAS = [
+    ['Tem alergia', 'Dipirona'],
+    ['Toma algum', 'Metformina 850 mg'],
+    ['Tem pressão alta', null],
+    ['Tem diabetes', 'Tipo 2, controlada'],
+    ['Tem problema de coagulação', 'Usa AAS todos os dias'],
+    ['Tem problema cardíaco', 'Arritmia'],
+    ['Já teve reação', 'Taquicardia com a anestesia'],
+  ] as const
+  const escolhidos = outros.filter((_, i) => espalhar(i, nAnamnese, outros.length))
+  let criadas = 0
+  for (const [k, p] of escolhidos.entries()) {
+    if (await db.anamnese.count({ where: { pacienteId: p.id } })) continue
+    // Um alerta, e às vezes dois, variando entre os pacientes.
+    const alertas = espalhar(k, nAlerta, escolhidos.length)
+      ? [ALERTAS[k % ALERTAS.length], ...(k % 3 ? [] : [ALERTAS[(k + 3) % ALERTAS.length]])]
+      : []
+    const perguntas = MODELO_ANAMNESE.map((q) => {
+      const alerta = alertas.find(([inicio]) => q.texto.startsWith(inicio))
+      if (alerta) return { ...q, resposta: 'Sim', descricao: alerta[1] }
+      if (q.tipo === 'OPCOES') return { ...q, resposta: q.opcoes?.[k % 3] ?? null, descricao: null }
+      if (q.tipo === 'DESCRITIVA')
+        return { ...q, resposta: ['Limpeza', 'Dor de dente', 'Avaliação'][k % 3], descricao: null }
+      if (q.texto === 'Fuma?') return { ...q, resposta: k % 4 ? 'Não' : 'Sim', descricao: null }
+      return { ...q, resposta: 'Não', descricao: null }
+    })
+    await db.anamnese.create({
       data: {
-        pacienteId: completo.id,
-        categoria: 'FOTO',
-        pasta,
-        nome,
-        tipo: 'image/png',
-        tamanho: dados.length,
-        dados: new Uint8Array(dados),
+        pacienteId: p.id,
+        respondente: k % 2 ? 'PROFISSIONAL' : 'PACIENTE',
+        perguntas,
+        criadoEm: dias(-((k * 17) % 300) - 1),
         criadoPorId: adminId,
       },
     })
+    criadas++
   }
-  const pdf = Buffer.from(
-    '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
-      '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF',
-  )
-  await db.arquivo.create({
+  console.log(`Anamneses fictícias criadas: ${criadas} (alvo: 70% com anamnese, 35% com alerta).`)
+}
+
+// ── Odontograma em todos os pacientes: o que já tinha, o que foi feito e o que falta ──
+{
+  const todos = await db.pessoa.findMany({
+    where: { tipo: 'PACIENTE', excluidoEm: null },
+    orderBy: { id: 'asc' },
+  })
+  const catalogo = new Map((await db.procedimento.findMany()).map((p) => [p.nome, p.id]))
+  const dentistas = Object.values(pessoaDe)
+  const MOLARES = ['16', '17', '26', '27', '36', '37', '46', '47']
+  const PRE = ['14', '15', '24', '25', '34', '35', '44', '45']
+  const ANTERIORES = ['11', '12', '13', '21', '22', '23', '31', '32', '33', '41', '42', '43']
+  const SISOS = ['18', '28', '38', '48']
+  let criados = 0
+  for (const p of todos) {
+    // "Consulta de avaliação" sem dente marca que o paciente já recebeu o odontograma do seed.
+    if (
+      await db.procedimentoClinico.count({
+        where: { pacienteId: p.id, nome: 'Consulta de avaliação' },
+      })
+    )
+      continue
+    // Sorteio com semente no id: o mesmo paciente sempre recebe o mesmo odontograma.
+    let semente = p.id * 9301 + 49297
+    const sorte = () => (semente = (semente * 9301 + 49297) % 233280) / 233280
+    const um = <T>(lista: readonly T[]) => lista[Math.floor(sorte() * lista.length)]
+    const livres = (lista: string[]) => [...lista].sort(() => sorte() - 0.5)
+    const [posteriores, anteriores, sisos] = [
+      livres([...MOLARES, ...PRE]),
+      livres(ANTERIORES),
+      livres(SISOS),
+    ]
+    // Dentes que já têm lançamento (ex.: o paciente completo) ficam de fora.
+    const ocupados = new Set(
+      (await db.procedimentoClinico.findMany({ where: { pacienteId: p.id } })).flatMap((c) =>
+        c.dente ? [c.dente] : [],
+      ),
+    )
+    // Dente da lista que ainda não foi usado neste paciente.
+    const dente = (lista: string[]) => lista.find((d) => !ocupados.has(d) && ocupados.add(d))!
+    const ehInferior = (d: string) => ['3', '4'].includes(d[0])
+    const faces = (d: string, n: 1 | 2) =>
+      ANTERIORES.includes(d)
+        ? um(n === 1 ? ['V', 'M', 'D', 'I'] : ['MI', 'DI', 'MV'])
+        : um(n === 1 ? ['O', 'V', ehInferior(d) ? 'L' : 'P'] : ['MO', 'OD', 'OV'])
+
+    type Item = { nome: string; dente?: string; faces?: string; status: StatusClinico; dia: number }
+    const itens: Item[] = [
+      { nome: 'Consulta de avaliação', status: 'EXECUTADO', dia: -120 },
+      { nome: 'Limpeza (profilaxia)', status: 'EXECUTADO', dia: -120 },
+    ]
+    // O que o paciente já tinha quando chegou.
+    for (let i = 0; i < 2 + Math.floor(sorte() * 3); i++) {
+      const d = dente(posteriores)
+      const nome = um(['Restauração antiga em amálgama', 'Restauração em resina (2 faces)'])
+      itens.push({ nome, dente: d, faces: faces(d, 2), status: 'EXISTENTE', dia: -400 })
+    }
+    if (sorte() < 0.5)
+      itens.push({
+        nome: 'Coroa de porcelana',
+        dente: dente(posteriores),
+        status: 'EXISTENTE',
+        dia: -400,
+      })
+    if (sorte() < 0.4)
+      itens.push({
+        nome: 'Extração simples',
+        dente: dente(MOLARES),
+        status: 'EXISTENTE',
+        dia: -400,
+      })
+    if (sorte() < 0.3)
+      itens.push({
+        nome: 'Tratamento de canal (unirradicular)',
+        dente: dente(anteriores),
+        status: 'EXISTENTE',
+        dia: -400,
+      })
+    // Feito na clínica.
+    for (let i = 0; i < 1 + Math.floor(sorte() * 3); i++) {
+      const tipo = um(['resina1', 'resina2', 'canal', 'selante', 'resina-anterior'] as const)
+      const d = dente(tipo === 'resina-anterior' ? anteriores : posteriores)
+      const dia = -5 - Math.floor(sorte() * 100)
+      if (tipo === 'canal') {
+        itens.push({
+          nome: 'Tratamento de canal (multirradicular)',
+          dente: d,
+          status: 'EXECUTADO',
+          dia,
+        })
+        itens.push({
+          nome: 'Coroa de porcelana',
+          dente: d,
+          status: sorte() < 0.5 ? 'EXECUTADO' : 'A_REALIZAR',
+          dia,
+        })
+      } else if (tipo === 'selante')
+        itens.push({ nome: 'Selante por dente', dente: d, faces: 'O', status: 'EXECUTADO', dia })
+      else {
+        const n = tipo === 'resina2' ? 2 : 1
+        itens.push({
+          nome: `Restauração em resina (${n} face${n === 2 ? 's' : ''})`,
+          dente: d,
+          faces: faces(d, n),
+          status: 'EXECUTADO',
+          dia,
+        })
+      }
+    }
+    if (sorte() < 0.2)
+      itens.push({
+        nome: 'Implante unitário',
+        dente: dente(MOLARES),
+        status: 'EXECUTADO',
+        dia: -200,
+      })
+    // O que falta fazer.
+    for (let i = 0; i < 1 + Math.floor(sorte() * 3); i++) {
+      const tipo = um(['resina', 'canal', 'siso', 'coroa'] as const)
+      if (tipo === 'siso') {
+        itens.push({ nome: 'Extração de siso', dente: dente(sisos), status: 'A_REALIZAR', dia: 0 })
+        continue
+      }
+      const d = dente(tipo === 'resina' && sorte() < 0.4 ? anteriores : posteriores)
+      const nome = {
+        resina: 'Restauração em resina (1 face)',
+        canal: 'Tratamento de canal (unirradicular)',
+        coroa: 'Coroa de porcelana',
+      }[tipo]
+      itens.push({
+        nome,
+        dente: d,
+        faces: tipo === 'resina' ? faces(d, 1) : undefined,
+        status: 'A_REALIZAR',
+        dia: 0,
+      })
+    }
+
+    const profissionalId = um(dentistas)
+    await db.procedimentoClinico.createMany({
+      data: itens
+        .filter((i) => i.dente !== undefined || !i.nome.startsWith('Extração'))
+        .map((i) => ({
+          pacienteId: p.id,
+          profissionalId,
+          procedimentoId: catalogo.get(i.nome),
+          nome: i.nome,
+          dente: i.dente,
+          faces: i.faces,
+          status: i.status,
+          data: dias(i.dia),
+          criadoPorId: adminId,
+        })),
+    })
+    // Botões do odontograma: alguns sem os sisos de cima, outros com um dente sem coroa.
+    const removidos = sorte() < 0.25 ? ['18', '28'].filter((d) => !ocupados.has(d)) : []
+    const semCoroa = sorte() < 0.2 ? [dente(posteriores)].filter(Boolean) : []
+    if (
+      (removidos.length || semCoroa.length) &&
+      !p.dentesRemovidos.length &&
+      !p.dentesSemCoroa.length
+    )
+      await db.pessoa.update({
+        where: { id: p.id },
+        data: { dentesRemovidos: removidos, dentesSemCoroa: semCoroa },
+      })
+    criados++
+  }
+  console.log(`Odontograma fictício criado para ${criados} pacientes.`)
+}
+
+// ── Plano e Ficha Clínica do paciente completo: um planejamento em cada situação de
+// assinatura (não enviado, aguardando, aprovado, alterado depois) e um pedido avulso esperando.
+if (!(await db.autorizacao.count({ where: { pacienteId: completo.id } }))) {
+  const nomeDe = async (id: number) => (await db.pessoa.findUniqueOrThrow({ where: { id } })).nome
+  const [nomeDra, nomeDr] = [await nomeDe(dra), await nomeDe(dr)]
+  const iso = (n: number) => dias(n).toISOString().slice(0, 10)
+  const nota = (texto: string, n: number) => ({
+    id: randomBytes(4).toString('hex'),
+    texto,
+    em: dias(n).toISOString(),
+    autor: 'Administrador',
+  })
+  /** Etapas da especialidade com datas (dias a partir de hoje) e as primeiras já feitas. */
+  const etapas = (especialidade: string, datas: number[], feitas: number) =>
+    etapasDaFicha(especialidade).map((e, i) => ({
+      ...e,
+      data: datas[i] === undefined ? null : iso(datas[i]),
+      executado: i < feitas,
+    }))
+  type Item = { dente: string; faces?: string; procedimento: string; status: string; data: number }
+  const assinado = (n: number) => ({
+    assinadoEm: dias(n),
+    assinanteNome: completo.nome,
+    assinatura: `data:image/png;base64,${pngLiso(120, 40, [30, 41, 59]).toString('base64')}`,
+    ip: '127.0.0.1',
+    navegador: 'Navegador fictício',
+  })
+
+  /** Planejamento com os itens; com "pedido", envia os itens ao paciente (como no sistema). */
+  async function planejamento(p: {
+    especialidade: string
+    profissionalId: number
+    profissional: string
+    inicio: number
+    etapas: ReturnType<typeof etapas>
+    notas: ReturnType<typeof nota>[]
+    itens: Item[]
+    pedido?: { criado: number; assinado?: number; plano: string }
+    /** Acrescentados depois do pedido: ficam fora dele (planejamento alterado). */
+    depois?: Item[]
+  }) {
+    // Banco antigo já com esse planejamento: não duplica.
+    if (
+      await db.fichaEspecialidade.count({
+        where: { pacienteId: completo.id, especialidade: p.especialidade, excluidoEm: null },
+      })
+    )
+      return
+    const f = await db.fichaEspecialidade.create({
+      data: {
+        pacienteId: completo.id,
+        profissionalId: p.profissionalId,
+        especialidade: p.especialidade,
+        inicio: dias(p.inicio),
+        etapas: p.etapas,
+        notas: p.notas,
+        criadoEm: dias(p.inicio),
+        criadoPorId: adminId,
+      },
+    })
+    const criar = (itens: Item[], autorizacaoId?: number) =>
+      db.itemFichaEspecialidade.createMany({
+        data: itens.map((i) => ({
+          fichaId: f.id,
+          dente: i.dente,
+          faces: i.faces ?? '',
+          procedimento: i.procedimento,
+          status: i.status,
+          data: dias(i.data),
+          autorizacaoId,
+        })),
+      })
+    if (!p.pedido) return criar(p.itens)
+    // O documento junta os dentes de cada procedimento e data, como o servidor faz.
+    const porProc = new Map<string, { nome: string; data: string; dentes: string[] }>()
+    for (const i of p.itens) {
+      const k = `${i.procedimento}|${i.data}`
+      const it = porProc.get(k) ?? { nome: i.procedimento, data: iso(i.data), dentes: [] }
+      it.dentes.push(denteComFaces(i.dente, i.faces ?? ''))
+      porProc.set(k, it)
+    }
+    const a = await db.autorizacao.create({
+      data: {
+        pacienteId: completo.id,
+        fichaId: f.id,
+        token: randomBytes(18).toString('base64url'),
+        criadoEm: dias(p.pedido.criado),
+        criadoPorId: adminId,
+        ...(p.pedido.assinado !== undefined && assinado(p.pedido.assinado)),
+        conteudo: {
+          paciente: completo.nome,
+          termo: TERMO,
+          plano: p.pedido.plano,
+          autor: 'Administrador',
+          especialidade: p.especialidade,
+          etapas: p.etapas.map((e) => ({ id: e.id, nome: e.nome, data: e.data, comentario: null })),
+          itens: [...porProc.values()].map((i) => ({
+            ...i,
+            dentes: i.dentes.sort(),
+            profissional: p.profissional,
+            observacaoPaciente: null,
+          })),
+        },
+      },
+    })
+    await criar(p.itens, a.id)
+    if (p.depois) await criar(p.depois)
+  }
+
+  // Não enviado: o botão "Enviar para o paciente assinar" aparece.
+  await planejamento({
+    especialidade: 'Endodontia',
+    profissionalId: dr,
+    profissional: nomeDr,
+    inicio: -6,
+    etapas: etapas('Endodontia', [-6, -5, 2, 2, 9, 16, 30], 2),
+    notas: [nota('Dor espontânea no 36 (fictício).', -6)],
+    itens: [
+      { dente: '36', procedimento: 'Tratamento de canal', status: 'Em tratamento', data: 2 },
+      {
+        dente: '36',
+        faces: 'MOD',
+        procedimento: 'Restauração em resina (2 faces)',
+        status: 'Em avaliação',
+        data: 16,
+      },
+      { dente: '37', procedimento: 'Teste de vitalidade', status: 'Em avaliação', data: 2 },
+    ],
+  })
+  // Aguardando assinatura: aparecem "Enviar por WhatsApp", "Enviar por e-mail" e "Copiar link".
+  await planejamento({
+    especialidade: 'Ortodontia',
+    profissionalId: dra,
+    profissional: nomeDra,
+    inicio: -3,
+    etapas: etapas('Ortodontia', [-3, -2, 4, 7, 14], 2),
+    notas: [nota('Paciente prefere braquetes estéticos (fictício).', -3)],
+    itens: ['13', '12', '11', '21', '22', '23'].map((dente) => ({
+      dente,
+      procedimento: 'Aparelho ortodôntico fixo (instalação)',
+      status: 'Em avaliação',
+      data: 14,
+    })),
+    pedido: { criado: -1, plano: 'Correção do apinhamento anterior com aparelho fixo.' },
+  })
+  // Aprovado: o que foi assinado trava; só a situação muda.
+  await planejamento({
+    especialidade: 'Implantes',
+    profissionalId: dr,
+    profissional: nomeDr,
+    inicio: -60,
+    etapas: etapas('Implantes', [-60, -55, -50, -40, 50, 80, 90], 4),
+    notas: [nota('Tomografia sem alterações (fictício).', -55)],
+    itens: [
+      { dente: '45', procedimento: 'Implante unitário', status: 'Executado', data: -40 },
+      { dente: '45', procedimento: 'Coroa sobre implante', status: 'Em tratamento', data: 80 },
+    ],
+    pedido: { criado: -52, assinado: -50, plano: 'Reabilitar o 45 com implante e coroa.' },
+  })
+  // Alterado depois de assinar: há procedimento novo fora do pedido; dá para enviar de novo.
+  await planejamento({
+    especialidade: 'Periodontia',
+    profissionalId: dra,
+    profissional: nomeDra,
+    inicio: -30,
+    etapas: etapas('Periodontia', [-30, -28, -25, -20, 10, 40, 60], 4),
+    notas: [nota('Sangramento à sondagem nos inferiores (fictício).', -30)],
+    itens: ['31', '32', '41', '42'].map((dente) => ({
+      dente,
+      procedimento: 'Raspagem e alisamento radicular',
+      status: 'Executado',
+      data: -20,
+    })),
+    pedido: { criado: -26, assinado: -25, plano: 'Tratamento periodontal dos inferiores.' },
+    depois: ['16', '17'].map((dente) => ({
+      dente,
+      procedimento: 'Raspagem e alisamento radicular',
+      status: 'Em avaliação',
+      data: 10,
+    })),
+  })
+
+  // Aprovação de procedimentos (avulsos): um a realizar esperando a assinatura.
+  const resina = await db.procedimento.findFirst({
+    where: { nome: 'Restauração em resina (2 faces)' },
+  })
+  const a = await db.autorizacao.create({
     data: {
       pacienteId: completo.id,
-      categoria: 'EXAME',
-      nome: 'radiografia-panoramica-ficticia.pdf',
-      tipo: 'application/pdf',
-      tamanho: pdf.length,
-      dados: new Uint8Array(pdf),
+      token: randomBytes(18).toString('base64url'),
+      criadoEm: dias(-2),
+      criadoPorId: adminId,
+      conteudo: {
+        paciente: completo.nome,
+        termo: TERMO,
+        plano: null,
+        autor: 'Administrador',
+        itens: [
+          {
+            nome: 'Restauração em resina (2 faces)',
+            profissional: nomeDra,
+            dentes: ['25DO'],
+            observacaoPaciente: 'Anestesia local; cerca de 40 minutos.',
+          },
+        ],
+      },
+    },
+  })
+  await db.procedimentoClinico.create({
+    data: {
+      pacienteId: completo.id,
+      profissionalId: dra,
+      procedimentoId: resina?.id,
+      nome: 'Restauração em resina (2 faces)',
+      dente: '25',
+      faces: 'DO',
+      status: 'A_REALIZAR',
+      data: dias(-2),
+      observacaoPaciente: 'Anestesia local; cerca de 40 minutos.',
+      autorizacaoId: a.id,
       criadoPorId: adminId,
     },
   })
-  console.log(`Prontuário completo criado para "${completo.nome}".`)
+  console.log(`Planejamentos e pedidos de assinatura criados para "${completo.nome}".`)
 }
 
 // ── Controle Protético: um trabalho em cada coluna, um deles atrasado ───────

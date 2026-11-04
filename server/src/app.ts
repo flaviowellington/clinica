@@ -1,4 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
+import { rotasAutorizacaoPublica, rotasAutorizacoes } from './autorizacoes'
 import helmet from 'helmet'
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
@@ -55,6 +56,8 @@ export function criarApp() {
   })
 
   // Sem login: a página em que o paciente confirma a consulta pelo link do e-mail.
+  // Paciente assinou o plano pelo celular: o dentista vê na hora.
+  app.use('/api/publico/autorizacao', avisarAoMudar('assinatura'), rotasAutorizacaoPublica)
   app.use('/api/publico', avisarAoMudar('agenda'), rotasPublicas)
   app.use('/api/integracao', avisarAoMudar('retornos'), rotasIntegracao) // n8n: entra por token, não por login
 
@@ -74,6 +77,7 @@ export function criarApp() {
   app.use('/api/retornos', exigirLogin, avisarAoMudar('retornos'), rotasRetornos)
   app.use('/api/procedimentos', exigirLogin, rotasProcedimentos, rotasTabelaProcedimentos)
   app.use('/api/orcamentos', exigirLogin, rotasOrcamentos)
+  app.use('/api/autorizacoes', exigirLogin, avisarAoMudar('autorizacoes'), rotasAutorizacoes)
   app.use('/api/relatorios', exigirLogin, rotasRelatorios)
   app.use('/api/eu', exigirLogin, rotasEu)
   app.use('/api/usuarios', exigirLogin, rotasUsuarios)

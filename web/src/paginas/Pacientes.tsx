@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { keepPreviousData, useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { api, consultaEu, dataBR, errosDosCampos, mensagemDeErro, type Paciente } from '../api'
@@ -20,6 +20,7 @@ export function Pacientes() {
   const navegar = useNavigate({ from: '/pacientes' })
   const { data: eu } = useSuspenseQuery(consultaEu)
   const [novo, setNovo] = useState(false)
+  const rolagem = useRef<HTMLDivElement>(null)
 
   const lista = useQuery({
     queryKey: ['pacientes', busca, pagina, linhas],
@@ -65,8 +66,9 @@ export function Pacientes() {
   })
 
   return (
-    <div className="space-y-5">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+    // Em tela grande a página ocupa a janela: título, busca e controles ficam parados e só a tabela rola.
+    <div className="flex flex-col gap-5 lg:h-[calc(100vh-2rem)]">
+      <header className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="titulo">Pacientes</h1>
           <p className="subtitulo">Busque, cadastre e abra a ficha dos pacientes.</p>
@@ -81,7 +83,7 @@ export function Pacientes() {
         )}
       </header>
 
-      <label className="relative block max-w-xl">
+      <label className="relative block max-w-xl shrink-0">
         <span className="sr-only">Buscar paciente</span>
         <Icone
           nome="busca"
@@ -101,79 +103,9 @@ export function Pacientes() {
         </span>
       </label>
 
-      <div className="cartao overflow-x-auto p-0">
-        <table className="w-full min-w-[46rem] text-left">
-          <thead>
-            <tr>
-              {[
-                'Nome',
-                'Celular / WhatsApp',
-                'Nascimento',
-                'E-mail',
-                'Como conheceu',
-                'Status',
-              ].map((t) => (
-                <th
-                  key={t}
-                  className="border-b border-borda px-4 py-2.5 text-xs font-bold tracking-wide text-suave uppercase"
-                >
-                  {t}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className={lista.isFetching ? 'opacity-60' : ''}>
-            {lista.data?.itens.map((p) => (
-              <tr
-                key={p.id}
-                className="border-b border-borda last:border-0 hover:bg-primaria-clara"
-              >
-                <td className="px-4 py-2.5">
-                  <Link
-                    to="/pacientes/$id"
-                    params={{ id: String(p.id) }}
-                    className="flex items-center gap-3 font-bold text-primaria hover:underline"
-                  >
-                    <span
-                      aria-hidden
-                      className="grid size-8 shrink-0 place-items-center rounded-full bg-primaria/15 text-xs"
-                    >
-                      {iniciais(p.nome)}
-                    </span>
-                    {p.nome}
-                  </Link>
-                </td>
-                <td className="px-4 py-2.5 whitespace-nowrap">
-                  {p.celular && (
-                    <a
-                      href={whatsapp(p.celular)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:text-primaria hover:underline"
-                      title="Abrir conversa no WhatsApp"
-                    >
-                      {p.celular}
-                    </a>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 tabular-nums">{dataBR(p.nascimento)}</td>
-                <td className="px-4 py-2.5">{p.email}</td>
-                <td className="px-4 py-2.5">{p.comoConheceu}</td>
-                <td className="px-4 py-2.5">
-                  <Situacao ativo={p.ativo} />
-                </td>
-              </tr>
-            ))}
-            {lista.data?.itens.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-suave">
-                  Nenhum paciente encontrado{busca && <> para “{busca}”</>}.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-borda px-4 py-2.5 text-sm text-suave">
+      {/* Sem flex-1: o cartão fica do tamanho das linhas e só rola quando passa da tela. */}
+      <div className="cartao flex min-h-0 flex-col overflow-hidden p-0">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-borda px-4 py-2.5 text-sm text-suave">
           <span className="flex items-center gap-4">
             <span className="font-bold">
               {lista.isFetching
@@ -198,24 +130,103 @@ export function Pacientes() {
               </span>
               {(
                 [
-                  ['«', 1, 'Primeira página'],
-                  ['‹', pagina - 1, 'Página anterior'],
-                  ['›', pagina + 1, 'Próxima página'],
-                  ['»', paginas, 'Última página'],
+                  ['primeira', 1, 'Primeira página'],
+                  ['esquerda', pagina - 1, 'Página anterior'],
+                  ['direita', pagina + 1, 'Próxima página'],
+                  ['ultima', paginas, 'Última página'],
                 ] as const
-              ).map(([simbolo, destino, rotulo]) => (
+              ).map(([icone, destino, rotulo]) => (
                 <button
                   key={rotulo}
-                  className="botao-leve botao-pequeno"
+                  className="botao-leve botao-icone"
                   aria-label={rotulo}
+                  title={rotulo}
                   disabled={destino < 1 || destino > paginas || destino === pagina}
-                  onClick={() => ir({ pagina: destino })}
+                  onClick={() => {
+                    // Página nova começa do topo; mudar a quantidade de linhas mantém onde está.
+                    rolagem.current?.scrollTo({ top: 0 })
+                    ir({ pagina: destino })
+                  }}
                 >
-                  {simbolo}
+                  <Icone nome={icone} />
                 </button>
               ))}
             </span>
           )}
+        </div>
+        <div ref={rolagem} className="min-h-0 overflow-auto">
+          <table className="w-full min-w-[46rem] text-left">
+            <thead className="sticky top-0 z-10 bg-superficie">
+              <tr>
+                {[
+                  'Nome',
+                  'Celular / WhatsApp',
+                  'Nascimento',
+                  'E-mail',
+                  'Como conheceu',
+                  'Status',
+                ].map((t) => (
+                  <th
+                    key={t}
+                    // Sombra no lugar da borda: com a tabela colapsada, a borda não acompanha o cabeçalho fixo.
+                    className="px-4 py-2.5 text-xs font-bold tracking-wide text-suave uppercase shadow-[inset_0_-1px_0_var(--borda)]"
+                  >
+                    {t}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className={lista.isFetching ? 'opacity-60' : ''}>
+              {lista.data?.itens.map((p) => (
+                <tr
+                  key={p.id}
+                  className="border-b border-borda last:border-0 hover:bg-primaria-clara"
+                >
+                  <td className="px-4 py-2.5">
+                    <Link
+                      to="/pacientes/$id"
+                      params={{ id: String(p.id) }}
+                      className="flex items-center gap-3 font-bold text-primaria hover:underline"
+                    >
+                      <span
+                        aria-hidden
+                        className="grid size-8 shrink-0 place-items-center rounded-full bg-primaria/15 text-xs"
+                      >
+                        {iniciais(p.nome)}
+                      </span>
+                      {p.nome}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    {p.celular && (
+                      <a
+                        href={whatsapp(p.celular)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:text-primaria hover:underline"
+                        title="Abrir conversa no WhatsApp"
+                      >
+                        {p.celular}
+                      </a>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 tabular-nums">{dataBR(p.nascimento)}</td>
+                  <td className="px-4 py-2.5">{p.email}</td>
+                  <td className="px-4 py-2.5">{p.comoConheceu}</td>
+                  <td className="px-4 py-2.5">
+                    <Situacao ativo={p.ativo} />
+                  </td>
+                </tr>
+              ))}
+              {lista.data?.itens.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-suave">
+                    Nenhum paciente encontrado{busca && <> para “{busca}”</>}.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

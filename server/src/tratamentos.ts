@@ -149,6 +149,8 @@ async function lerOrcamento(b: z.output<typeof OrcamentoDto>) {
       dente: i.dente,
       faces: i.dente ? normalizarFaces(i.faces) || null : null,
       valorCentavos: i.valorCentavos ?? p?.valorCentavos ?? 0,
+      observacao: i.observacao,
+      observacaoPaciente: i.observacaoPaciente,
     }
   })
   if (b.descontoCentavos > itens.reduce((s, i) => s + i.valorCentavos, 0))
@@ -205,6 +207,11 @@ rotasOrcamentos.put('/:id', exigir('orcamento.editar'), async (req, res) => {
   // Editar recria os itens: apagaria o que já foi executado.
   if (o.itens.some((i) => i.executadoEm))
     return res.status(409).json({ erro: 'Já há procedimento executado: desfaça a execução antes.' })
+  // Editar recria os itens e perderia o vínculo com o que o paciente assinou.
+  if (o.itens.some((i) => i.autorizacaoId))
+    return res.status(409).json({
+      erro: 'Há procedimento enviado ao paciente para assinar: cancele o pedido no Plano antes.',
+    })
   const b = lerCorpo(OrcamentoDto, req.body, res)
   if (!b) return
   const { erros, itens, dados } = await lerOrcamento(b)
