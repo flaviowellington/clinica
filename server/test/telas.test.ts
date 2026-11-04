@@ -179,16 +179,18 @@ describe('configurações', () => {
       nome: 'Clareamento',
       especialidade: 'Dentística',
       valorCentavos: 80000,
+      custoCentavos: 20000,
     })
     expect(r.status).toBe(201)
     await admin('PUT', `/api/procedimentos/${r.corpo.id}`, {
       nome: 'Clareamento',
       valorCentavos: 90000,
+      custoCentavos: 22000,
       ativo: false,
     })
     expect((await admin('GET', '/api/procedimentos')).corpo).toEqual([])
     expect((await admin('GET', '/api/procedimentos?todos=1')).corpo).toMatchObject([
-      { valorCentavos: 90000, ativo: false },
+      { valorCentavos: 90000, custoCentavos: 22000, ativo: false },
     ])
     expect((await admin('POST', '/api/procedimentos', { nome: '', valorCentavos: 1 })).status).toBe(
       400,

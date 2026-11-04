@@ -8,7 +8,9 @@ import { CATEGORIA_PADRAO_ENTRADA } from '../../shared/financeiro'
 import { totalOrcamento } from '../../shared/orcamentos'
 import { normalizarFaces } from '../../shared/prontuario'
 import type { Prisma } from './generated/prisma/client'
+import { pode } from '../../shared/permissoes'
 import {
+  AprovarOrcamentoDto,
   CancelarOrcamentoDto,
   DesaprovarOrcamentoDto,
   OrcamentoDto,
@@ -95,7 +97,14 @@ rotasProcedimentos.get('/', exigir('orcamento.ver'), async (req, res) => {
   res.json(
     await db.procedimento.findMany({
       where: { ...(!todos && { ativo: true }), ...(termo && { nomeBusca: { contains: termo } }) },
-      select: { id: true, nome: true, especialidade: true, valorCentavos: true, ativo: true },
+      select: {
+        id: true,
+        nome: true,
+        especialidade: true,
+        valorCentavos: true,
+        custoCentavos: true,
+        ativo: true,
+      },
       orderBy: { nomeBusca: 'asc' },
       take: todos ? 2000 : 50,
     }),
@@ -149,6 +158,7 @@ async function lerOrcamento(b: z.output<typeof OrcamentoDto>) {
       dente: i.dente,
       faces: i.dente ? normalizarFaces(i.faces) || null : null,
       valorCentavos: i.valorCentavos ?? p?.valorCentavos ?? 0,
+      custoCentavos: i.custoCentavos ?? p?.custoCentavos ?? 0,
       observacao: i.observacao,
       observacaoPaciente: i.observacaoPaciente,
     }
@@ -225,20 +235,43 @@ rotasOrcamentos.put('/:id', exigir('orcamento.editar'), async (req, res) => {
   res.json(paraTela(novo))
 })
 
-/** R-018 e R-019: aprovar lança a venda e uma conta à vista; a forma se escolhe ao receber. */
+/**
+ * R-018 e R-019: aprovar lança a venda e uma conta à vista; a forma se escolhe ao receber.
+ * Com { pagamento }, a conta já nasce paga e o valor entra como entrada (aprovar quando pagar).
+ */
 rotasOrcamentos.post('/:id/aprovar', exigir('orcamento.aprovar'), async (req, res) => {
   const o = await acharOrcamento(req)
   if (!o) return res.status(404).json({ erro: 'Orçamento não encontrado.' })
   if (o.status !== 'ABERTO')
     return res.status(409).json({ erro: 'Este orçamento não está em aberto.' })
+  const b = lerCorpo(AprovarOrcamentoDto, req.body, res, null)
+  if (!b) return
   const total = totalOrcamento(o.itens, o.descontoCentavos)
   const u = usuarioDe(res)
-  await db.$transaction([
-    db.orcamento.update({
+  if (b.pagamento && !pode(u.perfis, 'financeiro.receber'))
+    return res.status(403).json({ erro: 'Você não tem permissão para registrar recebimento.' })
+  const pago = b.pagamento && { data: b.pagamento.data ?? hojeIso(), forma: b.pagamento.forma }
+  await db.$transaction(async (tx) => {
+    const entrada = pago
+      ? await tx.lancamento.create({
+          data: {
+            data: dia(pago.data),
+            tipo: 'ENTRADA',
+            valorCentavos: total,
+            descricao: `Orçamento nº ${o.id}`,
+            forma: pago.forma,
+            categoria: CATEGORIA_PADRAO_ENTRADA,
+            pacienteId: o.pacienteId,
+            orcamentoId: o.id,
+            criadoPorId: u.id,
+          },
+        })
+      : null
+    await tx.orcamento.update({
       where: { id: o.id },
       data: { status: 'APROVADO', aprovadoEm: new Date(), aprovadoPorId: u.id },
-    }),
-    db.lancamento.create({
+    })
+    await tx.lancamento.create({
       data: {
         data: dia(hojeIso()),
         tipo: 'VENDA',
@@ -249,8 +282,8 @@ rotasOrcamentos.post('/:id/aprovar', exigir('orcamento.aprovar'), async (req, re
         orcamentoId: o.id,
         criadoPorId: u.id,
       },
-    }),
-    db.contaFinanceira.create({
+    })
+    await tx.contaFinanceira.create({
       data: {
         tipo: 'RECEBER',
         descricao: `Orçamento nº ${o.id}`,
@@ -262,9 +295,15 @@ rotasOrcamentos.post('/:id/aprovar', exigir('orcamento.aprovar'), async (req, re
         parcela: 1,
         totalParcelas: 1,
         criadoPorId: u.id,
+        ...(pago && {
+          status: 'PAGA' as const,
+          pagoEm: dia(pago.data),
+          forma: pago.forma,
+          lancamentoId: entrada!.id,
+        }),
       },
-    }),
-  ])
+    })
+  })
   res.json(paraTela((await acharOrcamento(req))!))
 })
 

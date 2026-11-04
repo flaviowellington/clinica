@@ -120,6 +120,7 @@ interface Procedimento {
   nome: string
   especialidade: string | null
   valorCentavos: number
+  custoCentavos: number
   ativo: boolean
 }
 
@@ -156,7 +157,7 @@ function Procedimentos() {
         <table className="w-full text-left">
           <thead className="border-b border-borda text-suave">
             <tr>
-              {['Procedimento', 'Especialidade', 'Valor', 'Situação', ''].map((t) => (
+              {['Procedimento', 'Especialidade', 'Custo', 'Valor', 'Situação', ''].map((t) => (
                 <th key={t} className="px-3 py-2 font-medium">
                   {t}
                 </th>
@@ -171,6 +172,7 @@ function Procedimentos() {
               >
                 <td className="px-3 py-2">{p.nome}</td>
                 <td className="px-3 py-2">{p.especialidade ?? '—'}</td>
+                <td className="px-3 py-2 text-suave">{reais(p.custoCentavos)}</td>
                 <td className="px-3 py-2">{reais(p.valorCentavos)}</td>
                 <td className="px-3 py-2">{p.ativo ? 'Ativo' : 'Inativo'}</td>
                 <td className="px-3 py-2 text-right">
@@ -209,6 +211,7 @@ export function FormProcedimento(props: {
   const qc = useQueryClient()
   const p = props.procedimento
   const [valor, setValor] = useState(p?.valorCentavos ?? 0)
+  const [custo, setCusto] = useState(p?.custoCentavos ?? 0)
   const salvar = useMutation({
     mutationFn: async (d: Record<string, unknown>) =>
       p
@@ -229,14 +232,38 @@ export function FormProcedimento(props: {
       onSubmit={(e) => {
         e.preventDefault()
         const f = Object.fromEntries(new FormData(e.currentTarget))
-        salvar.mutate({ ...f, valorCentavos: valor, ativo: p ? f.ativo === 'on' : true })
+        salvar.mutate({
+          ...f,
+          valorCentavos: valor,
+          custoCentavos: custo,
+          ativo: p ? f.ativo === 'on' : true,
+        })
       }}
     >
       <label className="block">
         <span className="rotulo">Nome *</span>
-        <input name="nome" className="campo" defaultValue={p?.nome ?? props.nomeInicial} required autoFocus />
+        <input
+          name="nome"
+          className="campo"
+          defaultValue={p?.nome ?? props.nomeInicial}
+          required
+          autoFocus
+        />
       </label>
-      <CampoReais id="proc-valor" rotulo="Valor *" valor={valor} aoMudar={setValor} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <CampoReais id="proc-custo" rotulo="Custo *" valor={custo} aoMudar={setCusto} />
+          <span className="ajuda">Material, laboratório: o que a clínica gasta.</span>
+        </div>
+        <div>
+          <CampoReais id="proc-valor" rotulo="Valor final *" valor={valor} aoMudar={setValor} />
+          <span className="ajuda">
+            {valor > 0
+              ? `Lucro: ${reais(valor - custo)} (${Math.round(((valor - custo) / valor) * 100)}%)`
+              : 'Preço cobrado do paciente.'}
+          </span>
+        </div>
+      </div>
       <div>
         <label className="rotulo" id="p-esp-rotulo">
           Especialidade

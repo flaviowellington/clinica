@@ -34,7 +34,6 @@ import { Inicio } from './paginas/Inicio'
 import { Profissionais } from './paginas/Profissionais'
 import { Financeiro } from './paginas/Financeiro'
 import { Relatorios } from './paginas/Relatorios'
-import { Recibo } from './paginas/Recibo'
 import { DocumentoImpresso } from './paginas/DocumentoImpresso'
 import { TrocarMinhaSenha, Usuarios } from './paginas/Usuarios'
 import { Configuracoes } from './paginas/Configuracoes'
@@ -320,11 +319,6 @@ const relatorios = createRoute({
   }),
   component: Relatorios,
 })
-const recibo = createRoute({
-  getParentRoute: () => logado,
-  path: '/recibo/$id',
-  component: Recibo,
-})
 const pagina = <P extends string>(path: P, component: () => ReactNode) =>
   createRoute({ getParentRoute: () => logado, path, component })
 const usuarios = pagina('/usuarios', Usuarios)
@@ -387,7 +381,6 @@ const router = createRouter({
       financeiro,
       profissionais,
       relatorios,
-      recibo,
       documento,
       usuarios,
       configuracoes,

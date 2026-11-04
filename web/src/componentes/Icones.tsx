@@ -51,6 +51,10 @@ const CAMINHOS = {
   girar: 'M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4',
   espelhar: 'M12 3v18M9 7l-6 5 6 5zM15 7l6 5-6 5z',
   externo: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+  estrela: 'M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z',
+  arrastar: 'M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01',
+  baixar: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+  lapis: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
 } as const
 
 export type NomeIcone = keyof typeof CAMINHOS

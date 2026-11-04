@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { db } from '../src/db'
 import { entrarComo, PACIENTE, urlBase, usarServidor, type Cliente } from './ajuda'
 import { dividirParcelas, vencimentos } from '../../shared/orcamentos'
+import { hojeNaClinica } from '../../shared/regras'
 
 usarServidor()
 
@@ -548,5 +549,119 @@ describe('relatórios que dependem dessas partes', () => {
     expect(exec.corpo.linhas.map((l: string[]) => l[2])).toEqual(['Limpeza (profilaxia)'])
     const orc = await api('GET', `/api/relatorios/pacientes-orcamentos?de=${hoje}&ate=${hoje}`)
     expect(orc.corpo.linhas[0]).toContain('Aprovado')
+  })
+})
+
+describe('custo do procedimento e análise do financeiro', () => {
+  it('cadastro de procedimento exige o custo', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const sem = await api('POST', '/api/procedimentos', { nome: 'Faceta', valorCentavos: 90000 })
+    expect(sem.status).toBe(400)
+    const com = await api('POST', '/api/procedimentos', {
+      nome: 'Faceta',
+      valorCentavos: 90000,
+      custoCentavos: 35000,
+    })
+    expect(com.status).toBe(201)
+    expect(com.corpo).toMatchObject({ valorCentavos: 90000, custoCentavos: 35000 })
+  })
+
+  it('item copia o custo da tabela, aceita custo e valor final editados, e a análise soma', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { dentista, paciente, resina, limpeza } = await base(api)
+    await db.procedimento.update({ where: { id: resina.id }, data: { custoCentavos: 8000 } })
+    await db.procedimento.update({ where: { id: limpeza.id }, data: { custoCentavos: 2000 } })
+    const { corpo: o } = await api('POST', '/api/orcamentos', {
+      pacienteId: paciente.id,
+      profissionalId: dentista.id,
+      itens: [
+        { procedimentoId: resina.id },
+        { procedimentoId: limpeza.id, custoCentavos: 2500, valorCentavos: 12000 },
+      ],
+      descontoCentavos: 2000,
+    })
+    expect(o.itens).toMatchObject([
+      { custoCentavos: 8000, valorCentavos: 30000 },
+      { custoCentavos: 2500, valorCentavos: 12000 },
+    ])
+    await api('POST', `/api/orcamentos/${o.id}/aprovar`)
+    const { corpo: aprovado } = await api('GET', `/api/orcamentos?pacienteId=${paciente.id}`)
+    await api('POST', `/api/financeiro/contas/${aprovado[0].contas[0].id}/baixar`, {
+      forma: 'Pix',
+    })
+
+    const hoje = hojeNaClinica()
+    const r = await api('GET', `/api/financeiro/analise?de=${hoje}&ate=${hoje}`)
+    expect(r.status).toBe(200)
+    expect(r.corpo.orcamentos).toMatchObject([
+      {
+        id: o.id,
+        totalCentavos: 40000,
+        custoCentavos: 10500,
+        recebidoCentavos: 40000,
+        profissional: { id: dentista.id },
+      },
+    ])
+    expect(r.corpo.entradas).toMatchObject([{ valorCentavos: 40000, forma: 'Pix' }])
+    // Filtro por profissional: outro profissional não vê nada.
+    const outro = await api(
+      'GET',
+      `/api/financeiro/analise?de=${hoje}&ate=${hoje}&profissionalId=999999`,
+    )
+    expect(outro.corpo).toEqual({ orcamentos: [], entradas: [] })
+  })
+})
+
+describe('orçamentos abertos e aprovar já pago', () => {
+  it('lista só os abertos, com itens e filtro por profissional', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { dentista, paciente, resina } = await base(api)
+    const novo = () =>
+      api('POST', '/api/orcamentos', {
+        pacienteId: paciente.id,
+        profissionalId: dentista.id,
+        itens: [{ procedimentoId: resina.id, dente: '16' }],
+      })
+    const { corpo: aberto } = await novo()
+    const { corpo: aprovar } = await novo()
+    await api('POST', `/api/orcamentos/${aprovar.id}/aprovar`)
+    const r = await api('GET', '/api/financeiro/orcamentos-abertos')
+    expect(r.status).toBe(200)
+    expect(r.corpo).toMatchObject([
+      {
+        id: aberto.id,
+        totalCentavos: 30000,
+        paciente: { id: paciente.id },
+        profissional: { id: dentista.id },
+        itens: [{ nome: 'Restauração em resina', dente: '16' }],
+      },
+    ])
+    expect(r.corpo).toHaveLength(1)
+    const outro = await api('GET', '/api/financeiro/orcamentos-abertos?profissionalId=999999')
+    expect(outro.corpo).toEqual([])
+    const hoje = hojeNaClinica()
+    const noDia = await api('GET', `/api/financeiro/orcamentos-abertos?de=${hoje}&ate=${hoje}`)
+    expect(noDia.corpo).toHaveLength(1)
+  })
+
+  it('aprovar com pagamento: vira aprovado, a conta já sai paga e o valor entra', async () => {
+    const api = await entrarComo('RECEPCAO')
+    const { dentista, paciente, resina } = await base(api)
+    const { corpo: o } = await api('POST', '/api/orcamentos', {
+      pacienteId: paciente.id,
+      profissionalId: dentista.id,
+      itens: [{ procedimentoId: resina.id }],
+    })
+    const r = await api('POST', `/api/orcamentos/${o.id}/aprovar`, {
+      pagamento: { forma: 'Pix', data: '2026-11-03' },
+    })
+    expect(r.status).toBe(200)
+    expect(r.corpo).toMatchObject({
+      status: 'APROVADO',
+      contas: [{ status: 'PAGA', forma: 'Pix', valorCentavos: 30000 }],
+    })
+    const entradas = await db.lancamento.findMany({ where: { orcamentoId: o.id, tipo: 'ENTRADA' } })
+    expect(entradas).toMatchObject([{ valorCentavos: 30000, forma: 'Pix' }])
+    expect(entradas[0].data.toISOString().slice(0, 10)).toBe('2026-11-03')
   })
 })

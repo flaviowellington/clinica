@@ -263,6 +263,7 @@ export const EmailTesteDto = z.object({ para: emailObrigatorio('Informe um e-mai
 export const ProcedimentoTabelaDto = z.object({
   nome: textoObrigatorio('Informe o nome do procedimento.', 200),
   valorCentavos: centavos('Informe o valor.'),
+  custoCentavos: centavos('Informe o custo.'),
   especialidade: texto(80),
   ativo: z.boolean().catch(true),
 })
@@ -318,6 +319,9 @@ export const ContaFinanceiraDto = z.object({
 
 export const BaixarContaDto = z.object({ data: dataOpcional, forma: texto(40) })
 
+/** Aprovar orçamento; com pagamento, a conta à vista já nasce paga (o valor entra no caixa). */
+export const AprovarOrcamentoDto = z.object({ pagamento: BaixarContaDto.nullable().catch(null) })
+
 export const ConciliarDto = z.object({ contaBancariaId: idOpcional })
 
 export const ContaBancariaDto = z.object({
@@ -348,6 +352,8 @@ export const OrcamentoDto = z.object({
           procedimentoId: z.preprocess((v) => numeroPositivo(v) ?? 0, z.number()),
           // Sem valor (ou inválido), vale o da tabela (R-012).
           valorCentavos: centavos().nullable().catch(null),
+          // Sem custo, vale o da tabela.
+          custoCentavos: centavos().nullable().catch(null),
           dente: texto(40),
           faces: texto(20),
           observacao: texto(LIMITE_OBSERVACAO),

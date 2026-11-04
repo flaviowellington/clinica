@@ -614,35 +614,49 @@ if (!(await db.lancamento.count())) {
   console.log('Conta corrente: lançamentos fictícios criados.')
 }
 
-// ── Tabela de procedimentos (valores fictícios) ──────────────────────────────
+// ── Tabela de procedimentos (valores e custos fictícios) ─────────────────────
+// [nome, especialidade, valor final, custo para a clínica]
+const TABELA: [string, string, number, number][] = [
+  ['Consulta de avaliação', 'Clínica geral', 15000, 1500],
+  ['Limpeza (profilaxia)', 'Periodontia', 18000, 3500],
+  ['Raspagem por quadrante', 'Periodontia', 22000, 4500],
+  ['Restauração em resina (1 face)', 'Dentística', 25000, 6000],
+  ['Restauração em resina (2 faces)', 'Dentística', 32000, 8000],
+  ['Clareamento em consultório', 'Dentística', 90000, 28000],
+  ['Tratamento de canal (unirradicular)', 'Endodontia', 85000, 18000],
+  ['Tratamento de canal (multirradicular)', 'Endodontia', 130000, 30000],
+  ['Extração simples', 'Cirurgia bucomaxilofacial', 25000, 5000],
+  ['Extração de siso', 'Cirurgia bucomaxilofacial', 60000, 14000],
+  ['Coroa de porcelana', 'Prótese', 180000, 75000],
+  ['Implante unitário', 'Implantodontia', 350000, 160000],
+  ['Aparelho ortodôntico fixo (instalação)', 'Ortodontia', 120000, 45000],
+  ['Manutenção ortodôntica mensal', 'Ortodontia', 25000, 4000],
+  ['Aplicação de flúor', 'Odontopediatria', 8000, 1200],
+  ['Selante por dente', 'Odontopediatria', 9000, 1800],
+]
 if (!(await db.procedimento.count())) {
-  const tabela: [string, string, number][] = [
-    ['Consulta de avaliação', 'Clínica geral', 15000],
-    ['Limpeza (profilaxia)', 'Periodontia', 18000],
-    ['Raspagem por quadrante', 'Periodontia', 22000],
-    ['Restauração em resina (1 face)', 'Dentística', 25000],
-    ['Restauração em resina (2 faces)', 'Dentística', 32000],
-    ['Clareamento em consultório', 'Dentística', 90000],
-    ['Tratamento de canal (unirradicular)', 'Endodontia', 85000],
-    ['Tratamento de canal (multirradicular)', 'Endodontia', 130000],
-    ['Extração simples', 'Cirurgia bucomaxilofacial', 25000],
-    ['Extração de siso', 'Cirurgia bucomaxilofacial', 60000],
-    ['Coroa de porcelana', 'Prótese', 180000],
-    ['Implante unitário', 'Implantodontia', 350000],
-    ['Aparelho ortodôntico fixo (instalação)', 'Ortodontia', 120000],
-    ['Manutenção ortodôntica mensal', 'Ortodontia', 25000],
-    ['Aplicação de flúor', 'Odontopediatria', 8000],
-    ['Selante por dente', 'Odontopediatria', 9000],
-  ]
   await db.procedimento.createMany({
-    data: tabela.map(([nome, especialidade, valorCentavos]) => ({
+    data: TABELA.map(([nome, especialidade, valorCentavos, custoCentavos]) => ({
       nome,
       nomeBusca: normalizar(nome),
       especialidade,
       valorCentavos,
+      custoCentavos,
     })),
   })
   console.log('Tabela de procedimentos criada.')
+}
+// Bancos de antes do custo: preenche o custo da tabela e dos itens que ainda estão zerados.
+for (const [nome, , , custoCentavos] of TABELA) {
+  const { count } = await db.procedimento.updateMany({
+    where: { nome, custoCentavos: 0 },
+    data: { custoCentavos },
+  })
+  if (count)
+    await db.itemOrcamento.updateMany({
+      where: { procedimento: { nome }, custoCentavos: 0 },
+      data: { custoCentavos },
+    })
 }
 
 // ── Orçamentos, contas, retornos e conta bancária fictícios ─────────────────
@@ -659,6 +673,7 @@ if (!(await db.orcamento.count())) {
     nome: p.nome,
     dente,
     valorCentavos: p.valorCentavos,
+    custoCentavos: p.custoCentavos,
   })
 
   // Em aberto.
@@ -812,6 +827,221 @@ if (!(await db.orcamento.count())) {
     },
   })
   console.log('Orçamentos, contas, retornos e conta bancária fictícios criados.')
+}
+
+// ── Orçamentos aprovados nos últimos 6 meses (Controle Financeiro e gráficos) ─
+if ((await db.orcamento.count({ where: { status: 'APROVADO' } })) < 10) {
+  let semente = 20261104
+  const sorte = () => (semente = (semente * 1103515245 + 12345) % 2 ** 31) / 2 ** 31
+  const um = <T>(xs: readonly T[]) => xs[Math.floor(sorte() * xs.length)]
+  const pacs = await db.pessoa.findMany({
+    where: { tipo: 'PACIENTE', ativo: true, excluidoEm: null },
+    take: 40,
+    orderBy: { id: 'asc' },
+  })
+  const procs = await db.procedimento.findMany({ where: { ativo: true } })
+  const formas = ['Pix', 'Pix', 'Cartão de crédito', 'Cartão de débito', 'Dinheiro', 'Boleto']
+  let n = 0
+  for (let d = -170; d <= 0; d += 1 + Math.floor(sorte() * 5)) {
+    const aprovadoEm = dias(d)
+    if (aprovadoEm.getUTCDay() === 0) continue
+    const escolhidos = Array.from({ length: 1 + Math.floor(sorte() * 3) }, () => um(procs))
+    const itens = escolhidos.map((p) => ({
+      procedimentoId: p.id,
+      nome: p.nome,
+      valorCentavos: p.valorCentavos,
+      custoCentavos: p.custoCentavos,
+    }))
+    const subtotal = itens.reduce((s, i) => s + i.valorCentavos, 0)
+    const descontoCentavos = sorte() < 0.3 ? Math.round((subtotal * um([5, 10, 15])) / 100) : 0
+    const total = subtotal - descontoCentavos
+    const pacienteId = um(pacs).id
+    const o = await db.orcamento.create({
+      data: {
+        pacienteId,
+        profissionalId: um(dentistas),
+        criadoPorId: adminId,
+        status: 'APROVADO',
+        aprovadoEm: new Date(aprovadoEm.getTime() + 15 * 3_600_000),
+        aprovadoPorId: adminId,
+        descontoCentavos,
+        itens: { create: itens },
+      },
+    })
+    const comum = {
+      categoria: 'Receita de tratamentos',
+      pacienteId,
+      orcamentoId: o.id,
+      criadoPorId: adminId,
+    }
+    await db.lancamento.create({
+      data: {
+        ...comum,
+        data: aprovadoEm,
+        tipo: 'VENDA',
+        valorCentavos: total,
+        descricao: `Orçamento nº ${o.id} aprovado`,
+      },
+    })
+    // Os mais antigos quase sempre já foram pagos; os recentes, nem sempre.
+    const pago = sorte() < (d < -30 ? 0.9 : 0.55)
+    const pagoEm = dias(Math.min(0, d + Math.floor(sorte() * 10)))
+    const forma = um(formas)
+    const l = pago
+      ? await db.lancamento.create({
+          data: {
+            ...comum,
+            data: pagoEm,
+            tipo: 'ENTRADA',
+            valorCentavos: total,
+            forma,
+            descricao: `Orçamento nº ${o.id}`,
+          },
+        })
+      : null
+    await db.contaFinanceira.create({
+      data: {
+        ...comum,
+        tipo: 'RECEBER',
+        descricao: `Orçamento nº ${o.id}`,
+        valorCentavos: total,
+        vencimento: aprovadoEm,
+        parcela: 1,
+        totalParcelas: 1,
+        status: l ? 'PAGA' : 'ABERTA',
+        pagoEm: l ? pagoEm : null,
+        forma: l ? forma : null,
+        lancamentoId: l?.id,
+      },
+    })
+    n++
+  }
+  console.log(`Financeiro: ${n} orçamentos aprovados fictícios nos últimos 6 meses.`)
+}
+
+// ── Movimento de um ano: muitos orçamentos aprovados (pagos na aprovação) e alguns abertos ──
+if ((await db.orcamento.count({ where: { status: 'APROVADO' } })) < 250) {
+  let semente = 20261105
+  const sorte = () => (semente = (semente * 1103515245 + 12345) % 2 ** 31) / 2 ** 31
+  const um = <T>(xs: readonly T[]) => xs[Math.floor(sorte() * xs.length)]
+  const pacs = await db.pessoa.findMany({
+    where: { tipo: 'PACIENTE', ativo: true, excluidoEm: null },
+    take: 120,
+    orderBy: { id: 'asc' },
+  })
+  const procs = await db.procedimento.findMany({ where: { ativo: true }, orderBy: { id: 'asc' } })
+  // Os baratos e comuns saem mais; implante e coroa, menos.
+  const peso = (p: (typeof procs)[number]) =>
+    p.valorCentavos <= 30000 ? 5 : p.valorCentavos <= 100000 ? 3 : 1
+  const sorteio = procs.flatMap((p) => Array(peso(p)).fill(p) as (typeof procs)[number][])
+  // Cada profissional com um movimento diferente, para o filtro e os gráficos mostrarem algo.
+  const agenda = dentistas.flatMap((id, i) => Array(Math.max(1, 4 - (i % 4))).fill(id) as number[])
+  const formas = [
+    'Pix',
+    'Pix',
+    'Pix',
+    'Cartão de crédito',
+    'Cartão de crédito',
+    'Cartão de débito',
+    'Dinheiro',
+    'Boleto',
+  ]
+  const novo = async (quando: Date, aprovado: boolean) => {
+    const escolhidos = Array.from({ length: 1 + Math.floor(sorte() * sorte() * 4) }, () =>
+      um(sorteio),
+    )
+    const itens = escolhidos.map((p) => ({
+      procedimentoId: p.id,
+      nome: p.nome,
+      dente: sorte() < 0.6 ? String(um([11, 12, 14, 16, 21, 24, 26, 36, 37, 46, 47])) : null,
+      valorCentavos: p.valorCentavos,
+      custoCentavos: p.custoCentavos,
+    }))
+    const subtotal = itens.reduce((t, i) => t + i.valorCentavos, 0)
+    const descontoCentavos = sorte() < 0.25 ? Math.round((subtotal * um([5, 10, 15])) / 100) : 0
+    const total = subtotal - descontoCentavos
+    const pacienteId = um(pacs).id
+    const meioDia = new Date(quando.getTime() + 15 * 3_600_000)
+    const o = await db.orcamento.create({
+      data: {
+        pacienteId,
+        profissionalId: um(agenda),
+        criadoPorId: adminId,
+        criadoEm: new Date(
+          meioDia.getTime() - (aprovado ? Math.floor(sorte() * 10) * 86_400_000 : 0),
+        ),
+        descontoCentavos,
+        ...(aprovado && {
+          status: 'APROVADO' as const,
+          aprovadoEm: meioDia,
+          aprovadoPorId: adminId,
+        }),
+        itens: { create: itens },
+      },
+    })
+    if (!aprovado) return
+    const comum = {
+      categoria: 'Receita de tratamentos',
+      pacienteId,
+      orcamentoId: o.id,
+      criadoPorId: adminId,
+    }
+    const forma = um(formas)
+    await db.lancamento.create({
+      data: {
+        ...comum,
+        data: quando,
+        tipo: 'VENDA',
+        valorCentavos: total,
+        descricao: `Orçamento nº ${o.id} aprovado`,
+      },
+    })
+    const l = await db.lancamento.create({
+      data: {
+        ...comum,
+        data: quando,
+        tipo: 'ENTRADA',
+        valorCentavos: total,
+        forma,
+        descricao: `Orçamento nº ${o.id}`,
+      },
+    })
+    await db.contaFinanceira.create({
+      data: {
+        ...comum,
+        tipo: 'RECEBER',
+        descricao: `Orçamento nº ${o.id}`,
+        valorCentavos: total,
+        vencimento: quando,
+        parcela: 1,
+        totalParcelas: 1,
+        status: 'PAGA',
+        pagoEm: quando,
+        forma,
+        lancamentoId: l.id,
+      },
+    })
+  }
+  let aprovados = 0
+  for (let d = -364; d <= 0; d++) {
+    const quando = dias(d)
+    const semana = quando.getUTCDay()
+    if (semana === 0) continue
+    // Sábado é mais fraco; o fim de ano também. Média de ~1,5 por dia útil.
+    const mes = quando.getUTCMonth()
+    const media = (semana === 6 ? 0.6 : 1.6) * (mes === 0 || mes === 11 ? 0.7 : 1)
+    const n = Math.floor(media + sorte() * 1.6)
+    for (let k = 0; k < n; k++) {
+      await novo(quando, true)
+      aprovados++
+    }
+  }
+  let abertos = 0
+  for (let k = 0; k < 40; k++) {
+    await novo(dias(-Math.floor(sorte() * sorte() * 90)), false)
+    abertos++
+  }
+  console.log(`Financeiro: ${aprovados} orçamentos aprovados e ${abertos} abertos no último ano.`)
 }
 
 // ── Casos para os relatórios: faltas, atendidas, primeira consulta, desmarcações,

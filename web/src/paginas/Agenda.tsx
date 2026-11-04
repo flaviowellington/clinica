@@ -286,7 +286,8 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
   return (
     <div className="space-y-3">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* No celular: título e "Adicionar" em cima; Dia/Semana/Mês embaixo, na largura toda. */}
+        <div className="order-2 flex w-full flex-wrap items-center gap-2 sm:order-none sm:w-auto">
           {!filtrosNoTopo && (
             <div className="flex items-center gap-1">
               <button
@@ -316,7 +317,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
             </div>
           )}
           <div
-            className="flex rounded-xl border-2 border-borda bg-superficie p-0.5"
+            className="flex flex-1 rounded-xl border-2 border-borda bg-superficie p-0.5 sm:flex-none"
             role="group"
             aria-label="Visualizar por"
           >
@@ -325,7 +326,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
                 key={v}
                 aria-pressed={visao === v}
                 onClick={() => setVisao(v)}
-                className={`rounded-lg px-4 py-1.5 font-bold ${
+                className={`flex-1 rounded-lg px-4 py-1.5 font-bold sm:flex-none ${
                   visao === v
                     ? 'bg-primaria text-sobre-primaria'
                     : 'text-suave hover:bg-primaria-clara hover:text-texto'
@@ -336,8 +337,8 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
             ))}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-0 text-right">
+        <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
+          <div className="min-w-0 sm:text-right">
             <h1 className="titulo">Agenda</h1>
             <p className="subtitulo first-letter:uppercase">{titulo(visao, data)}</p>
           </div>
@@ -389,7 +390,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
         <div className="cartao flex flex-wrap items-center gap-2 py-2">
           {/* Clicar fora fecha a janela aberta (calendário, profissionais ou retornos). */}
           {janela && <div className="fixed inset-0 z-30" onClick={() => setJanela(null)} />}
-          <div className="relative flex items-center gap-1">
+          <div className="relative flex w-full items-center gap-1 sm:w-auto">
             <button
               type="button"
               className="botao-leve px-2.5 py-1.5"
@@ -400,7 +401,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
             </button>
             <button
               type="button"
-              className="botao-leve flex items-center gap-2 py-1.5"
+              className="botao-leve flex flex-1 items-center justify-center gap-2 py-1.5 sm:flex-none"
               aria-expanded={janela === 'data'}
               onClick={() => setJanela(janela === 'data' ? null : 'data')}
             >
@@ -429,14 +430,14 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
             )}
           </div>
 
-          <div className="relative">
+          <div className="relative min-w-0 flex-1 sm:flex-none">
             <button
               type="button"
-              className="botao-leve flex items-center gap-2 py-1.5"
+              className="botao-leve flex w-full items-center justify-center gap-2 py-1.5 sm:w-auto"
               aria-expanded={janela === 'profissionais'}
               onClick={() => setJanela(janela === 'profissionais' ? null : 'profissionais')}
             >
-              <span className="flex -space-x-1" aria-hidden>
+              <span className="hidden -space-x-1 sm:flex" aria-hidden>
                 {colunas.slice(0, 5).map((p) => (
                   <span
                     key={p.id}
@@ -446,7 +447,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
                 ))}
               </span>
               Profissionais
-              <span className="text-suave">
+              <span className="hidden text-suave sm:inline">
                 {colunas.length === prof.profissionais.length
                   ? 'todos'
                   : `${colunas.length} de ${prof.profissionais.length}`}
@@ -502,17 +503,18 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
             )}
           </div>
 
-          <div className="relative ml-auto">
+          <div className="relative min-w-0 flex-1 sm:ml-auto sm:flex-none">
             <button
               type="button"
-              className="botao-leve py-1.5"
+              className="botao-leve w-full py-1.5 sm:w-auto"
               aria-expanded={janela === 'retornos'}
               onClick={() => setJanela(janela === 'retornos' ? null : 'retornos')}
             >
-              Alertas de retorno ▾
+              <span className="sm:hidden">Retornos ▾</span>
+              <span className="hidden sm:inline">Alertas de retorno ▾</span>
             </button>
             {janela === 'retornos' && (
-              <div className="absolute right-0 z-40 mt-1 w-72 shadow-lg">
+              <div className="absolute right-0 z-40 mt-1 w-72 max-w-[calc(100vw-2rem)] shadow-lg">
                 <ListaRetornos />
               </div>
             )}
@@ -729,11 +731,11 @@ function VisaoDia(props: {
     ]),
   )
   const fatia = (id: number) => Math.max(1, ...[...lados.get(id)!.values()].map((x) => x.colunas))
-  // Todos os profissionais cabem na largura da tela, sem rolar para o lado: as colunas encolhem
-  // por igual. Cada uma vai até 380px (com encaixe, 190px por consulta lado a lado).
+  // As colunas encolhem por igual até 7rem; abaixo disso (celular) a grade rola para o lado,
+  // com os horários fixos. Cada uma vai até 380px (com encaixe, 190px por consulta lado a lado).
   const maximo = (id: number) => Math.max(LARGURA_MAXIMA, (LARGURA_MAXIMA / 2) * fatia(id)) // px
   const grade = {
-    gridTemplateColumns: `4rem ${props.colunas.map((c) => `minmax(0, ${maximo(c.id) / LARGURA_MAXIMA}fr)`).join(' ')}`,
+    gridTemplateColumns: `4rem ${props.colunas.map((c) => `minmax(7rem, ${maximo(c.id) / LARGURA_MAXIMA}fr)`).join(' ')}`,
     maxWidth: `calc(4rem + ${props.colunas.reduce((t, c) => t + maximo(c.id), 0)}px)`,
   }
 
@@ -742,11 +744,11 @@ function VisaoDia(props: {
 
   return (
     <div
-      className="cartao overflow-x-hidden overflow-y-auto p-0"
+      className="cartao overflow-auto p-0"
       style={{ maxHeight: `calc(100vh - ${props.acima})` }}
     >
-      <div className="sticky top-0 z-30 grid bg-superficie" style={grade}>
-        <div className="border-b border-borda" />
+      <div className="sticky top-0 z-30 grid w-max min-w-full sm:w-auto bg-superficie" style={grade}>
+        <div className="sticky left-0 z-10 border-b border-borda bg-superficie" />
         {props.colunas.map((c) => {
           const cor = c.corAgenda ?? COR_PADRAO
           return (
@@ -770,7 +772,7 @@ function VisaoDia(props: {
       </div>
 
       <div
-        className="relative grid"
+        className="relative grid w-max min-w-full sm:w-auto"
         style={grade}
         onMouseMove={(e) => {
           const i = Math.floor((e.clientY - e.currentTarget.getBoundingClientRect().top) / ALTURA)
@@ -778,7 +780,7 @@ function VisaoDia(props: {
         }}
         onMouseLeave={() => setFoco(null)}
       >
-        <div>
+        <div className="sticky left-0 z-[15] bg-superficie">
           {HORARIOS.map((h, i) => (
             <div
               key={h}

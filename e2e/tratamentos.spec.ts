@@ -3,7 +3,7 @@ import dotenv from 'dotenv'
 
 const env = dotenv.config({ path: 'server/.env', quiet: true }).parsed ?? {}
 
-test('orçamento, contas, fluxo, conciliação, recibo e alerta de retorno', async ({ page }) => {
+test('orçamento, recebimento, extrato, DRE e alerta de retorno', async ({ page }) => {
   page.on('dialog', (d) => d.accept()) // confirmações do navegador ("Aprovar este orçamento?")
   await page.goto('/')
   await page.getByLabel('Usuário').fill('admin')
@@ -48,62 +48,23 @@ test('orçamento, contas, fluxo, conciliação, recibo e alerta de retorno', asy
   ).toBeVisible()
   await page.screenshot({ path: 'test-results/ficha-orcamentos.png', fullPage: true })
 
-  // Contas a receber: o orçamento vira uma conta à vista e pode ser recebida.
+  // Financeiro: abre em Orçamentos abertos; aprovar já registra o pagamento.
   await menu.getByRole('link', { name: 'Financeiro' }).click()
-  await page.getByRole('tab', { name: 'Contas a Receber' }).click()
-  await page
-    .getByLabel('Até')
-    .fill(
-      new Date(Date.now() + 70 * 86_400_000)
-        .toISOString()
-        .slice(0, 10)
-        .split('-')
-        .reverse()
-        .join('/'),
-    )
-  await page.getByRole('button', { name: 'Listar' }).click()
-  const linha = page
-    .getByRole('row', { name: /Orçamento nº \d+/ })
-    .filter({ has: page.getByRole('button', { name: 'Receber' }) })
-    .first()
-  await expect(linha).toBeVisible()
-  await linha.getByRole('button', { name: 'Receber' }).click()
-  await page.getByRole('button', { name: 'Confirmar' }).click()
-  await expect(page.getByText('Recebimento registrado')).toBeVisible()
-  await page.screenshot({ path: 'test-results/contas-receber.png', fullPage: true })
-
-  // Conta a pagar exige conta do plano de contas (R-054).
-  await page.getByRole('tab', { name: 'Contas a Pagar' }).click()
-  await page.getByRole('button', { name: 'Nova conta a pagar' }).click()
-  await page.getByLabel('Descrição *').fill('Energia elétrica')
-  const valor = page.getByLabel('Valor total *')
-  await valor.click()
-  await valor.press('End')
-  await valor.pressSequentially('32000')
-  await page.getByRole('button', { name: 'Registrar' }).click()
-  await expect(page.getByText('Escolha a conta do plano de contas.')).toBeVisible()
-  await page.getByLabel('Conta do plano de contas *').selectOption('Água, luz, telefone e internet')
-  await page.getByRole('button', { name: 'Registrar' }).click()
-  await expect(page.getByText('Conta registrada')).toBeVisible()
-
-  // Fluxo, extrato e conciliação.
-  await page.getByRole('tab', { name: 'Fluxo de Caixa' }).click()
-  await expect(page.getByRole('columnheader', { name: 'Saldo acumulado' })).toBeVisible()
-  await page.screenshot({ path: 'test-results/fluxo.png', fullPage: true })
-  await page.getByRole('tab', { name: 'Extrato' }).click()
-  await expect(page.getByText('Saldo final')).toBeVisible()
-  await page.getByRole('tab', { name: 'Conciliações Bancárias' }).click()
-  const caixa = page.getByRole('checkbox', { name: /Conferido:/ }).first()
-  await caixa.click()
-  await expect(caixa).toBeChecked()
-  await page.screenshot({ path: 'test-results/conciliacao.png', fullPage: true })
-
-  // Recibo do recebimento.
-  await page.getByRole('tab', { name: 'Conta Corrente' }).click()
-  await page.locator('details summary').first().click()
-  await page.getByRole('link', { name: 'Recibo' }).first().click()
-  await expect(page.getByRole('heading', { name: 'Recibo' })).toBeVisible()
-  await page.screenshot({ path: 'test-results/recibo.png', fullPage: true })
+  await expect(page.getByRole('heading', { name: 'Orçamentos abertos' })).toBeVisible()
+  await page.getByRole('button', { name: 'Confirmar pagamento e aprovar' }).click()
+  await expect(page.getByText('Orçamento aprovado e pagamento registrado')).toBeVisible()
+  // O aprovado na ficha aparece no Controle Financeiro do mês atual (padrão).
+  await page.getByRole('tab', { name: 'Controle Financeiro' }).click()
+  await expect(page.getByRole('link', { name: 'João Fictício Silva' }).first()).toBeVisible()
+  // O calendário abre no botão do período. Trocar o mês do calendário não muda o intervalo;
+  // "Ver todo o período" liga e fecha a janela.
+  const botaoPeriodo = page.getByRole('button', { name: / – |Todo o período/ })
+  await botaoPeriodo.click()
+  await page.getByRole('button', { name: 'Próximo mês' }).click()
+  await expect(page.getByRole('link', { name: 'João Fictício Silva' }).first()).toBeVisible()
+  await page.getByRole('button', { name: 'Ver todo o período' }).click()
+  await expect(botaoPeriodo).toHaveText('Todo o período')
+  await expect(page.getByRole('link', { name: 'João Fictício Silva' }).first()).toBeVisible()
 
   // DRE.
   await menu.getByRole('link', { name: 'Relatórios' }).click()

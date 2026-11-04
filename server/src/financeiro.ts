@@ -196,6 +196,146 @@ rotasFinanceiroContas.post(
   },
 )
 
+// ── Análise: orçamentos aprovados, custo, lucro e o que entrou ──────────────
+/**
+ * Orçamentos aprovados no período (data da aprovação na clínica) e as entradas recebidas
+ * no período que vieram de orçamentos. ?profissionalId filtra os dois.
+ * O front agrega tudo (cartões e gráficos).
+ */
+rotasFinanceiroContas.get('/analise', exigir('financeiro.ver'), async (req, res) => {
+  const de = String(req.query.de ?? '')
+  const ate = String(req.query.ate ?? de)
+  if (isNaN(Date.parse(de)) || isNaN(Date.parse(ate)))
+    return res.status(400).json({ erro: 'Período inválido.' })
+  const profissionalId = Number(req.query.profissionalId) || undefined
+  // Janela larga em UTC; o dia certo sai do fuso da clínica logo abaixo.
+  const janela = {
+    gte: new Date(dia(de).getTime() - DIA_MS),
+    lt: new Date(dia(ate).getTime() + 2 * DIA_MS),
+  }
+  const [orcs, entradas] = await Promise.all([
+    db.orcamento.findMany({
+      where: { status: 'APROVADO', excluidoEm: null, aprovadoEm: janela, profissionalId },
+      include: {
+        paciente: { select: { id: true, nome: true } },
+        profissional: { select: { id: true, nome: true } },
+        itens: {
+          select: {
+            nome: true,
+            valorCentavos: true,
+            custoCentavos: true,
+            procedimento: { select: { especialidade: true } },
+          },
+        },
+        lancamentos: {
+          where: { tipo: 'ENTRADA', excluidoEm: null },
+          select: { valorCentavos: true },
+        },
+      },
+      orderBy: { aprovadoEm: 'desc' },
+    }),
+    db.lancamento.findMany({
+      where: {
+        tipo: 'ENTRADA',
+        excluidoEm: null,
+        data: { gte: dia(de), lte: dia(ate) },
+        orcamento: { is: { profissionalId } },
+        orcamentoId: { not: null },
+      },
+      select: {
+        id: true,
+        data: true,
+        valorCentavos: true,
+        forma: true,
+        orcamento: { select: { profissional: { select: { id: true, nome: true } } } },
+      },
+      orderBy: { data: 'asc' },
+    }),
+  ])
+  const orcamentos = orcs
+    .map((o) => ({ ...o, aprovadoEm: hojeNaClinica(o.aprovadoEm!) }))
+    .filter((o) => o.aprovadoEm >= de && o.aprovadoEm <= ate)
+    .map(({ lancamentos, itens, ...o }) => ({
+      id: o.id,
+      aprovadoEm: o.aprovadoEm,
+      paciente: o.paciente,
+      profissional: o.profissional,
+      descontoCentavos: o.descontoCentavos,
+      totalCentavos: totalOrcamento(itens, o.descontoCentavos),
+      custoCentavos: itens.reduce((s, i) => s + i.custoCentavos, 0),
+      recebidoCentavos: lancamentos.reduce((s, l) => s + l.valorCentavos, 0),
+      itens: itens.map(({ procedimento, ...i }) => ({
+        ...i,
+        especialidade: procedimento.especialidade,
+      })),
+    }))
+  res.json({
+    orcamentos,
+    entradas: entradas.map(({ orcamento, ...l }) => ({
+      ...l,
+      data: isoDe(l.data),
+      profissional: orcamento!.profissional,
+    })),
+  })
+})
+
+/**
+ * Orçamentos em aberto para aprovar quando o paciente pagar. ?de&ate filtram pela data em
+ * que o orçamento foi feito (fuso da clínica); sem eles, todos. ?profissionalId filtra.
+ */
+rotasFinanceiroContas.get('/orcamentos-abertos', exigir('orcamento.ver'), async (req, res) => {
+  const de = typeof req.query.de === 'string' ? req.query.de : ''
+  const ate = typeof req.query.ate === 'string' ? req.query.ate : de
+  const comPeriodo = !isNaN(Date.parse(de)) && !isNaN(Date.parse(ate))
+  const lista = await db.orcamento.findMany({
+    where: {
+      status: 'ABERTO',
+      excluidoEm: null,
+      profissionalId: Number(req.query.profissionalId) || undefined,
+      ...(comPeriodo && {
+        criadoEm: {
+          gte: new Date(dia(de).getTime() - DIA_MS),
+          lt: new Date(dia(ate).getTime() + 2 * DIA_MS),
+        },
+      }),
+    },
+    include: {
+      paciente: { select: { id: true, nome: true, celular: true } },
+      profissional: { select: { id: true, nome: true, corAgenda: true } },
+      itens: {
+        orderBy: { id: 'asc' },
+        select: {
+          nome: true,
+          dente: true,
+          valorCentavos: true,
+          custoCentavos: true,
+          procedimento: { select: { especialidade: true } },
+        },
+      },
+    },
+    orderBy: { criadoEm: 'desc' },
+  })
+  res.json(
+    lista
+      .map((o) => ({ ...o, criadoEm: hojeNaClinica(o.criadoEm) }))
+      .filter((o) => !comPeriodo || (o.criadoEm >= de && o.criadoEm <= ate))
+      .map((o) => ({
+        id: o.id,
+        criadoEm: o.criadoEm,
+        observacoes: o.observacoes,
+        paciente: o.paciente,
+        profissional: o.profissional,
+        descontoCentavos: o.descontoCentavos,
+        totalCentavos: totalOrcamento(o.itens, o.descontoCentavos),
+        custoCentavos: o.itens.reduce((s, i) => s + i.custoCentavos, 0),
+        itens: o.itens.map(({ procedimento, ...i }) => ({
+          ...i,
+          especialidade: procedimento.especialidade,
+        })),
+      })),
+  )
+})
+
 // ── Fluxo de caixa e extrato (R-052) ────────────────────────────────────────
 /** Entradas menos saídas realizadas antes da data. */
 async function saldoAntes(antes: Date, contaBancariaId?: number) {

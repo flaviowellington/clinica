@@ -39,6 +39,7 @@ interface Item {
   /** Faces do dente quando o item veio do odontograma (ex.: "MO"). */
   faces?: string | null
   valorCentavos: number
+  custoCentavos: number
   executadoEm?: string | null
   observacao?: string | null
   observacaoPaciente?: string | null
@@ -68,6 +69,7 @@ interface Procedimento {
   nome: string
   especialidade: string | null
   valorCentavos: number
+  custoCentavos: number
 }
 
 const COR_STATUS: Record<StatusOrcamento, string> = {
@@ -248,6 +250,7 @@ const paraItem = (p: Procedimento): Item => ({
   nome: p.nome,
   dente: null,
   valorCentavos: p.valorCentavos,
+  custoCentavos: p.custoCentavos,
 })
 
 /** Busca na tabela de preços com seleção de vários procedimentos e o total dos marcados. */
@@ -423,6 +426,7 @@ function EditorOrcamento(props: {
   const desconto =
     modoDesconto === 'PERCENTUAL' ? descontoDoPercentual(subtotal, percentual) : descontoFixo
   const total = totalOrcamento(itens, desconto)
+  const custo = itens.reduce((s, i) => s + i.custoCentavos, 0)
   const trocarModo = (m: typeof modoDesconto) => {
     // Troca mantendo o mesmo desconto, só mudando como ele é digitado.
     if (m === 'PERCENTUAL') setPercentual(percentualDoDesconto(subtotal, descontoFixo))
@@ -435,11 +439,20 @@ function EditorOrcamento(props: {
     profissionalId,
     // As observações do plano de tratamento vão junto para não se perderem ao editar.
     itens: itens.map(
-      ({ procedimentoId, dente, faces, valorCentavos, observacao, observacaoPaciente }) => ({
+      ({
         procedimentoId,
         dente,
         faces,
         valorCentavos,
+        custoCentavos,
+        observacao,
+        observacaoPaciente,
+      }) => ({
+        procedimentoId,
+        dente,
+        faces,
+        valorCentavos,
+        custoCentavos,
         observacao,
         observacaoPaciente,
       }),
@@ -531,9 +544,9 @@ function EditorOrcamento(props: {
                   <li
                     key={n}
                     // Grade fixa: a lixeira fica sempre na última coluna; nome longo quebra a linha.
-                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-borda bg-superficie p-2.5 sm:grid-cols-[minmax(0,1fr)_7rem_8rem_auto]"
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 rounded-xl border border-borda bg-superficie p-2.5 sm:grid-cols-[minmax(0,1fr)_6rem_7.5rem_7.5rem_auto]"
                   >
-                    <div className="col-span-3 min-w-0 sm:col-span-1">
+                    <div className="col-span-4 min-w-0 self-center sm:col-span-1">
                       <p className="font-bold break-words">{i.nome}</p>
                       {i.faces && <p className="text-xs text-suave">Faces: {i.faces}</p>}
                     </div>
@@ -547,6 +560,21 @@ function EditorOrcamento(props: {
                       />
                     </div>
                     <div>
+                      <span className="mb-0.5 block text-xs font-bold text-suave" aria-hidden>
+                        Custo
+                      </span>
+                      <CampoReais
+                        id={`custo-item-${n}`}
+                        rotulo={`Custo: ${i.nome}`}
+                        rotuloOculto
+                        valor={i.custoCentavos}
+                        aoMudar={(v) => mudarItem(n, { custoCentavos: v })}
+                      />
+                    </div>
+                    <div>
+                      <span className="mb-0.5 block text-xs font-bold text-suave" aria-hidden>
+                        Valor final
+                      </span>
                       <CampoReais
                         id={`valor-item-${n}`}
                         rotulo={`Valor: ${i.nome}`}
@@ -639,6 +667,16 @@ function EditorOrcamento(props: {
                     <dd className="tabular-nums">− {reais(desconto)}</dd>
                   </div>
                 )}
+                <div className="flex justify-between text-suave">
+                  <dt>Custo</dt>
+                  <dd className="tabular-nums">− {reais(custo)}</dd>
+                </div>
+                <div
+                  className={`flex justify-between font-bold ${total - custo < 0 ? 'text-perigo' : 'text-sucesso'}`}
+                >
+                  <dt>Lucro estimado</dt>
+                  <dd className="tabular-nums">{reais(total - custo)}</dd>
+                </div>
               </dl>
             </div>
           </div>

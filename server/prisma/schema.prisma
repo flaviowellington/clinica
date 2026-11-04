@@ -301,6 +301,8 @@ model Procedimento {
   nomeBusca     String
   especialidade String?
   valorCentavos Int
+  /// Quanto o procedimento custa para a clínica (material, laboratório). Base do lucro.
+  custoCentavos Int                   @default(0)
   ativo         Boolean               @default(true)
   itens         ItemOrcamento[]
   clinicos      ProcedimentoClinico[]
@@ -355,7 +357,10 @@ model ItemOrcamento {
   dente              String?
   /// Faces do dente, ex.: "MO" (vem do odontograma).
   faces              String?
+  /// Valor final cobrado do paciente.
   valorCentavos      Int
+  /// Custo do item, copiado da tabela e editável no orçamento.
+  custoCentavos      Int          @default(0)
   executadoEm        DateTime?
   executadoPorId     Int?
   /// Interna, e a que aparece no documento que o paciente assina.

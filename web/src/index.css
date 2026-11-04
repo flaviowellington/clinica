@@ -902,3 +902,30 @@ body {
     cursor: not-allowed;
   }
 }
+
+/*
+ * Cores dos gráficos (Financeiro > Gráficos). Ordem fixa e validada para daltonismo
+ * (skill dataviz, validate_palette.js); o escuro tem os passos próprios, não uma inversão.
+ */
+.viz {
+  --serie-1: #2a78d6;
+  --serie-2: #eb6834;
+  --serie-3: #1baf7a;
+  --serie-4: #eda100;
+  --serie-5: #e87ba4;
+  --serie-6: #008300;
+  --serie-7: #6250d6;
+  --serie-8: #e34948;
+  --serie-outros: color-mix(in srgb, var(--suave) 55%, var(--superficie));
+  --viz-grade: color-mix(in srgb, var(--suave) 22%, transparent);
+}
+[data-tema='escuro'] .viz {
+  --serie-1: #3987e5;
+  --serie-2: #d95926;
+  --serie-3: #199e70;
+  --serie-4: #c98500;
+  --serie-5: #d55181;
+  --serie-6: #008300;
+  --serie-7: #9085e9;
+  --serie-8: #e66767;
+}
