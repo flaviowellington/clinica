@@ -267,7 +267,7 @@ describe('relatórios', () => {
       (await fin('GET', '/api/relatorios/agenda-geral?de=2026-10-19&ate=2026-10-19')).status,
     ).toBe(403)
     expect(
-      (await fin('GET', '/api/relatorios/financeiro-resumo?de=2026-10-19&ate=2026-10-19')).status,
+      (await fin('GET', '/api/relatorios/financeiro-caixa?de=2026-10-19&ate=2026-10-19')).status,
     ).toBe(200)
     const adm = await entrarComo('ADMINISTRADOR')
     expect(
@@ -296,5 +296,197 @@ describe('catálogo de relatórios', () => {
         expect(res.corpo.colunas.length).toBeGreaterThan(0)
         expect(Array.isArray(res.corpo.linhas)).toBe(true)
       }
+  })
+})
+
+describe('relatórios: correções de cálculo e filtros', () => {
+  /** Dois dentistas, um paciente e um agendamento por linha de `consultas`. */
+  async function cenario(
+    api: Awaited<ReturnType<typeof entrarComo>>,
+    consultas: {
+      data: string
+      prof: 0 | 1
+      status?: 'ATENDIDO' | 'FALTOU'
+      categoria?: string
+      desmarcada?: boolean
+      primeira?: boolean
+    }[],
+  ) {
+    const profs = await Promise.all(
+      ['Dra. Alfa', 'Dr. Beta'].map((nome) =>
+        db.pessoa.create({ data: { tipo: 'PROFISSIONAL', nome, nomeBusca: nome.toLowerCase() } }),
+      ),
+    )
+    const { corpo: pac } = await api('POST', '/api/pacientes', PACIENTE)
+    let h = 8
+    for (const c of consultas)
+      await db.agendamento.create({
+        data: {
+          data: new Date(`${c.data}T00:00:00Z`),
+          inicio: `${String(h).padStart(2, '0')}:00`,
+          fim: `${String(h++).padStart(2, '0')}:30`,
+          profissionalId: profs[c.prof].id,
+          pacienteId: pac.id,
+          status: c.status ?? 'AGENDADO',
+          categoria: c.categoria,
+          primeiraConsulta: c.primeira ?? false,
+          desmarcadoEm: c.desmarcada ? new Date() : null,
+          criadoPorId: api.usuario.id,
+        },
+      })
+    return { profs, pac }
+  }
+  const linhas = async (api: Awaited<ReturnType<typeof entrarComo>>, url: string) =>
+    (await api('GET', `/api/relatorios/${url}`)).corpo.linhas
+
+  it('consulta desmarcada não conta em Geral, Por categoria e Primeira consulta', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    await cenario(api, [
+      { data: '2026-10-19', prof: 0, categoria: 'Avaliação', primeira: true },
+      { data: '2026-10-19', prof: 0, categoria: 'Avaliação', primeira: true, desmarcada: true },
+    ])
+    const p = '?de=2026-10-19&ate=2026-10-19'
+    expect(await linhas(api, `agenda-geral${p}`)).toHaveLength(1)
+    expect(await linhas(api, `agenda-categoria${p}`)).toEqual([['Avaliação', 1]])
+    expect(await linhas(api, `agenda-primeira${p}`)).toHaveLength(1)
+  })
+
+  it('filtra por profissional, status e categoria', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { profs } = await cenario(api, [
+      { data: '2026-10-19', prof: 0, categoria: 'Avaliação', status: 'ATENDIDO' },
+      { data: '2026-10-19', prof: 0, categoria: 'Retorno', status: 'FALTOU' },
+      { data: '2026-10-19', prof: 1, categoria: 'Avaliação', status: 'ATENDIDO' },
+    ])
+    const p = '?de=2026-10-19&ate=2026-10-19'
+    expect(await linhas(api, `agenda-geral${p}&profissionais=${profs[0].id}`)).toHaveLength(2)
+    expect(await linhas(api, `agenda-geral${p}&status=ATENDIDO`)).toHaveLength(2)
+    expect(await linhas(api, `agenda-geral${p}&categoria=Retorno`)).toHaveLength(1)
+    expect(await linhas(api, `agenda-profissional${p}&profissionais=${profs[1].id}`)).toEqual([
+      ['Dr. Beta', 1, 1, 0, 0, '0%'],
+    ])
+    // Nenhum marcado: nada.
+    expect(await linhas(api, `agenda-geral${p}&profissionais=0`)).toEqual([])
+    // Vários de uma vez.
+    expect(
+      await linhas(api, `agenda-geral${p}&profissionais=${profs[0].id},${profs[1].id}`),
+    ).toHaveLength(3)
+  })
+
+  it('Último agendamento ignora consulta futura e desmarcada', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    await cenario(api, [
+      { data: '2020-03-10', prof: 0, status: 'ATENDIDO' },
+      { data: '2020-04-10', prof: 0, desmarcada: true },
+      { data: '2099-01-10', prof: 0 },
+    ])
+    const [l] = await linhas(api, 'pacientes-ultimo')
+    expect(l[2]).toBe('10/03/2020')
+  })
+
+  it('Tratamentos em aberto e Cobrança não dependem do período escolhido', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { profs, pac } = await cenario(api, [])
+    const proc = await db.procedimento.create({
+      data: { nome: 'Canal', nomeBusca: 'canal', valorCentavos: 80000 },
+    })
+    await db.orcamento.create({
+      data: {
+        pacienteId: pac.id,
+        profissionalId: profs[0].id,
+        status: 'APROVADO',
+        aprovadoEm: new Date('2020-01-15T12:00:00Z'),
+        criadoPorId: api.usuario.id,
+        itens: { create: [{ procedimentoId: proc.id, nome: 'Canal', valorCentavos: 80000 }] },
+      },
+    })
+    await db.contaFinanceira.create({
+      data: {
+        tipo: 'RECEBER',
+        descricao: 'Parcela antiga',
+        valorCentavos: 10000,
+        vencimento: new Date('2020-02-01T00:00:00Z'),
+        pacienteId: pac.id,
+        criadoPorId: api.usuario.id,
+      },
+    })
+    const mes = '?de=2026-10-01&ate=2026-10-31'
+    expect(await linhas(api, `tratamentos-abertos${mes}`)).toHaveLength(1)
+    expect(await linhas(api, `pacientes-inadimplentes${mes}`)).toHaveLength(1)
+  })
+
+  it('Procedimentos mais orçados desconta o desconto do orçamento', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { profs, pac } = await cenario(api, [])
+    const proc = await db.procedimento.create({
+      data: { nome: 'Resina', nomeBusca: 'resina', valorCentavos: 30000 },
+    })
+    await db.orcamento.create({
+      data: {
+        pacienteId: pac.id,
+        profissionalId: profs[0].id,
+        status: 'APROVADO',
+        aprovadoEm: new Date(),
+        descontoCentavos: 10000,
+        criadoPorId: api.usuario.id,
+        itens: {
+          create: [
+            { procedimentoId: proc.id, nome: 'Resina', valorCentavos: 30000 },
+            { procedimentoId: proc.id, nome: 'Resina', valorCentavos: 10000 },
+          ],
+        },
+      },
+    })
+    const hoje = new Date().toISOString().slice(0, 10)
+    const [l] = await linhas(api, `tratamentos-procedimentos?de=${hoje}&ate=${hoje}`)
+    // 400 de itens − 100 de desconto = 300.
+    expect(l).toEqual(['Resina', 2, 2, '100%', '300,00'])
+  })
+})
+
+describe('relatórios repetidos saem do catálogo', () => {
+  it('quem repetia outra tela responde 404', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    for (const id of [
+      'agenda-status',
+      'pacientes-indicacoes',
+      'financeiro-resumo',
+      'financeiro-formas',
+      'tratamentos-faturamento',
+      'geral-usuarios',
+    ]) {
+      const r = await api('GET', `/api/relatorios/${id}?de=2026-10-01&ate=2026-10-31`)
+      expect([id, r.status]).toEqual([id, 404])
+    }
+  })
+  it('Por profissional mostra as desmarcadas; Pacientes novos mostra quem indicou', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const prof = await db.pessoa.create({
+      data: { tipo: 'PROFISSIONAL', nome: 'Dra. Gama', nomeBusca: 'dra. gama' },
+    })
+    const { corpo: pac } = await api('POST', '/api/pacientes', {
+      ...PACIENTE,
+      comoConheceu: 'Indicado por',
+      indicadoPor: 'Ciclano Fictício',
+    })
+    for (const desmarcada of [false, true])
+      await db.agendamento.create({
+        data: {
+          data: new Date('2026-10-19T00:00:00Z'),
+          inicio: desmarcada ? '09:00' : '10:00',
+          fim: desmarcada ? '09:30' : '10:30',
+          profissionalId: prof.id,
+          pacienteId: pac.id,
+          desmarcadoEm: desmarcada ? new Date() : null,
+          criadoPorId: api.usuario.id,
+        },
+      })
+    const r = await api('GET', '/api/relatorios/agenda-profissional?de=2026-10-19&ate=2026-10-19')
+    expect(r.corpo.colunas).toContain('Desmarcadas')
+    expect(r.corpo.linhas).toEqual([['Dra. Gama', 1, 0, 0, 1, '0%']])
+    const hoje = new Date().toISOString().slice(0, 10)
+    const n = await api('GET', `/api/relatorios/pacientes-novos?de=${hoje}&ate=${hoje}`)
+    expect(n.corpo.colunas).toContain('Indicado por')
+    expect(n.corpo.linhas[0]).toContain('Ciclano Fictício')
   })
 })

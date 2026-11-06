@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, dataBR, errosDosCampos, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
 import { PERFIS, type Perfil } from '../../../shared/permissoes'
 import { Dialogo } from '../componentes/Dialogo'
 import { CampoSelect } from '../componentes/CampoSelect'
+import { Icone } from '../componentes/Icones'
+import { Situacao } from './Pacientes'
+import { CamposProfissional } from './Profissionais'
 
 interface Usuario {
   id: number
@@ -18,6 +21,7 @@ interface Usuario {
 interface Profissional {
   id: number
   nome: string
+  ativo: boolean
 }
 
 const DESCRICAO_PERFIL: Record<Perfil, string> = {
@@ -26,7 +30,24 @@ const DESCRICAO_PERFIL: Record<Perfil, string> = {
   RECEPCAO: 'Agenda, cadastro, orçamentos e recebimentos.',
   FINANCEIRO: 'Financeiro da clínica e relatórios financeiros.',
 }
+/** Cor de cada perfil, pela área: roxo = controle, ciano = saúde, laranja = atendimento, verde = dinheiro. */
+const COR_PERFIL: Record<Perfil, string> = {
+  ADMINISTRADOR: '#7c3aed',
+  PROFISSIONAL: '#0891b2',
+  RECEPCAO: '#ea580c',
+  FINANCEIRO: '#16a34a',
+}
+/** Etiqueta na cor do perfil; o texto mistura com a cor do tema para ler bem no claro e no escuro. */
+const estiloPerfil = (p: Perfil) => ({
+  color: `color-mix(in srgb, ${COR_PERFIL[p]} 75%, var(--texto))`,
+  backgroundColor: `color-mix(in srgb, ${COR_PERFIL[p]} 15%, transparent)`,
+})
 const SENHA_MINIMA = 8
+
+const iniciais = (nome: string) => {
+  const p = nome.trim().split(/\s+/)
+  return ((p[0]?.[0] ?? '') + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase()
+}
 
 /** Usuários e Permissões (S-012). */
 export function Usuarios() {
@@ -36,58 +57,102 @@ export function Usuarios() {
   })
   const [editando, setEditando] = useState<Usuario | 'novo' | null>(null)
   const [senhaDe, setSenhaDe] = useState<Usuario | null>(null)
+  const ativos = lista.data?.filter((u) => u.ativo).length ?? 0
+  const inativos = (lista.data?.length ?? 0) - ativos
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="space-y-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Usuários</h1>
-          <p className="text-suave">Quem entra no sistema e o que cada um pode fazer.</p>
+          <h1 className="titulo">Usuários</h1>
+          <p className="subtitulo">Quem entra no sistema e o que cada um pode fazer.</p>
         </div>
         <button className="botao" onClick={() => setEditando('novo')}>
+          <Icone nome="mais" className="h-4 w-4" />
           Novo usuário
         </button>
-      </div>
+      </header>
 
-      <div className="cartao overflow-x-auto p-0">
-        <table className="w-full text-left">
-          <thead className="border-b border-borda text-suave">
-            <tr>
-              {['Nome', 'Login', 'Perfis', 'Profissional', 'Situação', ''].map((t) => (
-                <th key={t} className="px-4 py-2 font-medium">
-                  {t}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {lista.data?.map((u) => (
-              <tr
-                key={u.id}
-                className={`border-b border-borda last:border-0 ${u.ativo ? '' : 'text-suave'}`}
-              >
-                <td className="px-4 py-2 font-medium">{u.nome}</td>
-                <td className="px-4 py-2">{u.login}</td>
-                <td className="px-4 py-2">{u.perfis.map((p) => PERFIS[p]).join(', ')}</td>
-                <td className="px-4 py-2">{u.pessoa?.nome ?? '—'}</td>
-                <td className="px-4 py-2">{u.ativo ? 'Ativo' : 'Inativo'}</td>
-                <td className="px-4 py-2 text-right whitespace-nowrap">
-                  <button className="text-primaria hover:underline" onClick={() => setEditando(u)}>
-                    Editar
-                  </button>
-                  <button
-                    className="ml-3 text-primaria hover:underline"
-                    onClick={() => setSenhaDe(u)}
+      <div className="cartao overflow-hidden p-0">
+        {lista.data && (
+          <div className="border-b border-borda px-4 py-2.5 text-sm font-bold text-suave">
+            {ativos} {ativos === 1 ? 'ativo' : 'ativos'}
+            {inativos > 0 && ` · ${inativos} ${inativos === 1 ? 'inativo' : 'inativos'}`}
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[46rem] text-left">
+            <thead>
+              <tr>
+                {['Nome', 'Login', 'Perfis', 'Profissional', 'Situação', ''].map((t) => (
+                  <th
+                    key={t}
+                    className="px-4 py-2.5 text-xs font-bold tracking-wide text-suave uppercase shadow-[inset_0_-1px_0_var(--borda)]"
                   >
-                    Trocar senha
-                  </button>
-                </td>
+                    {t}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className={lista.isFetching ? 'opacity-60' : ''}>
+              {lista.data?.map((u) => (
+                <tr
+                  key={u.id}
+                  className={`border-b border-borda last:border-0 hover:bg-primaria-clara ${u.ativo ? '' : 'text-suave'}`}
+                >
+                  <td className="px-4 py-2.5">
+                    <span className="flex items-center gap-3 font-bold">
+                      <span
+                        aria-hidden
+                        className={`grid size-8 shrink-0 place-items-center rounded-full text-xs ${u.ativo ? 'bg-primaria/15 text-primaria' : 'bg-superficie-2'}`}
+                      >
+                        {iniciais(u.nome)}
+                      </span>
+                      <span className={u.ativo ? 'text-titulo' : ''}>{u.nome}</span>
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-sm">{u.login}</td>
+                  <td className="px-4 py-2.5">
+                    <span className="flex flex-wrap gap-1">
+                      {u.perfis.map((p) => (
+                        <span
+                          key={p}
+                          className="etiqueta"
+                          style={u.ativo ? estiloPerfil(p) : undefined}
+                        >
+                          {PERFIS[p]}
+                        </span>
+                      ))}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5">{u.pessoa?.nome ?? '—'}</td>
+                  <td className="px-4 py-2.5">
+                    <Situacao ativo={u.ativo} />
+                  </td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                    <button className="botao-fantasma botao-pequeno" onClick={() => setEditando(u)}>
+                      <Icone nome="lapis" className="h-4 w-4" />
+                      Editar
+                    </button>
+                    <button className="botao-fantasma botao-pequeno" onClick={() => setSenhaDe(u)}>
+                      <Icone nome="cadeado" className="h-4 w-4" />
+                      Trocar senha
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {lista.data?.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-suave">
+                    Nenhum usuário cadastrado.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
-      <p className="text-suave">
+      <p className="alerta-info">
         Um usuário pode ter mais de um perfil: ele pode fazer tudo o que cada perfil permite.
         Ninguém é apagado: inative quem saiu da clínica, e o histórico continua com o nome dele.
       </p>
@@ -115,14 +180,32 @@ export function Usuarios() {
   )
 }
 
+/** Rodapé dos formulários em janela: Cancelar e o botão de enviar. */
+function Rodape(props: { aoCancelar: () => void; ocupado: boolean; texto: string }) {
+  return (
+    <div className="flex justify-end gap-2 border-t border-borda pt-4">
+      <button type="button" className="botao-leve" onClick={props.aoCancelar}>
+        Cancelar
+      </button>
+      <button className="botao" disabled={props.ocupado}>
+        {props.texto}
+      </button>
+    </div>
+  )
+}
+
 function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
   const qc = useQueryClient()
   const u = props.usuario
   const [perfis, setPerfis] = useState<Perfil[]>(u?.perfis ?? [])
+  const [pessoaId, setPessoaId] = useState(String(u?.pessoa?.id ?? ''))
+  const ehProfissional = perfis.includes('PROFISSIONAL')
+  // Usuário novo com perfil Profissional e nenhum profissional escolhido: cadastra um junto.
+  const criaProfissional = !u && ehProfissional && !pessoaId
   const profissionais = useQuery({
-    queryKey: ['profissionais', 'ativos'],
-    queryFn: async () =>
-      (await api.get<Profissional[]>('/profissionais', { params: { ativos: 1 } })).data,
+    // Todos, inclusive inativos: senão o vínculo de um dentista inativo some ao salvar.
+    queryKey: ['profissionais', 'todos'],
+    queryFn: async () => (await api.get<Profissional[]>('/profissionais')).data,
   })
   const salvar = useMutation({
     mutationFn: async (d: Record<string, unknown>) =>
@@ -135,42 +218,61 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
   const erros = errosDosCampos(salvar.error)
-  const erro = (c: string) => erros[c] && <p className="mt-1 text-perigo">{erros[c]}</p>
+  const erro = (c: string) => erros[c] && <p className="erro-campo">{erros[c]}</p>
   return (
     <form
-      className="space-y-3"
+      className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
         const f = Object.fromEntries(new FormData(e.currentTarget))
+        const { cro, especialidade, celular, email, corAgenda, ...resto } = f
         salvar.mutate({
-          ...f,
+          ...resto,
           perfis,
           pessoaId: Number(f.pessoaId) || null,
           ativo: u ? f.ativo === 'on' : true,
+          ...(criaProfissional && {
+            profissional: { cro, especialidade, celular, email, corAgenda },
+          }),
         })
       }}
     >
-      <label className="block">
-        <span className="rotulo">Nome *</span>
-        <input name="nome" className="campo" defaultValue={u?.nome} required autoFocus />
+      <div>
+        <label className="rotulo" htmlFor="u-nome">
+          Nome *
+        </label>
+        <input
+          id="u-nome"
+          name="nome"
+          className="campo"
+          defaultValue={u?.nome}
+          required
+          autoFocus
+        />
         {erro('nome')}
-      </label>
+      </div>
       {!u && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label>
-            <span className="rotulo">Login *</span>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="rotulo" htmlFor="u-login">
+              Login *
+            </label>
             <input
+              id="u-login"
               name="login"
               className="campo"
               required
               autoComplete="off"
-              placeholder="ex.: maria.recepcao"
+              placeholder="Ex.: maria.recepcao"
             />
             {erro('login')}
-          </label>
-          <label>
-            <span className="rotulo">Senha inicial *</span>
+          </div>
+          <div>
+            <label className="rotulo" htmlFor="u-senha">
+              Senha inicial *
+            </label>
             <input
+              id="u-senha"
               name="senha"
               type="password"
               className="campo"
@@ -178,56 +280,90 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
               minLength={SENHA_MINIMA}
               autoComplete="new-password"
             />
+            <span className="ajuda">Pelo menos {SENHA_MINIMA} caracteres.</span>
             {erro('senha')}
-          </label>
+          </div>
         </div>
       )}
-      <fieldset className="space-y-2">
+      <fieldset>
         <legend className="rotulo">Perfis *</legend>
-        {(Object.keys(PERFIS) as Perfil[]).map((p) => (
-          <label key={p} className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={perfis.includes(p)}
-              onChange={(e) =>
-                setPerfis(e.target.checked ? [...perfis, p] : perfis.filter((x) => x !== p))
-              }
-            />
-            <span>
-              {PERFIS[p]} <span className="text-suave">— {DESCRICAO_PERFIL[p]}</span>
-            </span>
-          </label>
-        ))}
+        <div className="grid gap-2 sm:grid-cols-2">
+          {(Object.keys(PERFIS) as Perfil[]).map((p) => (
+            <label
+              key={p}
+              className="flex cursor-pointer items-start gap-3 rounded-xl border-2 border-borda p-3 hover:border-(--cor-check) has-[:checked]:border-(--cor-check) has-[:checked]:bg-[color-mix(in_srgb,var(--cor-check)_10%,transparent)]"
+              style={{ '--cor-check': COR_PERFIL[p] } as CSSProperties}
+            >
+              <span
+                aria-hidden
+                className="mt-1.5 size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: COR_PERFIL[p] }}
+              />
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                // O checkbox global redefine --cor-check nele mesmo; repete aqui para valer.
+                style={{ '--cor-check': COR_PERFIL[p], '--sobre-check': '#fff' } as CSSProperties}
+                checked={perfis.includes(p)}
+                onChange={(e) =>
+                  setPerfis(e.target.checked ? [...perfis, p] : perfis.filter((x) => x !== p))
+                }
+              />
+              <span>
+                <span className="block font-bold">{PERFIS[p]}</span>
+                <span className="text-sm text-suave">{DESCRICAO_PERFIL[p]}</span>
+              </span>
+            </label>
+          ))}
+        </div>
         {erro('perfis')}
       </fieldset>
-      <label className="block">
-        <span className="rotulo">Profissional ligado (dentista)</span>
-        <CampoSelect
-          name="pessoaId"
-          defaultValue={u?.pessoa?.id ?? ''}
-          vazio="Nenhum"
-          opcoes={profissionais.data?.map((p) => [p.id, p.nome] as const)}
-        />
-        <span className="text-xs text-suave">
-          Assim a agenda e o prontuário já abrem com o nome dele.
-        </span>
-        {erro('pessoaId')}
-      </label>
+      {(ehProfissional || u?.pessoa) && (
+        <div>
+          <label className="rotulo" htmlFor="u-pessoa">
+            Profissional ligado (dentista)
+          </label>
+          <CampoSelect
+            id="u-pessoa"
+            name="pessoaId"
+            value={pessoaId}
+            onChange={(e) => setPessoaId(e.target.value)}
+            vazio={u ? 'Nenhum' : 'Cadastrar novo profissional'}
+            opcoes={profissionais.data?.map(
+              (p) => [p.id, p.ativo ? p.nome : `${p.nome} (inativo)`] as const,
+            )}
+          />
+          <span className="ajuda">Assim a agenda e o prontuário já abrem com o nome dele.</span>
+          {erro('pessoaId')}
+        </div>
+      )}
+      {criaProfissional && (
+        <fieldset className="space-y-4 rounded-2xl bg-superficie-2 p-3">
+          <legend className="sr-only">Dados do profissional</legend>
+          <p className="text-sm text-suave">
+            O profissional é cadastrado com o nome acima. A foto você coloca depois, em
+            Profissionais.
+          </p>
+          {erro('profissional')}
+          <CamposProfissional erros={erros} />
+        </fieldset>
+      )}
       {u && (
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="ativo" defaultChecked={u.ativo} />
-          Ativo (pode entrar no sistema) · criado em {dataBR(u.criadoEm)}
+        <label className="flex cursor-pointer items-center gap-3 rounded-2xl bg-superficie-2 p-3">
+          <input type="checkbox" name="ativo" className="check-sucesso" defaultChecked={u.ativo} />
+          <span>
+            <span className="block font-bold">Ativo</span>
+            <span className="text-sm text-suave">
+              Pode entrar no sistema · criado em {dataBR(u.criadoEm)}
+            </span>
+          </span>
         </label>
       )}
-      <div className="flex justify-end gap-2">
-        <button type="button" className="botao-leve" onClick={props.aoTerminar}>
-          Cancelar
-        </button>
-        <button className="botao" disabled={!perfis.length || salvar.isPending}>
-          Salvar
-        </button>
-      </div>
+      <Rodape
+        aoCancelar={props.aoTerminar}
+        ocupado={!perfis.length || salvar.isPending}
+        texto="Salvar"
+      />
     </form>
   )
 }
@@ -244,15 +380,18 @@ function NovaSenha(props: { usuario: Usuario; aoTerminar: () => void }) {
   })
   return (
     <form
-      className="space-y-3"
+      className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
         salvar.mutate(String(new FormData(e.currentTarget).get('senha')))
       }}
     >
-      <label className="block">
-        <span className="rotulo">Nova senha</span>
+      <div>
+        <label className="rotulo" htmlFor="u-nova">
+          Nova senha *
+        </label>
         <input
+          id="u-nova"
           name="senha"
           type="password"
           className="campo"
@@ -261,18 +400,11 @@ function NovaSenha(props: { usuario: Usuario; aoTerminar: () => void }) {
           autoComplete="new-password"
           autoFocus
         />
-        <span className="text-xs text-suave">
+        <span className="ajuda">
           Pelo menos {SENHA_MINIMA} caracteres. Passe a senha à pessoa e peça que ela troque depois.
         </span>
-      </label>
-      <div className="flex justify-end gap-2">
-        <button type="button" className="botao-leve" onClick={props.aoTerminar}>
-          Cancelar
-        </button>
-        <button className="botao" disabled={salvar.isPending}>
-          Salvar senha
-        </button>
       </div>
+      <Rodape aoCancelar={props.aoTerminar} ocupado={salvar.isPending} texto="Salvar senha" />
     </form>
   )
 }
@@ -288,9 +420,14 @@ export function TrocarMinhaSenha(props: { aoTerminar: () => void }) {
     },
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
+  const campos = [
+    ['atual', 'Senha atual', 'current-password'],
+    ['nova', 'Nova senha', 'new-password'],
+    ['repetir', 'Repita a nova senha', 'new-password'],
+  ] as const
   return (
     <form
-      className="space-y-3"
+      className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
         const f = Object.fromEntries(new FormData(e.currentTarget))
@@ -299,47 +436,24 @@ export function TrocarMinhaSenha(props: { aoTerminar: () => void }) {
         salvar.mutate(f)
       }}
     >
-      <label className="block">
-        <span className="rotulo">Senha atual</span>
-        <input
-          name="atual"
-          type="password"
-          className="campo"
-          required
-          autoComplete="current-password"
-          autoFocus
-        />
-      </label>
-      <label className="block">
-        <span className="rotulo">Nova senha</span>
-        <input
-          name="nova"
-          type="password"
-          className="campo"
-          required
-          minLength={SENHA_MINIMA}
-          autoComplete="new-password"
-        />
-      </label>
-      <label className="block">
-        <span className="rotulo">Repita a nova senha</span>
-        <input
-          name="repetir"
-          type="password"
-          className="campo"
-          required
-          minLength={SENHA_MINIMA}
-          autoComplete="new-password"
-        />
-      </label>
-      <div className="flex justify-end gap-2">
-        <button type="button" className="botao-leve" onClick={props.aoTerminar}>
-          Cancelar
-        </button>
-        <button className="botao" disabled={salvar.isPending}>
-          Trocar senha
-        </button>
-      </div>
+      {campos.map(([nome, rotulo, auto], i) => (
+        <div key={nome}>
+          <label className="rotulo" htmlFor={`eu-${nome}`}>
+            {rotulo} *
+          </label>
+          <input
+            id={`eu-${nome}`}
+            name={nome}
+            type="password"
+            className="campo"
+            required
+            minLength={nome === 'atual' ? undefined : SENHA_MINIMA}
+            autoComplete={auto}
+            autoFocus={i === 0}
+          />
+        </div>
+      ))}
+      <Rodape aoCancelar={props.aoTerminar} ocupado={salvar.isPending} texto="Trocar senha" />
     </form>
   )
 }

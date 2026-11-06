@@ -247,6 +247,78 @@ export function CampoEspecialidade({
 }
 
 /** Cadastro dos profissionais da clínica (F-024, S-013). */
+/**
+ * CRO, especialidade, celular, e-mail e cor na agenda (o nome fica com quem usa).
+ * Usado no cadastro de profissional e no de usuário com perfil Profissional.
+ */
+export function CamposProfissional({
+  atual,
+  erros,
+}: {
+  atual?: Pick<Profissional, 'cro' | 'especialidade' | 'celular' | 'email' | 'corAgenda'> | null
+  erros: Record<string, string | undefined>
+}) {
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="rotulo" htmlFor="p-cro">
+            CRO
+          </label>
+          <input
+            id="p-cro"
+            name="cro"
+            className="campo"
+            placeholder="CRO-UF 00000"
+            defaultValue={atual?.cro ?? ''}
+          />
+        </div>
+        <div>
+          <label className="rotulo" id="p-esp-rotulo">
+            Especialidade
+          </label>
+          <CampoEspecialidade inicial={atual?.especialidade ?? ''} />
+        </div>
+        <div>
+          <label className="rotulo" htmlFor="p-cel">
+            Celular
+          </label>
+          <CampoCelular
+            id="p-cel"
+            name="celular"
+            defaultValue={atual?.celular ?? ''}
+            erro={erros.celular}
+          />
+        </div>
+        <div>
+          <label className="rotulo" htmlFor="p-email">
+            E-mail
+          </label>
+          <CampoEmail
+            id="p-email"
+            name="email"
+            defaultValue={atual?.email ?? ''}
+            erro={erros.email}
+          />
+        </div>
+      </div>
+      <div>
+        <label className="rotulo" htmlFor="p-cor">
+          Cor na agenda
+        </label>
+        <input
+          id="p-cor"
+          name="corAgenda"
+          type="color"
+          className="h-10 w-16 cursor-pointer rounded-xl border-2 border-borda bg-superficie p-1"
+          defaultValue={atual?.corAgenda ?? COR_PADRAO}
+        />
+        <span className="ajuda">Usada nos agendamentos deste profissional.</span>
+      </div>
+    </>
+  )
+}
+
 export function Profissionais() {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const podeEditar = pode(eu.perfis, 'profissional.editar')
@@ -653,61 +725,7 @@ export function Profissionais() {
             <input id="p-nome" name="nome" className="campo" defaultValue={atual?.nome} autoFocus />
             {erros.nome && <p className="erro-campo">{erros.nome}</p>}
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="rotulo" htmlFor="p-cro">
-                CRO
-              </label>
-              <input
-                id="p-cro"
-                name="cro"
-                className="campo"
-                placeholder="CRO-UF 00000"
-                defaultValue={atual?.cro ?? ''}
-              />
-            </div>
-            <div>
-              <label className="rotulo" id="p-esp-rotulo">
-                Especialidade
-              </label>
-              <CampoEspecialidade inicial={atual?.especialidade ?? ''} />
-            </div>
-            <div>
-              <label className="rotulo" htmlFor="p-cel">
-                Celular
-              </label>
-              <CampoCelular
-                id="p-cel"
-                name="celular"
-                defaultValue={atual?.celular ?? ''}
-                erro={erros.celular}
-              />
-            </div>
-            <div>
-              <label className="rotulo" htmlFor="p-email">
-                E-mail
-              </label>
-              <CampoEmail
-                id="p-email"
-                name="email"
-                defaultValue={atual?.email ?? ''}
-                erro={erros.email}
-              />
-            </div>
-          </div>
-          <div>
-            <label className="rotulo" htmlFor="p-cor">
-              Cor na agenda
-            </label>
-            <input
-              id="p-cor"
-              name="corAgenda"
-              type="color"
-              className="h-10 w-16 cursor-pointer rounded-xl border-2 border-borda bg-superficie p-1"
-              defaultValue={atual?.corAgenda ?? COR_PADRAO}
-            />
-            <span className="ajuda">Usada nos agendamentos deste profissional.</span>
-          </div>
+          <CamposProfissional atual={atual} erros={erros} />
           <div className="flex justify-end gap-2 border-t border-borda pt-4">
             <button type="button" className="botao-leve" onClick={() => setEditando(null)}>
               Cancelar

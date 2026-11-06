@@ -61,7 +61,7 @@ const TIPOS = {
   pizza: 'Pizza',
   rosca: 'Rosca',
 } as const
-type Tipo = keyof typeof TIPOS
+export type Tipo = keyof typeof TIPOS
 const EM_FATIAS = (t: Tipo) => t === 'pizza' || t === 'rosca'
 
 interface Config {
@@ -128,6 +128,15 @@ function gravar(chave: string, v: unknown) {
   }
 }
 const lerSalvo = () => ler<Config[]>(CHAVE_LOCAL, (c) => valida(c as Config), PADRAO).map(ajustar)
+/** "Gráficos 2": sempre as 6 análises padrão; só tipo, métricas e ordem mudam. */
+const CHAVE_FIXO = 'financeiro-graficos-fixo-v1'
+function lerFixo() {
+  const cs = ler<Config[]>(CHAVE_FIXO, (c) => valida(c as Config), PADRAO)
+  const ok =
+    cs.length === PADRAO.length &&
+    PADRAO.every((p) => cs.some((c) => c.id === p.id && c.grupo === p.grupo && !c.codigo))
+  return (ok ? cs : PADRAO).map(ajustar)
+}
 /**
  * Os gráficos padrão já vêm como favoritos (e formando o padrão). Entram uma vez só:
  * se a pessoa tirar algum dos favoritos depois, ele não volta sozinho.
@@ -160,7 +169,7 @@ interface Serie {
   reais: boolean
   valores: number[]
 }
-interface Dados {
+export interface Dados {
   /** Nome do que está no eixo (1ª coluna da tabela). */
   eixo: string
   categorias: string[]
@@ -185,7 +194,7 @@ function passoFaixa(max: number) {
     if (max / p <= 10) return p
   return 2000000
 }
-const milReais = (c: number) =>
+export const milReais = (c: number) =>
   (c / 100).toLocaleString('pt-BR', { notation: 'compact', maximumFractionDigits: 1 })
 
 function agregar(a: Analise, c: Config, de: string, ate: string): Dados {
@@ -335,9 +344,29 @@ function CaixaDica({ d }: { d: Dica | null }) {
 // ── Gráficos ────────────────────────────────────────────────────────────────
 const L = 640
 const A = 260
+/** Largura mínima de cada coluna: com mais rótulos que isso, o gráfico rola para o lado. */
+const POR_COLUNA = 18
 
-function Cartesiano(props: { dados: Dados; tipo: Tipo; aoDica: (d: Dica | null) => void }) {
+/** Cor de cada categoria pela ordem alfabética (não pelo ranking): a mesma categoria tem a mesma cor. */
+function coresDe(categorias: string[]) {
+  const ordem = categorias.filter((c) => c !== 'Outros').sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  return (c: string) =>
+    c === 'Outros' ? 'var(--serie-outros)' : `var(--serie-${(ordem.indexOf(c) % 8) + 1})`
+}
+
+/** porCategoria: com uma série só, cada coluna/barra ganha a cor da sua categoria. */
+function Cartesiano(props: {
+  dados: Dados
+  tipo: Tipo
+  porCategoria?: boolean
+  aoDica: (d: Dica | null) => void
+}) {
   const { categorias, series } = props.dados
+  const corDe = coresDe([...categorias])
+  const colorir =
+    props.porCategoria &&
+    series.length === 1 &&
+    (props.tipo === 'colunas' || props.tipo === 'barras')
   const horizontal = props.tipo === 'barras'
   const todos = series.flatMap((s) => s.valores)
   const { ini, fim, marcas } = escala(Math.min(...todos), Math.max(...todos))
@@ -345,7 +374,9 @@ function Cartesiano(props: { dados: Dados; tipo: Tipo; aoDica: (d: Dica | null) 
   const n = categorias.length
   const esq = horizontal ? 130 : 64
   const base = horizontal ? 24 : 28
-  const larguraUtil = L - esq - (horizontal ? 34 : 12)
+  // Muitas categorias: as colunas não encolhem abaixo de POR_COLUNA; o gráfico rola para o lado.
+  const largura = horizontal ? L : Math.max(L, esq + 12 + n * POR_COLUNA)
+  const larguraUtil = largura - esq - (horizontal ? 34 : 12)
   const alturaUtil = (horizontal ? Math.max(A, n * (14 * series.length + 14)) : A) - base - 10
   const altura = alturaUtil + base + 10
   const valorPara = (v: number) =>
@@ -357,204 +388,218 @@ function Cartesiano(props: { dados: Dados; tipo: Tipo; aoDica: (d: Dica | null) 
   const zero = valorPara(0)
   // Pula rótulos até caberem sem encostar (~6,5px por letra no tamanho 11).
   const maiorRotulo = Math.max(...categorias.map((c) => c.length))
-  const cada = horizontal
-    ? Math.max(1, Math.ceil(n / 40))
-    : Math.max(1, Math.ceil((maiorRotulo * 6.5 + 8) / banda))
+  // Nas barras deitadas todos aparecem: com muitas, a caixa rola para baixo.
+  const cada = horizontal ? 1 : Math.max(1, Math.ceil((maiorRotulo * 6.5 + 8) / banda))
   const [foco, setFoco] = useState<number | null>(null)
 
   const dica = (i: number, e: MouseEvent<SVGRectElement>) => {
-    const r = e.currentTarget.ownerSVGElement!.parentElement!.getBoundingClientRect()
+    const r = e.currentTarget.closest('[data-dica]')!.getBoundingClientRect()
     setFoco(i)
     props.aoDica({
       x: e.clientX - r.left,
       y: e.clientY - r.top,
       titulo: categorias[i],
       linhas: series.map((s) => ({
-        cor: s.cor,
+        cor: colorir ? corDe(categorias[i]) : s.cor,
         rotulo: s.rotulo,
         valor: formatar(s.reais, s.valores[i]),
       })),
     })
   }
 
+  const largo = largura > L
   return (
-    <svg
-      viewBox={`0 0 ${L} ${altura}`}
-      className="w-full"
-      role="img"
-      aria-label="Gráfico"
-      onMouseLeave={() => {
-        setFoco(null)
-        props.aoDica(null)
-      }}
+    // Passou do tamanho padrão: rola dentro do cartão em vez de esticá-lo.
+    <div
+      className={`${largo ? 'overflow-x-auto' : ''} ${horizontal ? 'max-h-[26rem] overflow-y-auto' : ''} print:max-h-none print:overflow-visible`}
     >
-      {/* Grade e eixo de valores */}
-      {marcas.map((v) => (
-        <g key={v}>
-          {horizontal ? (
-            <>
-              <line
-                x1={valorPara(v)}
-                x2={valorPara(v)}
-                y1={10}
-                y2={10 + alturaUtil}
-                stroke="var(--viz-grade)"
-              />
-              <text
-                x={valorPara(v)}
-                y={altura - 6}
-                textAnchor="middle"
-                fontSize={11}
-                fill="var(--suave)"
-              >
-                {formatarEixo(r0, v)}
-              </text>
-            </>
+      <svg
+        viewBox={`0 0 ${largura} ${altura}`}
+        className={largo ? 'block' : 'block w-full'}
+        style={largo ? { width: largura } : undefined}
+        role="img"
+        aria-label="Gráfico"
+        onMouseLeave={() => {
+          setFoco(null)
+          props.aoDica(null)
+        }}
+      >
+        {/* Grade e eixo de valores */}
+        {marcas.map((v) => (
+          <g key={v}>
+            {horizontal ? (
+              <>
+                <line
+                  x1={valorPara(v)}
+                  x2={valorPara(v)}
+                  y1={10}
+                  y2={10 + alturaUtil}
+                  stroke="var(--viz-grade)"
+                />
+                <text
+                  x={valorPara(v)}
+                  y={altura - 6}
+                  textAnchor="middle"
+                  fontSize={11}
+                  fill="var(--suave)"
+                >
+                  {formatarEixo(r0, v)}
+                </text>
+              </>
+            ) : (
+              <>
+                <line
+                  x1={esq}
+                  x2={largura - 12}
+                  y1={valorPara(v)}
+                  y2={valorPara(v)}
+                  stroke="var(--viz-grade)"
+                />
+                <text
+                  x={esq - 8}
+                  y={valorPara(v) + 4}
+                  textAnchor="end"
+                  fontSize={11}
+                  fill="var(--suave)"
+                >
+                  {formatarEixo(r0, v)}
+                </text>
+              </>
+            )}
+          </g>
+        ))}
+        {/* Rótulos das categorias */}
+        {categorias.map((c, i) =>
+          i % cada ? null : horizontal ? (
+            <text
+              key={i}
+              x={esq - 8}
+              y={pos(i) + banda / 2 + 4}
+              textAnchor="end"
+              fontSize={11}
+              fill="var(--texto)"
+            >
+              {c.length > 20 ? `${c.slice(0, 19)}…` : c}
+            </text>
           ) : (
-            <>
-              <line
-                x1={esq}
-                x2={L - 12}
-                y1={valorPara(v)}
-                y2={valorPara(v)}
-                stroke="var(--viz-grade)"
-              />
-              <text
-                x={esq - 8}
-                y={valorPara(v) + 4}
-                textAnchor="end"
-                fontSize={11}
-                fill="var(--suave)"
-              >
-                {formatarEixo(r0, v)}
-              </text>
-            </>
-          )}
-        </g>
-      ))}
-      {/* Rótulos das categorias */}
-      {categorias.map((c, i) =>
-        i % cada ? null : horizontal ? (
-          <text
-            key={i}
-            x={esq - 8}
-            y={pos(i) + banda / 2 + 4}
-            textAnchor="end"
-            fontSize={11}
-            fill="var(--texto)"
-          >
-            {c.length > 20 ? `${c.slice(0, 19)}…` : c}
-          </text>
-        ) : (
-          <text
-            key={i}
-            x={pos(i) + banda / 2}
-            y={altura - 8}
-            textAnchor="middle"
-            fontSize={11}
-            fill="var(--suave)"
-          >
-            {c}
-          </text>
-        ),
-      )}
-      {/* Destaque da categoria em foco */}
-      {foco !== null &&
-        (props.tipo === 'linha' || props.tipo === 'area' ? (
-          <line
-            x1={pos(foco) + banda / 2}
-            x2={pos(foco) + banda / 2}
-            y1={10}
-            y2={10 + alturaUtil}
-            stroke="var(--suave)"
-            strokeDasharray="3 3"
-          />
-        ) : horizontal ? (
+            <text
+              key={i}
+              x={pos(i) + banda / 2}
+              y={altura - 8}
+              textAnchor="middle"
+              fontSize={11}
+              fill="var(--suave)"
+            >
+              {c}
+            </text>
+          ),
+        )}
+        {/* Destaque da categoria em foco */}
+        {foco !== null &&
+          (props.tipo === 'linha' || props.tipo === 'area' ? (
+            <line
+              x1={pos(foco) + banda / 2}
+              x2={pos(foco) + banda / 2}
+              y1={10}
+              y2={10 + alturaUtil}
+              stroke="var(--suave)"
+              strokeDasharray="3 3"
+            />
+          ) : horizontal ? (
+            <rect
+              x={esq}
+              y={pos(foco)}
+              width={larguraUtil}
+              height={banda}
+              fill="var(--primaria-clara)"
+            />
+          ) : (
+            <rect
+              x={pos(foco)}
+              y={10}
+              width={banda}
+              height={alturaUtil}
+              fill="var(--primaria-clara)"
+            />
+          ))}
+
+        {/* Marcas */}
+        {props.tipo === 'linha' || props.tipo === 'area'
+          ? series.map((s) => {
+              const pts = s.valores.map((v, i) => [pos(i) + banda / 2, valorPara(v)] as const)
+              const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x},${y}`).join('')
+              return (
+                <g key={s.rotulo}>
+                  {props.tipo === 'area' && (
+                    <path
+                      d={`${d}L${pts.at(-1)![0]},${zero}L${pts[0][0]},${zero}Z`}
+                      fill={s.cor}
+                      opacity={0.16}
+                    />
+                  )}
+                  <path d={d} fill="none" stroke={s.cor} strokeWidth={2} strokeLinejoin="round" />
+                  {(n <= 40 || foco !== null) &&
+                    pts.map(([x, y], i) =>
+                      n <= 40 || i === foco ? (
+                        <circle
+                          key={i}
+                          cx={x}
+                          cy={y}
+                          r={i === foco ? 5 : 3.5}
+                          fill={s.cor}
+                          stroke="var(--superficie)"
+                          strokeWidth={2}
+                        />
+                      ) : null,
+                    )}
+                </g>
+              )
+            })
+          : series.map((s, si) => {
+              const gap = 2
+              const larg = Math.max(1, (banda * 0.78 - gap * (series.length - 1)) / series.length)
+              return (
+                <g key={s.rotulo} fill={s.cor}>
+                  {s.valores.map((v, i) => {
+                    if (!v) return null
+                    const off = pos(i) + banda * 0.11 + si * (larg + gap)
+                    const tam = Math.abs(valorPara(v) - zero)
+                    return horizontal ? (
+                      <path
+                        key={i}
+                        d={barra(zero, off, tam, larg, true, v < 0)}
+                        fill={colorir ? corDe(categorias[i]) : undefined}
+                      />
+                    ) : (
+                      <path
+                        key={i}
+                        d={barra(off, zero, larg, tam, false, v < 0)}
+                        fill={colorir ? corDe(categorias[i]) : undefined}
+                      />
+                    )
+                  })}
+                </g>
+              )
+            })}
+        <line
+          {...(horizontal
+            ? { x1: zero, x2: zero, y1: 10, y2: 10 + alturaUtil }
+            : { x1: esq, x2: largura - 12, y1: zero, y2: zero })}
+          stroke="var(--suave)"
+        />
+        {/* Áreas de toque, maiores que as marcas */}
+        {categorias.map((_, i) => (
           <rect
-            x={esq}
-            y={pos(foco)}
-            width={larguraUtil}
-            height={banda}
-            fill="var(--primaria-clara)"
-          />
-        ) : (
-          <rect
-            x={pos(foco)}
-            y={10}
-            width={banda}
-            height={alturaUtil}
-            fill="var(--primaria-clara)"
+            key={i}
+            {...(horizontal
+              ? { x: esq, y: pos(i), width: larguraUtil, height: banda }
+              : { x: pos(i), y: 10, width: banda, height: alturaUtil })}
+            fill="transparent"
+            onMouseMove={(e) => dica(i, e)}
           />
         ))}
-
-      {/* Marcas */}
-      {props.tipo === 'linha' || props.tipo === 'area'
-        ? series.map((s) => {
-            const pts = s.valores.map((v, i) => [pos(i) + banda / 2, valorPara(v)] as const)
-            const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x},${y}`).join('')
-            return (
-              <g key={s.rotulo}>
-                {props.tipo === 'area' && (
-                  <path
-                    d={`${d}L${pts.at(-1)![0]},${zero}L${pts[0][0]},${zero}Z`}
-                    fill={s.cor}
-                    opacity={0.16}
-                  />
-                )}
-                <path d={d} fill="none" stroke={s.cor} strokeWidth={2} strokeLinejoin="round" />
-                {(n <= 40 || foco !== null) &&
-                  pts.map(([x, y], i) =>
-                    n <= 40 || i === foco ? (
-                      <circle
-                        key={i}
-                        cx={x}
-                        cy={y}
-                        r={i === foco ? 5 : 3.5}
-                        fill={s.cor}
-                        stroke="var(--superficie)"
-                        strokeWidth={2}
-                      />
-                    ) : null,
-                  )}
-              </g>
-            )
-          })
-        : series.map((s, si) => {
-            const gap = 2
-            const larg = Math.max(1, (banda * 0.78 - gap * (series.length - 1)) / series.length)
-            return (
-              <g key={s.rotulo} fill={s.cor}>
-                {s.valores.map((v, i) => {
-                  if (!v) return null
-                  const off = pos(i) + banda * 0.11 + si * (larg + gap)
-                  const tam = Math.abs(valorPara(v) - zero)
-                  return horizontal ? (
-                    <path key={i} d={barra(zero, off, tam, larg, true, v < 0)} />
-                  ) : (
-                    <path key={i} d={barra(off, zero, larg, tam, false, v < 0)} />
-                  )
-                })}
-              </g>
-            )
-          })}
-      <line
-        {...(horizontal
-          ? { x1: zero, x2: zero, y1: 10, y2: 10 + alturaUtil }
-          : { x1: esq, x2: L - 12, y1: zero, y2: zero })}
-        stroke="var(--suave)"
-      />
-      {/* Áreas de toque, maiores que as marcas */}
-      {categorias.map((_, i) => (
-        <rect
-          key={i}
-          {...(horizontal
-            ? { x: esq, y: pos(i), width: larguraUtil, height: banda }
-            : { x: pos(i), y: 10, width: banda, height: alturaUtil })}
-          fill="transparent"
-          onMouseMove={(e) => dica(i, e)}
-        />
-      ))}
-    </svg>
+      </svg>
+    </div>
   )
 }
 
@@ -564,11 +609,7 @@ function Fatias(props: { dados: Dados; rosca: boolean; aoDica: (d: Dica | null) 
     .map((c, i) => ({ c, v: Math.max(0, s.valores[i]) }))
     .filter((x) => x.v > 0)
   // Cor segue a categoria (ordem alfabética), não a posição no ranking.
-  const ordem = [...itens.map((x) => x.c)]
-    .filter((c) => c !== 'Outros')
-    .sort((a, b) => a.localeCompare(b, 'pt-BR'))
-  const corDe = (c: string) =>
-    c === 'Outros' ? 'var(--serie-outros)' : `var(--serie-${(ordem.indexOf(c) % 8) + 1})`
+  const corDe = coresDe(itens.map((x) => x.c))
   const total = itens.reduce((t, x) => t + x.v, 0)
   const negativos = s.valores.some((v) => v < 0)
   const R = 110
@@ -608,9 +649,9 @@ function Fatias(props: { dados: Dados; rosca: boolean; aoDica: (d: Dica | null) 
               strokeWidth={2}
               className="hover:opacity-80"
               onMouseMove={(e) => {
-                const b = (
-                  e.currentTarget.ownerSVGElement as SVGSVGElement
-                ).parentElement!.parentElement!.getBoundingClientRect()
+                const b = (e.currentTarget.ownerSVGElement as SVGSVGElement)
+                  .closest('[data-dica]')!
+                  .getBoundingClientRect()
                 props.aoDica({
                   x: e.clientX - b.left,
                   y: e.clientY - b.top,
@@ -646,7 +687,7 @@ function Fatias(props: { dados: Dados; rosca: boolean; aoDica: (d: Dica | null) 
         )}
       </svg>
       {/* Legenda com os valores: a cor nunca é a única pista. */}
-      <ul className="w-full min-w-0 space-y-1.5 text-sm">
+      <ul className="max-h-64 w-full min-w-0 space-y-1.5 overflow-y-auto pr-1 text-sm print:max-h-none print:overflow-visible">
         {itens.map((x) => (
           <li key={x.c} className="flex items-center gap-2">
             <span className="size-3 shrink-0 rounded" style={{ background: corDe(x.c) }} />
@@ -814,7 +855,16 @@ function Opcoes<T extends string>(props: {
 }
 
 /** Tipo, agrupamento e métricas. No gráfico de código, só o tipo. */
-function EditorConfig({ c, aoMudar }: { c: Config; aoMudar: (c: Config) => void }) {
+function EditorConfig({
+  c,
+  aoMudar,
+  semGrupo = false,
+}: {
+  c: Config
+  aoMudar: (c: Config) => void
+  /** Sem o seletor de agrupamento (análise fixa). */
+  semGrupo?: boolean
+}) {
   const mudar = (d: Partial<Config>) => aoMudar(ajustar({ ...c, ...d }))
   const alternar = (m: Metrica) => {
     if (EM_FATIAS(c.tipo)) return mudar({ metricas: [m] })
@@ -828,7 +878,7 @@ function EditorConfig({ c, aoMudar }: { c: Config; aoMudar: (c: Config) => void 
     <>
       <div className="flex flex-wrap items-center gap-2">
         <SeletorTipo tipo={c.tipo} aoMudar={(tipo) => mudar({ tipo })} />
-        {c.codigo ? (
+        {semGrupo ? null : c.codigo ? (
           <span className="etiqueta etiqueta-primaria font-mono">
             {c.codigo.linguagem === 'sql' ? 'SQL' : 'Python'}
           </span>
@@ -875,19 +925,21 @@ function EditorConfig({ c, aoMudar }: { c: Config; aoMudar: (c: Config) => void 
 }
 
 /** O desenho (ou a tabela) a partir dos dados já prontos. */
-function Visual(props: {
-  c: Config
+export function Visual(props: {
+  tipo: Tipo
   dados: Dados | null
   tabela: boolean
   erro?: string
   /** Texto enquanto não há dados (padrão: "Carregando…"). */
   aviso?: string
+  /** Barras/colunas de uma série: uma cor por categoria. */
+  porCategoria?: boolean
 }) {
-  const { c, dados, tabela } = props
+  const { tipo, dados, tabela } = props
   const [dica, setDica] = useState<Dica | null>(null)
   const vazio = !dados || dados.series.every((s) => s.valores.every((v) => !v))
   return (
-    <div className="relative min-h-40">
+    <div data-dica className="relative min-h-40">
       {props.erro ? (
         <pre className="alerta-perigo text-xs whitespace-pre-wrap">{props.erro}</pre>
       ) : !dados ? (
@@ -896,8 +948,8 @@ function Visual(props: {
         <p className="py-16 text-center text-suave">Sem dados no período.</p>
       ) : tabela ? (
         <Tabela dados={dados} />
-      ) : EM_FATIAS(c.tipo) ? (
-        <Fatias dados={dados} rosca={c.tipo === 'rosca'} aoDica={setDica} />
+      ) : EM_FATIAS(tipo) ? (
+        <Fatias dados={dados} rosca={tipo === 'rosca'} aoDica={setDica} />
       ) : (
         <>
           {dados.series.length > 1 && (
@@ -916,7 +968,12 @@ function Visual(props: {
               ))}
             </ul>
           )}
-          <Cartesiano dados={dados} tipo={c.tipo} aoDica={setDica} />
+          <Cartesiano
+            dados={dados}
+            tipo={tipo}
+            porCategoria={props.porCategoria}
+            aoDica={setDica}
+          />
         </>
       )}
       {!tabela && <CaixaDica d={dica} />}
@@ -934,6 +991,8 @@ function CartaoGrafico(props: {
   /** Muda quando os dados da tela mudam (recalcula o código). */
   versao: string
   favorito: boolean
+  /** Análise fixa: sem favoritar, remover nem trocar o agrupamento. */
+  fixo: boolean
   /** Durante a impressão: fora = não sai no PDF; comTabela = sai também a tabela. */
   fora: boolean
   comTabela: boolean
@@ -996,16 +1055,18 @@ function CartaoGrafico(props: {
         </button>
         <h2 className="min-w-0 flex-1 pt-0.5 text-base">{titulo}</h2>
         <div className="flex shrink-0 gap-1 print:hidden">
-          <button
-            type="button"
-            className={`botao-fantasma botao-icone size-7 ${props.favorito ? 'text-aviso' : 'text-suave'}`}
-            aria-pressed={props.favorito}
-            aria-label={`Favoritar o gráfico ${titulo}`}
-            title={props.favorito ? 'Tirar dos favoritos' : 'Favoritar'}
-            onClick={props.aoFavoritar}
-          >
-            <Icone nome="estrela" className={`h-4 w-4 ${props.favorito ? 'fill-current' : ''}`} />
-          </button>
+          {!props.fixo && (
+            <button
+              type="button"
+              className={`botao-fantasma botao-icone size-7 ${props.favorito ? 'text-aviso' : 'text-suave'}`}
+              aria-pressed={props.favorito}
+              aria-label={`Favoritar o gráfico ${titulo}`}
+              title={props.favorito ? 'Tirar dos favoritos' : 'Favoritar'}
+              onClick={props.aoFavoritar}
+            >
+              <Icone nome="estrela" className={`h-4 w-4 ${props.favorito ? 'fill-current' : ''}`} />
+            </button>
+          )}
           <button
             type="button"
             className={`botao-fantasma botao-pequeno ${tabela ? 'bg-primaria-clara' : ''}`}
@@ -1025,23 +1086,25 @@ function CartaoGrafico(props: {
               <Icone nome="lapis" className="h-4 w-4" />
             </button>
           )}
-          <button
-            type="button"
-            className="botao-fantasma botao-icone size-7 text-suave hover:bg-perigo/10 hover:text-perigo"
-            aria-label={`Remover o gráfico ${titulo}`}
-            title="Remover gráfico"
-            onClick={props.aoRemover}
-          >
-            <Icone nome="fechar" className="h-4 w-4" />
-          </button>
+          {!props.fixo && (
+            <button
+              type="button"
+              className="botao-fantasma botao-icone size-7 text-suave hover:bg-perigo/10 hover:text-perigo"
+              aria-label={`Remover o gráfico ${titulo}`}
+              title="Remover gráfico"
+              onClick={props.aoRemover}
+            >
+              <Icone nome="fechar" className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </header>
 
       <div className="space-y-3 print:hidden">
-        <EditorConfig c={c} aoMudar={props.aoMudar} />
+        <EditorConfig c={c} aoMudar={props.aoMudar} semGrupo={props.fixo} />
       </div>
       <Visual
-        c={c}
+        tipo={c.tipo}
         dados={dados}
         tabela={tabela}
         erro={doCodigo.error?.message}
@@ -1383,7 +1446,7 @@ function CorpoCodigo(props: {
           Prévia · {titulo.trim() || 'Gráfico personalizado'}
         </p>
         <Visual
-          c={montar()}
+          tipo={montar().tipo}
           dados={previa}
           tabela={false}
           erro={erro}
@@ -1412,6 +1475,8 @@ function CorpoCodigo(props: {
 
 /** Restaurar apaga a arrumação atual: pede para digitar "restaurar". */
 function CorpoRestaurar(props: {
+  /** Análises fixas: sem lista de favoritos, só volta ao original. */
+  fixo?: boolean
   favoritos: Favorito[]
   aoConfirmar: (noPadrao: boolean[]) => void
   aoFechar: () => void
@@ -1427,11 +1492,15 @@ function CorpoRestaurar(props: {
         if (ok) props.aoConfirmar(marcados)
       }}
     >
-      <p>
-        Os gráficos que estão na tela, com a ordem e as mudanças feitas neles, serão trocados pelos
-        favoritos marcados abaixo. Os favoritos não são apagados.
-      </p>
-      {props.favoritos.length ? (
+      {props.fixo ? (
+        <p>As 6 análises voltam ao tipo de gráfico, às métricas e à ordem originais.</p>
+      ) : (
+        <p>
+          Os gráficos que estão na tela, com a ordem e as mudanças feitas neles, serão trocados
+          pelos favoritos marcados abaixo. Os favoritos não são apagados.
+        </p>
+      )}
+      {props.fixo ? null : props.favoritos.length ? (
         <fieldset className="space-y-1.5">
           <legend className="rotulo">Gráficos que formam o padrão (fica lembrado)</legend>
           {props.favoritos.map((f, i) => (
@@ -1599,7 +1668,8 @@ function baixarCsv(partes: { titulo: string; dados: Dados }[], nome: string) {
 // ── Página ──────────────────────────────────────────────────────────────────
 type Janela = null | 'novo' | 'restaurar' | 'exportar' | Config
 
-export function Graficos() {
+/** fixo: "Gráficos 2", as 6 análises padrão sempre na tela (sem adicionar, favoritar ou remover). */
+export function Graficos({ fixo = false }: { fixo?: boolean }) {
   const p = useIntervalo()
   const { intervalo, tudo, hoje, consulta, resumo } = p
   const analise = useQuery(consultaAnalise({ ...consulta, profissionalId: '' }))
@@ -1626,8 +1696,8 @@ export function Graficos() {
     return { de: ds[0] ?? hoje, ate: ds.at(-1) ?? hoje }
   }, [tudo, intervalo, dados, hoje])
 
-  const [configs, setConfigs] = useState<Config[]>(lerSalvo)
-  const [favoritos, setFavoritos] = useState<Favorito[]>(lerFavoritos)
+  const [configs, setConfigs] = useState<Config[]>(fixo ? lerFixo : lerSalvo)
+  const [favoritos, setFavoritos] = useState<Favorito[]>(() => (fixo ? [] : lerFavoritos()))
   const [janela, setJanela] = useState<Janela>(null)
   const [arrastando, setArrastando] = useState<string | null>(null)
   const [impressao, setImpressao] = useState<{ ids: string[]; tabelas: boolean } | null>(null)
@@ -1635,7 +1705,7 @@ export function Graficos() {
   const salvar = (f: (cs: Config[]) => Config[]) =>
     setConfigs((cs) => {
       const n = f(cs)
-      gravar(CHAVE_LOCAL, n)
+      gravar(fixo ? CHAVE_FIXO : CHAVE_LOCAL, n)
       return n
     })
   const salvarFavoritos = (fs: Favorito[]) => {
@@ -1697,7 +1767,7 @@ export function Graficos() {
     // No computador só a área dos gráficos rola; título e filtros ficam parados.
     <div className="mx-auto flex max-w-[1320px] flex-col gap-3 lg:h-[calc(100dvh-6.5rem)] print:h-auto">
       <header className="flex flex-wrap items-center gap-3.5">
-        <h1 className="titulo">Gráficos</h1>
+        <h1 className="titulo">{fixo ? 'Gráficos 2' : 'Gráficos'}</h1>
         <span aria-hidden="true" className="h-6 w-px bg-borda" />
         <span className="text-base text-suave">
           {configs.length} {configs.length === 1 ? 'gráfico' : 'gráficos'}
@@ -1725,10 +1795,12 @@ export function Graficos() {
           <button className="botao-leve py-1.5" onClick={() => setJanela('restaurar')}>
             Restaurar padrão
           </button>
-          <button className="botao py-1.5" onClick={() => setJanela('novo')}>
-            <Icone nome="mais" className="h-4 w-4" />
-            Adicionar gráfico
-          </button>
+          {!fixo && (
+            <button className="botao py-1.5" onClick={() => setJanela('novo')}>
+              <Icone nome="mais" className="h-4 w-4" />
+              Adicionar gráfico
+            </button>
+          )}
         </div>
       </div>
 
@@ -1744,6 +1816,7 @@ export function Graficos() {
               ate={ate}
               versao={versao}
               favorito={ehFavorito(c)}
+              fixo={fixo}
               fora={!!impressao && !impressao.ids.includes(c.id)}
               comTabela={!!impressao?.tabelas}
               arrastando={arrastando === c.id}
@@ -1793,9 +1866,14 @@ export function Graficos() {
 
       <Dialogo aberto={janela === 'restaurar'} titulo="Restaurar o padrão?" aoFechar={fechar}>
         <CorpoRestaurar
+          fixo={fixo}
           favoritos={favoritos}
           aoFechar={fechar}
           aoConfirmar={(noPadrao) => {
+            if (fixo) {
+              salvar(() => PADRAO)
+              return fechar()
+            }
             const fs = favoritos.map((f, i) => ({ ...f, noPadrao: noPadrao[i] }))
             salvarFavoritos(fs)
             // Nenhum marcado: voltam os gráficos padrão do sistema.

@@ -1,11 +1,25 @@
-// Mais relatórios: agenda por profissional, status e ocupação; pacientes; contas; tratamentos.
+// Mais relatórios: agenda por profissional e ocupação; pacientes; contas; tratamentos.
 import { db } from './db'
-import { HORARIOS, STATUS } from '../../shared/agenda'
+import { hojeNaClinica } from '../../shared/regras'
+import { HORARIOS, type StatusAgenda } from '../../shared/agenda'
 import { TIPOS_LANCAMENTO, grupoDe } from '../../shared/financeiro'
-import { PERFIS } from '../../shared/permissoes'
+import type { Filtros } from '../../shared/relatorios'
 
 type Linhas = (string | number)[][]
-type Gerador = (p: { gte: Date; lte: Date }) => Promise<{ colunas: string[]; linhas: Linhas }>
+export type Gerador = (
+  p: { gte: Date; lte: Date },
+  f: Filtros,
+) => Promise<{ colunas: string[]; linhas: Linhas }>
+
+/** Filtro de profissional para orçamento, alerta de retorno etc. */
+export const doProfissional = (f: Filtros) =>
+  f.profissionais ? { profissionalId: { in: f.profissionais } } : {}
+/** Filtros da tela aplicados a um agendamento (vazio = sem filtro). */
+export const naAgenda = (f: Filtros) => ({
+  ...doProfissional(f),
+  ...(f.status && { status: f.status as StatusAgenda }),
+  ...(f.categoria && { categoria: f.categoria }),
+})
 
 const DIA_MS = 86_400_000
 const isoDe = (d: Date) => d.toISOString().slice(0, 10)
@@ -31,45 +45,67 @@ function agrupar<T>(itens: T[], chave: (i: T) => string, valor: (i: T) => number
   return [...m].sort((a, b) => b[1].soma - a[1].soma || b[1].n - a[1].n || a[0].localeCompare(b[0]))
 }
 
-const consultas = (data: { gte: Date; lte: Date }) =>
+const consultas = (data: { gte: Date; lte: Date }, f: Filtros) =>
   db.agendamento.findMany({
-    where: { excluidoEm: null, desmarcadoEm: null, tipo: 'CONSULTA', data },
+    where: { ...naAgenda(f), excluidoEm: null, desmarcadoEm: null, tipo: 'CONSULTA', data },
     include: { profissional: true },
   })
 
 export const GERADORES_EXTRA: Record<string, Gerador> = {
-  'agenda-profissional': async (data) => {
-    const l = await consultas(data)
-    const m = new Map<string, { total: number; atendidas: number; faltas: number }>()
+  // Também faz o papel do antigo "Consultas por status" (atendidas, faltas, desmarcadas).
+  'agenda-profissional': async (data, f) => {
+    const [l, desmarcadas] = await Promise.all([
+      consultas(data, f),
+      db.agendamento.findMany({
+        where: {
+          ...naAgenda(f),
+          excluidoEm: null,
+          desmarcadoEm: { not: null },
+          tipo: 'CONSULTA',
+          data,
+        },
+        include: { profissional: true },
+      }),
+    ])
+    const vazio = () => ({ total: 0, atendidas: 0, faltas: 0, desmarcadas: 0 })
+    const m = new Map<string, ReturnType<typeof vazio>>()
     for (const a of l) {
-      const g = m.get(a.profissional.nome) ?? { total: 0, atendidas: 0, faltas: 0 }
+      const g = m.get(a.profissional.nome) ?? vazio()
       g.total++
       if (a.status === 'ATENDIDO') g.atendidas++
       if (a.status === 'FALTOU') g.faltas++
       m.set(a.profissional.nome, g)
     }
+    for (const a of desmarcadas) {
+      const g = m.get(a.profissional.nome) ?? vazio()
+      g.desmarcadas++
+      m.set(a.profissional.nome, g)
+    }
     return {
-      colunas: ['Profissional', 'Consultas', 'Atendidas', 'Faltas', 'Taxa de faltas'],
+      colunas: [
+        'Profissional',
+        'Consultas',
+        'Atendidas',
+        'Faltas',
+        'Desmarcadas',
+        'Taxa de faltas',
+      ],
       linhas: [...m]
         .sort((a, b) => b[1].total - a[1].total)
-        .map(([nome, g]) => [nome, g.total, g.atendidas, g.faltas, pct(g.faltas, g.total)]),
-    }
-  },
-  'agenda-status': async (data) => {
-    const l = await consultas(data)
-    return {
-      colunas: ['Status', 'Consultas', '% do total'],
-      linhas: agrupar(l, (a) => STATUS[a.status].rotulo).map(([k, g]) => [
-        k,
-        g.n,
-        pct(g.n, l.length),
-      ]),
+        .map(([nome, g]) => [
+          nome,
+          g.total,
+          g.atendidas,
+          g.faltas,
+          g.desmarcadas,
+          pct(g.faltas, g.total),
+        ]),
     }
   },
   // Ocupação: horários de 15 min usados ÷ horários disponíveis (48 por profissional por dia aberto).
-  'agenda-ocupacao': async (data) => {
+  'agenda-ocupacao': async (data, f) => {
     const l = await db.agendamento.findMany({
-      where: { excluidoEm: null, desmarcadoEm: null, data },
+      where: { ...naAgenda(f), excluidoEm: null, desmarcadoEm: null, data },
       include: { profissional: true },
     })
     const minutos = (h: string) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3))
@@ -100,31 +136,23 @@ export const GERADORES_EXTRA: Record<string, Gerador> = {
       orderBy: { criadoEm: 'asc' },
     })
     return {
-      colunas: ['Cadastrado em', 'Paciente', 'Celular', 'Como conheceu'],
-      linhas: l.map((p) => [dataBR(p.criadoEm), p.nome, p.celular ?? '', p.comoConheceu ?? '']),
+      colunas: ['Cadastrado em', 'Paciente', 'Celular', 'Como conheceu', 'Indicado por'],
+      linhas: l.map((p) => [
+        dataBR(p.criadoEm),
+        p.nome,
+        p.celular ?? '',
+        p.comoConheceu ?? '',
+        p.indicadoPor ?? '',
+      ]),
     }
   },
-  'pacientes-indicacoes': async () => {
-    const l = await db.pessoa.findMany({
-      where: {
-        tipo: 'PACIENTE',
-        excluidoEm: null,
-        OR: [{ comoConheceu: 'Indicado por' }, { indicadoPor: { not: null } }],
-      },
-      orderBy: { nomeBusca: 'asc' },
-    })
-    return {
-      colunas: ['Paciente', 'Indicado por', 'Cadastrado em'],
-      linhas: l.map((p) => [p.nome, p.indicadoPor ?? 'Não informado', dataBR(p.criadoEm)]),
-    }
-  },
-  // Cobrança: parcelas vencidas até o fim do período e ainda em aberto.
-  'pacientes-inadimplentes': async ({ lte }) => {
+  // Cobrança: parcelas vencidas até ontem e ainda em aberto (situação de hoje, sem período).
+  'pacientes-inadimplentes': async () => {
     const l = await db.contaFinanceira.findMany({
       where: {
         tipo: 'RECEBER',
         status: 'ABERTA',
-        vencimento: { lt: new Date(Math.min(lte.getTime() + DIA_MS, Date.now())) },
+        vencimento: { lt: new Date(`${hojeNaClinica()}T00:00:00Z`) },
       },
       include: { paciente: true },
       orderBy: { vencimento: 'asc' },
@@ -214,54 +242,24 @@ export const GERADORES_EXTRA: Record<string, Gerador> = {
       ).map(([k, g]) => [k, grupoDe(k) ?? 'Despesas operacionais', g.n, reais(g.soma)]),
     }
   },
-  'geral-usuarios': async () => {
-    const l = await db.usuario.findMany({ orderBy: { nome: 'asc' } })
-    return {
-      colunas: ['Usuário', 'Login', 'Perfis', 'Situação', 'Criado em'],
-      linhas: l.map((u) => [
-        u.nome,
-        u.login,
-        u.perfis.map((p) => PERFIS[p]).join(' + '),
-        u.ativo ? 'Ativo' : 'Inativo',
-        dataBR(u.criadoEm),
-      ]),
-    }
-  },
-  'tratamentos-faturamento': async (data) => {
-    const l = await db.orcamento.findMany({
-      where: { status: { in: ['APROVADO', 'CANCELADO'] }, aprovadoEm: instantes(data) },
-      include: { profissional: true, itens: true },
-    })
-    const total = (o: (typeof l)[number]) =>
-      Math.max(0, o.itens.reduce((s, i) => s + i.valorCentavos, 0) - o.descontoCentavos)
-    const m = new Map<string, { aprovados: number; cancelados: number; valor: number }>()
-    for (const o of l) {
-      const g = m.get(o.profissional.nome) ?? { aprovados: 0, cancelados: 0, valor: 0 }
-      if (o.status === 'APROVADO') {
-        g.aprovados++
-        g.valor += total(o)
-      } else g.cancelados++
-      m.set(o.profissional.nome, g)
-    }
-    return {
-      colunas: ['Profissional', 'Orçamentos aprovados', 'Cancelados depois', 'Faturado (R$)'],
-      linhas: [...m]
-        .sort((a, b) => b[1].valor - a[1].valor)
-        .map(([n, g]) => [n, g.aprovados, g.cancelados, reais(g.valor)]),
-    }
-  },
-  'tratamentos-procedimentos': async (data) => {
+  'tratamentos-procedimentos': async (data, f) => {
     const l = await db.itemOrcamento.findMany({
-      where: { orcamento: { criadoEm: instantes(data), excluidoEm: null } },
-      include: { orcamento: true },
+      where: { orcamento: { ...doProfissional(f), criadoEm: instantes(data), excluidoEm: null } },
+      include: { orcamento: { include: { itens: { select: { valorCentavos: true } } } } },
     })
+    // O desconto é do orçamento: cada item leva a sua parte, proporcional ao valor.
+    const comDesconto = (i: (typeof l)[number]) => {
+      const bruto = i.orcamento.itens.reduce((s, x) => s + x.valorCentavos, 0)
+      const liquido = Math.max(0, bruto - i.orcamento.descontoCentavos)
+      return bruto ? Math.round((i.valorCentavos * liquido) / bruto) : 0
+    }
     const m = new Map<string, { orcados: number; aprovados: number; valor: number }>()
     for (const i of l) {
       const g = m.get(i.nome) ?? { orcados: 0, aprovados: 0, valor: 0 }
       g.orcados++
       if (i.orcamento.status === 'APROVADO') {
         g.aprovados++
-        g.valor += i.valorCentavos
+        g.valor += comDesconto(i)
       }
       m.set(i.nome, g)
     }

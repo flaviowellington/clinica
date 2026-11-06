@@ -143,7 +143,24 @@ const perfis = z.preprocess(
 )
 
 const LOGIN_INVALIDO = 'Use de 3 a 40 letras, números, ponto, hífen ou sublinhado.'
+export const ProfissionalDto = z.object({
+  nome: textoObrigatorio('Informe o nome.', 150),
+  cro: texto(40),
+  especialidade: texto(80),
+  email,
+  celular,
+  corAgenda: z.preprocess(
+    limpo(),
+    z
+      .string()
+      .regex(/^#[0-9a-f]{6}$/i, 'Cor inválida.')
+      .nullable(),
+  ),
+})
+
 export const UsuarioNovoDto = z.object({
+  /** Dados do profissional a criar junto (o nome é o do usuário). */
+  profissional: ProfissionalDto.omit({ nome: true }).optional(),
   nome: textoObrigatorio('Informe o nome.', 150),
   login: z.preprocess(
     (v) => limpo()(v)?.toLowerCase(),
@@ -270,20 +287,6 @@ export const ProcedimentoTabelaDto = z.object({
 
 // ── Profissionais e conta corrente ───────────────────────────
 
-export const ProfissionalDto = z.object({
-  nome: textoObrigatorio('Informe o nome.', 150),
-  cro: texto(40),
-  especialidade: texto(80),
-  email,
-  celular,
-  corAgenda: z.preprocess(
-    limpo(),
-    z
-      .string()
-      .regex(/^#[0-9a-f]{6}$/i, 'Cor inválida.')
-      .nullable(),
-  ),
-})
 
 export const AtivoDto = z.object({ ativo: z.boolean().catch(false) })
 

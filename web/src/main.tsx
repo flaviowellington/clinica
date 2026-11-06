@@ -1,4 +1,11 @@
-import { StrictMode, useEffect, useState, type ReactNode } from 'react'
+import {
+  StrictMode,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   QueryClient,
@@ -14,6 +21,7 @@ import {
   Outlet,
   redirect,
   RouterProvider,
+  useNavigate,
 } from '@tanstack/react-router'
 import '@fontsource/nunito/latin-400.css'
 import '@fontsource/nunito/latin-500.css'
@@ -24,7 +32,7 @@ import './index.css'
 import { api, consultaEu } from './api'
 import { Confirmacao } from './componentes/Confirmar'
 import { PALETAS, avisar, useAvisos, useTema, type Paleta } from './estado'
-import { pode } from '../../shared/permissoes'
+import { PERFIS, pode } from '../../shared/permissoes'
 import { Entrar } from './paginas/Entrar'
 import { Pacientes } from './paginas/Pacientes'
 import { Ficha } from './paginas/Ficha'
@@ -32,11 +40,11 @@ import { Lixeira } from './paginas/Lixeira'
 import { Agenda } from './paginas/Agenda'
 import { Inicio } from './paginas/Inicio'
 import { Profissionais } from './paginas/Profissionais'
-import { Financeiro } from './paginas/Financeiro'
+import { ABAS as ABAS_FINANCEIRO, Financeiro } from './paginas/Financeiro'
 import { Relatorios } from './paginas/Relatorios'
 import { DocumentoImpresso } from './paginas/DocumentoImpresso'
 import { TrocarMinhaSenha, Usuarios } from './paginas/Usuarios'
-import { Configuracoes } from './paginas/Configuracoes'
+import { ABAS as ABAS_CONFIGURACOES, Configuracoes } from './paginas/Configuracoes'
 import { Protetico } from './paginas/Protetico'
 import { Confirmacoes } from './paginas/Confirmacoes'
 import { ConfirmarPresenca } from './paginas/ConfirmarPresenca'
@@ -47,7 +55,8 @@ import { Estilos } from './paginas/Estilos'
 import { Fontes } from './paginas/Fontes'
 import { Dialogo } from './componentes/Dialogo'
 import { ABAS } from './abas'
-import { Icone } from './componentes/Icones'
+import { GRUPOS } from '../../shared/relatorios'
+import { Icone, type NomeIcone } from './componentes/Icones'
 
 const queryClient = new QueryClient({
   // Sem recarregar ao voltar para a janela: cada leitura da ficha grava um acesso.
@@ -85,7 +94,7 @@ function Raiz() {
 function SeletorPaleta() {
   const { tema, paleta, alternar, escolherPaleta } = useTema()
   return (
-    <div className="fixed bottom-4 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center overflow-x-auto gap-1 rounded-full border border-borda bg-superficie p-1 shadow-lg print:hidden">
+    <div className="fixed bottom-24 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center overflow-x-auto gap-1 rounded-full border border-borda bg-superficie p-1 shadow-lg md:bottom-4 print:hidden">
       {(Object.keys(PALETAS) as Paleta[]).map((p) => (
         <button
           key={p}
@@ -138,90 +147,439 @@ function useTempoReal() {
   }, [qc])
 }
 
+/** Seções do menu lateral; a Lixeira entra em "Sistema", que fica no pé da barra. */
+const SECOES: { titulo: string; paginas: string[] }[] = [
+  {
+    titulo: 'Atendimento',
+    paginas: ['/agenda', '/agenda-2', '/confirmacoes', '/pacientes', '/protetico'],
+  },
+  { titulo: 'Gestão', paginas: ['/financeiro', '/profissionais', '/relatorios', '/painel'] },
+  { titulo: 'Sistema', paginas: ['/usuarios', '/configuracoes', '/importacao'] },
+]
+/** Abas fixas da barra de baixo no celular; o resto fica em "Mais". */
+const ABAS_CELULAR = ['/agenda', '/pacientes', '/financeiro']
+
+/** Tela de computador (lg): só nela a barra pode ficar aberta. */
+const telaLarga = matchMedia('(min-width: 1024px)')
+function useTelaLarga() {
+  return useSyncExternalStore(
+    (avisar) => (
+      telaLarga.addEventListener('change', avisar),
+      () => telaLarga.removeEventListener('change', avisar)
+    ),
+    () => telaLarga.matches,
+  )
+}
+
+/** Um resultado da busca de módulos: uma página ou algo dentro dela. */
+type Achado = {
+  para: string
+  rotulo: string
+  icone: NomeIcone
+  /** Página onde fica (só para abas e relatórios). */
+  onde?: string
+  texto?: string
+  search?: Record<string, string>
+}
+const semAcento = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+
 function Layout() {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const { alternar, tema, menuRecolhido, alternarMenu } = useTema()
   const qc = useQueryClient()
+  const navegar = useNavigate()
   useTempoReal()
   const [trocarSenha, setTrocarSenha] = useState(false)
+  const [mais, setMais] = useState(false)
+  const busca = useRef<HTMLInputElement>(null)
+  // Entre md e lg a barra fica sempre recolhida; abaixo de md vira a barra de baixo.
+  const aberta = useTelaLarga() && !menuRecolhido
+
+  // Ctrl K (ou a lupa da barra recolhida): abre a barra, se preciso, e põe o foco na busca.
+  const [focarBusca, setFocarBusca] = useState(false)
+  function abrirBusca() {
+    if (useTema.getState().menuRecolhido) useTema.getState().alternarMenu()
+    setFocarBusca(true)
+  }
+  useEffect(() => {
+    if (focarBusca && busca.current) {
+      busca.current.focus()
+      setFocarBusca(false)
+    }
+  }, [focarBusca, aberta])
+  useEffect(() => {
+    function tecla(e: KeyboardEvent) {
+      if (e.key.toLowerCase() !== 'k' || !(e.ctrlKey || e.metaKey) || !telaLarga.matches) return
+      e.preventDefault()
+      abrirBusca()
+    }
+    addEventListener('keydown', tecla)
+    return () => removeEventListener('keydown', tecla)
+  }, [])
+
   async function sair() {
     await api.post('/sair')
     qc.clear()
     location.assign('/entrar')
   }
-  const item =
-    'flex items-center gap-3 rounded-md px-3 py-2 text-suave hover:bg-primaria-clara hover:text-texto [&.active]:bg-primaria-clara [&.active]:font-medium [&.active]:text-primaria'
-  // No celular a barra mostra só os ícones; o nome continua lido por leitores de tela.
-  // Recolhida: só ícones em qualquer tela.
-  const nome = menuRecolhido ? 'sr-only' : 'sr-only lg:not-sr-only'
+  const visiveis = ABAS.filter((a) => a.visivel(eu.perfis))
+  const lixeira = pode(eu.perfis, 'lixeira.restaurar')
+  const secoes = SECOES.map((s) => ({
+    ...s,
+    abas: visiveis.filter((a) => s.paginas.includes(a.para)),
+  })).filter((s) => s.abas.length || (s.titulo === 'Sistema' && lixeira))
+  const iniciais = eu.nome
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+  const perfil = eu.perfis.map((p) => PERFIS[p]).join(', ')
+
+  // Busca de módulos: as páginas e o que fica dentro delas (abas e relatórios).
+  const [termo, setTermo] = useState('')
+  const paginaDe = (para: string) => visiveis.find((a) => a.para === para)
+  const abasDe = (para: string, abas: readonly { id: string; rotulo: string }[]): Achado[] => {
+    const pg = paginaDe(para)
+    return pg
+      ? abas.map((x) => ({
+          para,
+          rotulo: x.rotulo,
+          icone: pg.icone,
+          onde: pg.rotulo,
+          search: { aba: x.id },
+        }))
+      : []
+  }
+  const relatorios = paginaDe('/relatorios')
+  const indice: Achado[] = [
+    { para: '/', rotulo: 'Início', icone: 'inicio' },
+    ...visiveis.map((a) => ({
+      para: a.para,
+      rotulo: a.rotulo,
+      icone: a.icone,
+      texto: a.descricao,
+    })),
+    ...(lixeira ? [{ para: '/lixeira', rotulo: 'Lixeira', icone: 'lixeira' as NomeIcone }] : []),
+    ...abasDe('/configuracoes', ABAS_CONFIGURACOES),
+    ...abasDe('/financeiro', ABAS_FINANCEIRO),
+    ...(relatorios
+      ? GRUPOS.filter((g) => pode(eu.perfis, g.permissao)).flatMap((g) =>
+          g.itens.map((i) => ({
+            para: '/relatorios',
+            rotulo: `${g.titulo}: ${i.titulo}`,
+            icone: relatorios.icone,
+            onde: relatorios.rotulo,
+            search: { id: i.id },
+          })),
+        )
+      : []),
+  ]
+  const procura = semAcento(termo.trim())
+  // O que bate pelo nome vem antes do que bate só pela descrição da página.
+  const peloNome = (a: Achado) => semAcento(a.rotulo).includes(procura)
+  const achados = procura
+    ? indice
+        .filter((a) => peloNome(a) || semAcento(a.texto ?? '').includes(procura))
+        .sort((a, b) => Number(peloNome(b)) - Number(peloNome(a)))
+    : []
+  // Páginas a destacar no menu: a própria página ou a que guarda a aba achada.
+  const destaque = new Set(achados.map((a) => a.para))
+  function ir(a: Achado) {
+    navegar({ to: a.para, search: () => a.search ?? {} })
+    setTermo('')
+    busca.current?.blur()
+  }
+  // Leva o primeiro item destacado para a vista, se o menu estiver rolado.
+  useEffect(() => {
+    document.querySelector('[data-achou]')?.scrollIntoView({ block: 'nearest' })
+  }, [procura])
+
+  // Aberta: linha com ícone e nome. Recolhida: só o ícone, com o nome num balão ao passar o mouse.
+  const item = aberta
+    ? 'flex h-9 shrink-0 items-center gap-3 rounded-lg px-2.5 font-semibold text-suave hover:bg-superficie-2 hover:text-texto [&.active]:bg-superficie-2 [&.active]:font-extrabold [&.active]:text-texto [&.active_svg]:text-primaria'
+    : 'group relative grid size-9 shrink-0 place-items-center rounded-lg text-suave hover:bg-superficie-2 hover:text-texto [&.active]:bg-primaria-clara [&.active]:text-primaria'
+  const balao =
+    'pointer-events-none absolute top-1/2 left-full z-20 ml-3 -translate-y-1/2 rounded-md bg-texto px-2.5 py-1.5 text-[13px] font-bold whitespace-nowrap text-superficie opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100'
+  const linha = <hr className={`border-borda ${aberta ? 'my-1' : 'mx-auto my-2 w-6'}`} />
+  const icone = 'size-[18px] shrink-0'
+  function pagina(p: { para: string; rotulo: string; icone: NomeIcone; exato?: boolean }) {
+    return (
+      <Link
+        key={p.para}
+        to={p.para}
+        className={`${item} ${procura ? (destaque.has(p.para) ? 'bg-primaria-clara! text-primaria! ring-2 ring-primaria/40' : 'opacity-40') : ''}`}
+        data-achou={procura && destaque.has(p.para) ? '' : undefined}
+        activeOptions={{ exact: p.exato }}
+        aria-label={aberta ? undefined : p.rotulo}
+      >
+        <Icone nome={p.icone} className={icone} />
+        {aberta ? (
+          <span className="truncate">{p.rotulo}</span>
+        ) : (
+          <span className={balao}>{p.rotulo}</span>
+        )}
+      </Link>
+    )
+  }
+  function secao(s: (typeof secoes)[number]) {
+    return (
+      <div key={s.titulo} className={`flex flex-col gap-0.5 ${aberta ? '' : 'items-center'}`}>
+        {aberta ? (
+          <p className="px-2.5 pt-3.5 pb-1 text-[11px] font-extrabold tracking-wider text-suave uppercase">
+            {s.titulo}
+          </p>
+        ) : (
+          linha
+        )}
+        {s.abas.map(pagina)}
+        {s.titulo === 'Sistema' &&
+          lixeira &&
+          pagina({ para: '/lixeira', rotulo: 'Lixeira', icone: 'lixeira' })}
+      </div>
+    )
+  }
+  const sistema = secoes.find((s) => s.titulo === 'Sistema')
+  const opcaoConta =
+    'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left font-semibold text-texto hover:bg-superficie-2'
+  const fecharConta = () => document.getElementById('menu-conta')?.hidePopover()
+  const abasCelular = visiveis.filter((a) => ABAS_CELULAR.includes(a.para))
+  const abaCelular =
+    'flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1.5 text-[11px] font-extrabold text-suave [&.active]:text-primaria [&.active>span]:bg-primaria-clara'
+
   return (
     <div className="flex min-h-screen">
-      <div
-        className={`sticky top-0 flex h-screen w-16 shrink-0 flex-col border-r border-borda bg-superficie p-2 print:hidden ${menuRecolhido ? '' : 'lg:w-56 lg:p-3'}`}
-      >
-        {/* Recolhida, a barra só tem 4rem: logo e botão ficam um embaixo do outro. */}
+      {/* Computador e tablet: barra num cartão solto da borda. */}
+      <aside className="sticky top-0 hidden h-screen shrink-0 py-3 pl-3 md:block print:hidden">
         <div
-          className={`mb-4 flex items-center ${menuRecolhido ? 'flex-col gap-1' : 'justify-between'}`}
+          className={`relative flex h-full flex-col rounded-2xl bg-superficie shadow-[0_1px_2px_rgb(0_0_0/0.04),0_8px_24px_-12px_rgb(0_0_0/0.14)] ${aberta ? 'w-64' : 'w-15.5 items-center'}`}
         >
-          <Link to="/" className="flex items-center gap-2 px-3 py-2 font-semibold text-primaria">
-            <span
-              className="grid size-7 shrink-0 place-items-center rounded-md bg-primaria text-sobre-primaria"
-              aria-hidden
-            >
-              C
-            </span>
-            <span className={nome}>Clínica</span>
-          </Link>
-          <button
-            className="hidden size-8 shrink-0 place-items-center rounded-lg text-suave hover:bg-primaria-clara hover:text-texto lg:grid"
-            onClick={alternarMenu}
-            title={menuRecolhido ? 'Expandir menu' : 'Recolher menu'}
-            aria-label={menuRecolhido ? 'Expandir menu' : 'Recolher menu'}
-            aria-expanded={!menuRecolhido}
+          <div className={`flex flex-col gap-4 pt-4.5 ${aberta ? 'px-4' : 'items-center'}`}>
+            <div className="flex items-center justify-between">
+              <Link
+                to="/"
+                className="grid size-8.5 place-items-center rounded-[9px] bg-primaria text-base font-extrabold text-sobre-primaria"
+                aria-label="Clínica — início"
+              >
+                C
+              </Link>
+              {/* O mesmo botão abre e fecha; recolhida, ele sai para fora da barra, na altura do logo. */}
+              <button
+                className={`hidden size-6 place-items-center rounded-md lg:grid ${aberta ? 'bg-superficie-2 text-suave hover:text-texto' : 'absolute top-6 left-full ml-2.5 bg-primaria text-sobre-primaria shadow-md hover:brightness-110'}`}
+                onClick={alternarMenu}
+                title={aberta ? 'Recolher menu' : 'Expandir menu'}
+                aria-label={aberta ? 'Recolher menu' : 'Expandir menu'}
+                aria-expanded={aberta}
+              >
+                <Icone nome={aberta ? 'esquerda' : 'direita'} className="size-3.5" />
+              </button>
+            </div>
+            {aberta ? (
+              <div>
+                <form
+                  role="search"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (achados[0]) ir(achados[0])
+                  }}
+                  className="flex h-9.5 items-center gap-2 rounded-lg bg-superficie-2 px-3 text-suave focus-within:ring-2 focus-within:ring-primaria/40"
+                >
+                  <Icone nome="busca" className="size-4 shrink-0" />
+                  <input
+                    ref={busca}
+                    value={termo}
+                    onChange={(e) => setTermo(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Escape') return
+                      setTermo('')
+                      e.currentTarget.blur()
+                    }}
+                    placeholder="Buscar módulo"
+                    aria-label="Buscar módulo"
+                    className="min-w-0 flex-1 border-0 bg-transparent p-0 font-semibold text-texto outline-none placeholder:text-suave"
+                  />
+                  {termo && (
+                    <button
+                      type="button"
+                      className="grid size-5 place-items-center rounded text-suave hover:text-texto"
+                      onClick={() => setTermo('')}
+                      aria-label="Limpar busca"
+                    >
+                      <Icone nome="fechar" className="size-3.5" />
+                    </button>
+                  )}
+                </form>
+                {/* Abas e relatórios achados; as páginas já aparecem destacadas no menu. */}
+                {procura && (
+                  <ul
+                    className="mt-2 flex max-h-56 flex-col gap-0.5 overflow-y-auto"
+                    aria-label="Resultados da busca"
+                  >
+                    {achados
+                      .filter((a) => a.onde)
+                      .slice(0, 8)
+                      .map((a) => (
+                        <li key={a.para + a.rotulo}>
+                          <button
+                            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left hover:bg-superficie-2"
+                            onClick={() => ir(a)}
+                          >
+                            <Icone nome={a.icone} className="size-4 shrink-0 text-primaria" />
+                            <span className="min-w-0 leading-tight">
+                              <span className="block truncate font-bold text-texto">
+                                {a.rotulo}
+                              </span>
+                              <span className="block text-xs text-suave">em {a.onde}</span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    {!achados.length && (
+                      <li className="px-2.5 py-1.5 text-suave">Nenhum módulo encontrado.</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <button
+                className="group relative grid size-9.5 place-items-center rounded-lg bg-superficie-2 text-suave hover:text-texto"
+                onClick={abrirBusca}
+                aria-label="Buscar módulo"
+              >
+                <Icone nome="busca" className="size-4" />
+                <span className={balao}>Buscar módulo</span>
+              </button>
+            )}
+            {linha}
+          </div>
+          <nav
+            aria-label="Menu principal"
+            className={`flex min-h-0 flex-1 flex-col ${aberta ? 'overflow-y-auto px-4 pb-3' : 'items-center pb-3'}`}
           >
-            <Icone nome={menuRecolhido ? 'expandir' : 'recolher'} />
+            <div className={`flex flex-col gap-0.5 ${aberta ? '' : 'items-center'}`}>
+              {pagina({ para: '/', rotulo: 'Início', icone: 'inicio', exato: true })}
+            </div>
+            {secoes.filter((s) => s !== sistema).map(secao)}
+            {sistema && (
+              <div className="mt-auto pt-3">
+                {aberta && linha}
+                {secao(sistema)}
+              </div>
+            )}
+          </nav>
+          {/* Rodapé: quem está conectado; o clique abre tema, senha e sair. */}
+          <button
+            popoverTarget="menu-conta"
+            className={`flex items-center gap-3 text-left ${aberta ? 'w-full rounded-b-2xl bg-superficie-2 px-4 py-3.5' : 'mb-3.5 rounded-full'}`}
+            title={aberta ? undefined : eu.nome}
+            aria-label={`Conta: ${eu.nome}. Abrir opções`}
+          >
+            <span className="relative grid size-9 shrink-0 place-items-center rounded-full bg-secundaria-clara text-xs font-extrabold text-texto">
+              {iniciais}
+              <span className="absolute -right-px -bottom-px size-2.5 rounded-full border-2 border-superficie bg-sucesso" />
+            </span>
+            {aberta && (
+              <>
+                <span className="min-w-0 flex-1 leading-tight">
+                  <span className="block truncate font-extrabold text-titulo">{eu.nome}</span>
+                  <span className="block truncate text-xs font-semibold text-suave">{perfil}</span>
+                </span>
+                <span className="grid size-6 place-items-center rounded-md bg-borda/60 text-suave">
+                  <Icone nome="alternar" className="size-3.5" />
+                </span>
+              </>
+            )}
           </button>
         </div>
-        <nav aria-label="Menu principal" className="flex flex-1 flex-col gap-1 overflow-y-auto">
-          <Link to="/" className={item} activeOptions={{ exact: true }} title="Início">
-            <Icone nome="inicio" />
-            <span className={nome}>Início</span>
-          </Link>
-          {ABAS.filter((a) => a.visivel(eu.perfis)).map((a) => (
-            <Link key={a.para} to={a.para} className={item} title={a.rotulo}>
-              <Icone nome={a.icone} />
-              <span className={nome}>{a.rotulo}</span>
+      </aside>
+      <div
+        id="menu-conta"
+        popover="auto"
+        className="fixed inset-auto bottom-20 left-4 m-0 w-60 rounded-xl border border-borda bg-superficie p-1.5 text-sm text-texto shadow-xl"
+      >
+        <button className={opcaoConta} onClick={() => (alternar(), fecharConta())}>
+          <Icone nome={tema === 'claro' ? 'escuro' : 'claro'} className={icone} />
+          {tema === 'claro' ? 'Tema escuro' : 'Tema claro'}
+        </button>
+        <button className={opcaoConta} onClick={() => (setTrocarSenha(true), fecharConta())}>
+          <Icone nome="cadeado" className={icone} />
+          Trocar minha senha
+        </button>
+        <hr className="my-1 border-borda" />
+        <button className={`${opcaoConta} text-perigo`} onClick={sair}>
+          <Icone nome="sair" className={icone} />
+          Sair
+        </button>
+      </div>
+      {/* Celular: barra de abas embaixo; "Mais" abre as outras páginas. */}
+      <nav
+        aria-label="Menu principal"
+        className="fixed inset-x-2 bottom-3 z-30 flex h-18 items-center rounded-3xl bg-superficie px-1.5 shadow-[0_10px_30px_-10px_rgb(0_0_0/0.3)] md:hidden print:hidden"
+      >
+        {[{ para: '/', rotulo: 'Início', icone: 'inicio' as NomeIcone }, ...abasCelular].map(
+          (a) => (
+            <Link
+              key={a.para}
+              to={a.para}
+              className={abaCelular}
+              activeOptions={{ exact: a.para === '/' }}
+            >
+              <span className="grid h-7.5 w-13 place-items-center rounded-full">
+                <Icone nome={a.icone} className="size-5" />
+              </span>
+              {a.rotulo}
+            </Link>
+          ),
+        )}
+        <button
+          className={`${abaCelular} ${mais ? 'text-primaria' : ''}`}
+          onClick={() => setMais(true)}
+        >
+          <span
+            className={`grid h-7.5 w-13 place-items-center rounded-full ${mais ? 'bg-primaria-clara' : ''}`}
+          >
+            <Icone nome="painel" className="size-5" />
+          </span>
+          Mais
+        </button>
+      </nav>
+      <Dialogo aberto={mais} aoFechar={() => setMais(false)} titulo="Todas as páginas">
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            ...visiveis.filter((a) => !ABAS_CELULAR.includes(a.para)),
+            ...(lixeira
+              ? [{ para: '/lixeira', rotulo: 'Lixeira', icone: 'lixeira' as NomeIcone }]
+              : []),
+          ].map((a) => (
+            <Link
+              key={a.para}
+              to={a.para}
+              onClick={() => setMais(false)}
+              className="flex min-h-21 flex-col justify-between gap-2.5 rounded-2xl bg-superficie-2 p-3 text-[13px] font-extrabold text-texto [&.active]:bg-primaria-clara [&.active]:text-primaria"
+            >
+              <span className="grid size-8.5 place-items-center rounded-[11px] bg-superficie text-primaria">
+                <Icone nome={a.icone} className="size-4.5" />
+              </span>
+              {a.rotulo}
             </Link>
           ))}
-          {pode(eu.perfis, 'lixeira.restaurar') && (
-            <Link to="/lixeira" className={item} title="Lixeira">
-              <Icone nome="lixeira" />
-              <span className={nome}>Lixeira</span>
-            </Link>
-          )}
-        </nav>
-        <div className="space-y-1 border-t border-borda pt-3">
-          <p className={`${nome} truncate px-3 pb-1 text-suave`} title={eu.nome}>
-            {eu.nome}
-          </p>
-          <button className={`${item} w-full`} onClick={alternar} title="Alternar tema">
-            <Icone nome={tema === 'claro' ? 'escuro' : 'claro'} />
-            <span className={nome}>{tema === 'claro' ? 'Tema escuro' : 'Tema claro'}</span>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button className="botao-secundario flex-1" onClick={alternar}>
+            {tema === 'claro' ? 'Tema escuro' : 'Tema claro'}
           </button>
           <button
-            className={`${item} w-full`}
-            onClick={() => setTrocarSenha(true)}
-            title="Trocar minha senha"
+            className="botao-secundario flex-1"
+            onClick={() => (setMais(false), setTrocarSenha(true))}
           >
-            <Icone nome="usuarios" />
-            <span className={nome}>Trocar senha</span>
+            Trocar senha
           </button>
-          <button className={`${item} w-full`} onClick={sair} title="Sair">
-            <Icone nome="sair" />
-            <span className={nome}>Sair</span>
+          <button className="botao-secundario flex-1 text-perigo" onClick={sair}>
+            Sair
           </button>
         </div>
-      </div>
+      </Dialogo>
       <Dialogo
         aberto={trocarSenha}
         aoFechar={() => setTrocarSenha(false)}
@@ -229,7 +587,7 @@ function Layout() {
       >
         <TrocarMinhaSenha aoTerminar={() => setTrocarSenha(false)} />
       </Dialogo>
-      <main className="min-w-0 flex-1 p-4">
+      <main className="min-w-0 flex-1 p-4 pb-28 md:pb-4">
         <div className="mx-auto max-w-screen-2xl">
           <Outlet />
         </div>

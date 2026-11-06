@@ -20,10 +20,11 @@ import { OrcamentosAbertos } from './FinanceiroAbertos'
 import { COR_PADRAO } from './Profissionais'
 import { MESES, meio } from '../componentes/CalendarioIntervalo'
 
-const ABAS = [
+export const ABAS = [
   { id: 'abertos', rotulo: 'Orçamentos abertos' },
   { id: 'controle', rotulo: 'Controle Financeiro' },
   { id: 'graficos', rotulo: 'Gráficos' },
+  { id: 'graficos2', rotulo: 'Gráficos 2' },
 ] as const
 type Aba = (typeof ABAS)[number]['id']
 
@@ -42,6 +43,7 @@ export function Financeiro() {
       {aba === 'abertos' && <OrcamentosAbertos />}
       {aba === 'controle' && <ControleFinanceiro />}
       {aba === 'graficos' && <Graficos />}
+      {aba === 'graficos2' && <Graficos fixo />}
     </div>
   )
 }

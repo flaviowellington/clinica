@@ -4,7 +4,7 @@ import multer from 'multer'
 import sharp from 'sharp'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
-import { normalizar } from '../../shared/regras'
+import { hojeNaClinica, normalizar } from '../../shared/regras'
 import { pode } from '../../shared/permissoes'
 import {
   CATEGORIAS,
@@ -12,10 +12,10 @@ import {
   TIPOS_LANCAMENTO,
   type TipoLancamento,
 } from '../../shared/financeiro'
-import { acharRelatorio } from '../../shared/relatorios'
+import { acharRelatorio, type Filtros } from '../../shared/relatorios'
 import { STATUS } from '../../shared/agenda'
 import { GERADORES_FINANCEIRO } from './financeiro'
-import { GERADORES_EXTRA } from './relatorios'
+import { GERADORES_EXTRA, naAgenda, type Gerador } from './relatorios'
 import { AtivoDto, LancamentoDto, ProfissionalDto } from '../../shared/dtos'
 import { lerCorpo } from './dto'
 
@@ -112,8 +112,7 @@ rotasProfissionais.post('/:id/ativo', exigir('profissional.editar'), async (req,
 rotasProfissionais.delete('/:id', exigir('profissional.editar'), async (req, res) => {
   const p = await acharProfissional(req)
   if (!p) return res.status(404).json({ erro: 'Profissional não encontrado.' })
-  if (p.ativo)
-    return res.status(400).json({ erro: 'Inative o profissional antes de excluir.' })
+  if (p.ativo) return res.status(400).json({ erro: 'Inative o profissional antes de excluir.' })
   await db.pessoa.update({
     where: { id: p.id },
     data: { excluidoEm: new Date(), excluidoPorId: usuarioDe(res).id },
@@ -309,13 +308,11 @@ const contar = (valores: (string | null | undefined)[], vazio = 'Não informado'
 }
 const dataBR = (d: Date) => isoDe(d).split('-').reverse().join('/')
 
-export const GERADORES: Record<
-  string,
-  (p: { gte: Date; lte: Date }) => Promise<{ colunas: string[]; linhas: Linhas }>
-> = {
-  'agenda-geral': async (data) => {
+// Agenda: consulta desmarcada fica fora (o horário foi liberado); ela tem relatório próprio.
+export const GERADORES: Record<string, Gerador> = {
+  'agenda-geral': async (data, f) => {
     const l = await db.agendamento.findMany({
-      where: { excluidoEm: null, tipo: 'CONSULTA', data },
+      where: { ...naAgenda(f), excluidoEm: null, desmarcadoEm: null, tipo: 'CONSULTA', data },
       include: { paciente: true, profissional: true },
       orderBy: [{ data: 'asc' }, { inicio: 'asc' }],
     })
@@ -331,9 +328,9 @@ export const GERADORES: Record<
       ]),
     }
   },
-  'agenda-categoria': async (data) => {
+  'agenda-categoria': async (data, f) => {
     const l = await db.agendamento.findMany({
-      where: { excluidoEm: null, tipo: 'CONSULTA', data },
+      where: { ...naAgenda(f), excluidoEm: null, desmarcadoEm: null, tipo: 'CONSULTA', data },
       select: { categoria: true },
     })
     return {
@@ -344,9 +341,9 @@ export const GERADORES: Record<
       ),
     }
   },
-  'agenda-faltas': async (data) => {
+  'agenda-faltas': async (data, f) => {
     const l = await db.agendamento.findMany({
-      where: { excluidoEm: null, status: 'FALTOU', data },
+      where: { ...naAgenda(f), excluidoEm: null, desmarcadoEm: null, status: 'FALTOU', data },
       include: { paciente: true, profissional: true },
       orderBy: { data: 'asc' },
     })
@@ -361,9 +358,9 @@ export const GERADORES: Record<
       ]),
     }
   },
-  'agenda-primeira': async (data) => {
+  'agenda-primeira': async (data, f) => {
     const l = await db.agendamento.findMany({
-      where: { excluidoEm: null, primeiraConsulta: true, data },
+      where: { ...naAgenda(f), excluidoEm: null, desmarcadoEm: null, primeiraConsulta: true, data },
       include: { paciente: true, profissional: true },
       orderBy: { data: 'asc' },
     })
@@ -443,9 +440,14 @@ export const GERADORES: Record<
     const l = await db.pessoa.findMany({
       where: { tipo: 'PACIENTE', excluidoEm: null, ativo: true },
       include: {
+        // A consulta mais recente que já passou e não foi desmarcada.
         consultas: {
-          where: { excluidoEm: null },
-          orderBy: { data: 'desc' },
+          where: {
+            excluidoEm: null,
+            desmarcadoEm: null,
+            data: { lte: new Date(`${hojeNaClinica()}T00:00:00Z`) },
+          },
+          orderBy: [{ data: 'desc' }, { inicio: 'desc' }],
           take: 1,
           include: { profissional: true },
         },
@@ -460,41 +462,6 @@ export const GERADORES: Record<
         p.consultas[0] ? dataBR(p.consultas[0].data) : 'Nunca',
         p.consultas[0]?.profissional.nome ?? '',
       ]),
-    }
-  },
-  'financeiro-resumo': async (data) => {
-    const l = await db.lancamento.groupBy({
-      by: ['tipo'],
-      where: { excluidoEm: null, data },
-      _sum: { valorCentavos: true },
-      _count: true,
-    })
-    return {
-      colunas: ['Tipo', 'Lançamentos', 'Total (R$)'],
-      linhas: (Object.keys(TIPOS_LANCAMENTO) as TipoLancamento[]).map((t) => {
-        const g = l.find((x) => x.tipo === t)
-        return [
-          TIPOS_LANCAMENTO[t],
-          g?._count ?? 0,
-          ((g?._sum.valorCentavos ?? 0) / 100).toFixed(2).replace('.', ','),
-        ]
-      }),
-    }
-  },
-  'financeiro-formas': async (data) => {
-    const l = await db.lancamento.groupBy({
-      by: ['forma'],
-      where: { excluidoEm: null, tipo: 'ENTRADA', data },
-      _sum: { valorCentavos: true },
-    })
-    return {
-      colunas: ['Forma de pagamento', 'Total (R$)'],
-      linhas: l
-        .sort((a, b) => (b._sum.valorCentavos ?? 0) - (a._sum.valorCentavos ?? 0))
-        .map((g) => [
-          g.forma ?? 'Não informada',
-          ((g._sum.valorCentavos ?? 0) / 100).toFixed(2).replace('.', ','),
-        ]),
     }
   },
   'geral-acessos': async (data) => {
@@ -518,6 +485,22 @@ export const GERADORES: Record<
   },
 }
 
+/** ?profissionais=1,2&status=ATENDIDO&categoria=Retorno; o que vier inválido é ignorado. */
+function filtrosDe(req: Request): Filtros {
+  const ids = String(req.query.profissionais ?? '')
+    .split(',')
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0)
+  const status = String(req.query.status ?? '')
+  const categoria = String(req.query.categoria ?? '').trim()
+  return {
+    // Veio o filtro mas ninguém marcado: lista vazia (nenhum profissional).
+    profissionais: req.query.profissionais === undefined ? undefined : ids,
+    status: status in STATUS ? status : undefined,
+    categoria: categoria || undefined,
+  }
+}
+
 rotasRelatorios.get('/:id', async (req, res) => {
   const r = acharRelatorio(req.params.id)
   const gerar =
@@ -527,7 +510,8 @@ rotasRelatorios.get('/:id', async (req, res) => {
   if (!r || !gerar) return res.status(404).json({ erro: 'Relatório não encontrado.' })
   if (!pode(usuarioDe(res).perfis, r.permissao))
     return res.status(403).json({ erro: 'Sem permissão para este relatório.' })
-  const data = periodo(req)
+  // Relatório sem período ignora as datas (a tela nem mostra o filtro).
+  const data = r.semPeriodo ? { gte: dia('2000-01-01'), lte: dia('2100-12-31') } : periodo(req)
   if (!data) return res.status(400).json({ erro: 'Período inválido.' })
-  res.json({ titulo: r.titulo, grupo: r.grupo, ...(await gerar(data)) })
+  res.json({ titulo: r.titulo, grupo: r.grupo, ...(await gerar(data, filtrosDe(req))) })
 })

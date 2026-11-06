@@ -48,6 +48,34 @@ describe('usuários e permissões', () => {
     ).toBe(400)
   })
 
+  it('usuário com perfil Profissional cria o profissional junto, ou liga a um que já existe', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const base = { senha: 'senha-forte-1', perfis: ['PROFISSIONAL'] }
+    const sem = await admin('POST', '/api/usuarios', { ...base, nome: 'Dr. Sem', login: 'dr.sem' })
+    expect(sem.status).toBe(400)
+    expect(sem.corpo.erros).toHaveProperty('pessoaId')
+
+    const r = await admin('POST', '/api/usuarios', {
+      ...base,
+      nome: 'Dra. Nova',
+      login: 'dra.nova',
+      profissional: { cro: 'CRO-XX 999', especialidade: 'Ortodontia', corAgenda: '#123456' },
+    })
+    expect(r.status).toBe(201)
+    expect(r.corpo.pessoa.nome).toBe('Dra. Nova')
+    const p = await db.pessoa.findUniqueOrThrow({ where: { id: r.corpo.pessoa.id } })
+    expect(p).toMatchObject({ tipo: 'PROFISSIONAL', cro: 'CRO-XX 999', ativo: true })
+
+    const existente = await dentista()
+    const ligado = await admin('POST', '/api/usuarios', {
+      ...base,
+      nome: 'Dra. Teste',
+      login: 'dra.teste',
+      pessoaId: existente.id,
+    })
+    expect(ligado.corpo.pessoa.id).toBe(existente.id)
+  })
+
   it('só o administrador gerencia usuários', async () => {
     const recepcao = await entrarComo('RECEPCAO')
     expect((await recepcao('GET', '/api/usuarios')).status).toBe(403)
@@ -88,6 +116,7 @@ describe('usuários e permissões', () => {
       login: 'beltrano',
       senha: 'senha-forte-1',
       perfis: ['PROFISSIONAL'],
+      profissional: {},
     })
     expect(
       (await admin('POST', `/api/usuarios/${r.corpo.id}/senha`, { senha: 'senha-nova-22' })).status,
@@ -349,7 +378,8 @@ describe('PT-88 painel', () => {
   it('soma consultas, faltas e vendas do período; só Administrador e Financeiro veem', async () => {
     const admin = await entrarComo('ADMINISTRADOR')
     const prof = await dentista()
-    const pac = await pacienteCom(admin)
+    // Nascido em 1990: 36 anos em out/2026.
+    const pac = await pacienteCom(admin, { comoConheceu: 'Instagram' })
     for (const inicio of ['09:00', '10:00']) {
       const c = await admin('POST', '/api/agenda', {
         tipo: 'CONSULTA',
@@ -358,8 +388,9 @@ describe('PT-88 painel', () => {
         profissionalId: prof.id,
         pacienteId: pac.id,
       })
-      if (inicio === '10:00')
-        await admin('PATCH', `/api/agenda/${c.corpo.id}/status`, { status: 'FALTOU' })
+      await admin('PATCH', `/api/agenda/${c.corpo.id}/status`, {
+        status: inicio === '10:00' ? 'FALTOU' : 'ATENDIDO',
+      })
     }
     await admin('POST', '/api/financeiro/lancamentos', {
       data: '2026-10-20',
@@ -371,6 +402,34 @@ describe('PT-88 painel', () => {
     expect(r.status).toBe(200)
     expect(r.corpo.consultas).toMatchObject({ total: 2, faltas: 1 })
     expect(r.corpo.financeiro).toMatchObject({ recebido: 10000 })
+    expect(r.corpo.consultas.comparecimento).toBe(0.5)
+    expect(r.corpo.mapaCalor[2][9]).toBe(1) // terça (20/10/2026) às 9h
+    expect(r.corpo.mapaCalor[2][10]).toBe(1)
+    expect(r.corpo.faltasSemana[2]).toBe(1)
+    expect(r.corpo.pacientes).toMatchObject({ atendidos: 1 })
+    expect(r.corpo.pacientes.faixaEtaria).toContainEqual({ rotulo: '36–50', valor: 1 })
+    // Origem: dos pacientes cadastrados no período (o do teste foi criado agora).
+    const tudo = await admin('GET', '/api/painel?de=2000-01-01&ate=2100-12-31')
+    expect(tudo.corpo.pacientes.origem).toContainEqual({ rotulo: 'Instagram', valor: 1 })
+
+    // Período anterior, para comparar os cartões.
+    const comAnterior = await admin(
+      'GET',
+      '/api/painel?de=2026-10-01&ate=2026-10-31&anteriorDe=2026-09-01&anteriorAte=2026-09-30',
+    )
+    expect(comAnterior.corpo.anterior.financeiro.recebido).toBe(0)
+
+    // Inadimplência por tempo de atraso.
+    const vencida = new Date(Date.now() - 45 * 86_400_000).toISOString().slice(0, 10)
+    await admin('POST', '/api/financeiro/contas', {
+      tipo: 'RECEBER',
+      descricao: 'Parcela',
+      valorCentavos: 5000,
+      vencimento: vencida,
+      pacienteId: pac.id,
+    })
+    const r2 = await admin('GET', '/api/painel?de=2026-10-01&ate=2026-10-31')
+    expect(r2.corpo.inadimplencia.porAtraso).toContainEqual({ rotulo: '31–60 dias', valor: 5000 })
     expect(
       (await (await entrarComo('RECEPCAO'))('GET', '/api/painel?de=2026-10-01&ate=2026-10-31'))
         .status,

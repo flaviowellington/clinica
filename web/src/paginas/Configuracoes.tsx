@@ -24,7 +24,7 @@ import { CampoSelect } from '../componentes/CampoSelect'
 import { CampoEspecialidade } from './Profissionais'
 import { CampoEmail } from '../componentes/CampoMascara'
 
-const ABAS = [
+export const ABAS = [
   { id: 'clinica', rotulo: 'Clínica' },
   { id: 'procedimentos', rotulo: 'Procedimentos e preços' },
   { id: 'anamnese', rotulo: 'Anamnese' },

@@ -24,6 +24,7 @@ import {
   ContaFinanceiraDto,
 } from '../../shared/dtos'
 import { lerCorpo } from './dto'
+import { doProfissional, naAgenda, type Gerador } from './relatorios'
 
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
 const isoDe = (d: Date) => d.toISOString().slice(0, 10)
@@ -477,8 +478,6 @@ rotasFinanceiroContas.get('/conciliacao', exigir('financeiro.ver'), async (req, 
 })
 
 // ── Relatórios que dependem de retorno, desmarcação, orçamento e plano de contas ──
-type Linhas = (string | number)[][]
-type Gerador = (p: { gte: Date; lte: Date }) => Promise<{ colunas: string[]; linhas: Linhas }>
 
 const reais = (centavos: number) =>
   (centavos / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -490,9 +489,9 @@ const instantes = (p: { gte: Date; lte: Date }) => ({
 })
 
 export const GERADORES_FINANCEIRO: Record<string, Gerador> = {
-  'agenda-retorno': async (data) => {
+  'agenda-retorno': async (data, f) => {
     const l = await db.alertaRetorno.findMany({
-      where: { excluidoEm: null, data },
+      where: { ...doProfissional(f), excluidoEm: null, data },
       include: { paciente: true, profissional: true },
       orderBy: { data: 'asc' },
     })
@@ -508,9 +507,9 @@ export const GERADORES_FINANCEIRO: Record<string, Gerador> = {
       ]),
     }
   },
-  'agenda-desmarcacoes': async (data) => {
+  'agenda-desmarcacoes': async (data, f) => {
     const l = await db.agendamento.findMany({
-      where: { excluidoEm: null, desmarcadoEm: { not: null }, data },
+      where: { ...naAgenda(f), excluidoEm: null, desmarcadoEm: { not: null }, data },
       include: { paciente: true, profissional: true },
       orderBy: [{ data: 'asc' }, { inicio: 'asc' }],
     })
@@ -526,9 +525,9 @@ export const GERADORES_FINANCEIRO: Record<string, Gerador> = {
       ]),
     }
   },
-  'pacientes-orcamentos': async (data) => {
+  'pacientes-orcamentos': async (data, f) => {
     const l = await db.orcamento.findMany({
-      where: { criadoEm: instantes(data), excluidoEm: null },
+      where: { ...doProfissional(f), criadoEm: instantes(data), excluidoEm: null },
       include: { paciente: true, profissional: true, itens: true },
       orderBy: { id: 'asc' },
     })
@@ -622,9 +621,10 @@ export const GERADORES_FINANCEIRO: Record<string, Gerador> = {
       ]),
     }
   },
-  'tratamentos-abertos': async (data) => {
+  // Em aberto: todo aprovado com item a realizar, aprovado em qualquer data.
+  'tratamentos-abertos': async (_, f) => {
     const l = await db.orcamento.findMany({
-      where: { status: 'APROVADO', aprovadoEm: instantes(data) },
+      where: { ...doProfissional(f), status: 'APROVADO' },
       include: {
         paciente: true,
         profissional: true,
@@ -645,9 +645,9 @@ export const GERADORES_FINANCEIRO: Record<string, Gerador> = {
         ]),
     }
   },
-  'tratamentos-executados': async (data) => {
+  'tratamentos-executados': async (data, f) => {
     const l = await db.itemOrcamento.findMany({
-      where: { executadoEm: instantes(data) },
+      where: { executadoEm: instantes(data), orcamento: doProfissional(f) },
       include: { orcamento: { include: { paciente: true, profissional: true } } },
       orderBy: { executadoEm: 'asc' },
     })

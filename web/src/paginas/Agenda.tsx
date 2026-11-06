@@ -283,12 +283,58 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
     setNovo({ tipo: 'CONSULTA', data, ...i })
   }
 
+  const adicionar = podeEditar && (
+    <div className="relative">
+      <button className="botao" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+        <Icone nome="mais" className="h-4 w-4" />
+        Adicionar
+      </button>
+      {menu && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setMenu(false)} />
+          <ul
+            className="cartao absolute right-0 z-40 mt-2 w-60 p-1.5 shadow-lg"
+            onKeyDown={(e) => e.key === 'Escape' && setMenu(false)}
+          >
+            {(
+              [
+                ['Nova consulta', 'agenda', () => abrirNovo()],
+                ['Novo compromisso', 'pausa', () => abrirNovo({ tipo: 'COMPROMISSO' })],
+                [
+                  'Alerta de retorno',
+                  'confirmacoes',
+                  () => {
+                    setMenu(false)
+                    setRetorno(true)
+                  },
+                ],
+              ] as const
+            ).map(([rotulo, icone, acao]) => (
+              <li key={rotulo}>
+                <button
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left font-bold hover:bg-primaria-clara"
+                  onClick={acao}
+                >
+                  <Icone nome={icone} className="h-4 w-4 text-primaria" />
+                  {rotulo}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  )
+
   return (
     <div className="space-y-3">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        {/* No celular: título e "Adicionar" em cima; Dia/Semana/Mês embaixo, na largura toda. */}
-        <div className="order-2 flex w-full flex-wrap items-center gap-2 sm:order-none sm:w-auto">
-          {!filtrosNoTopo && (
+      <div>
+        <h1 className="titulo">Agenda</h1>
+        <p className="subtitulo first-letter:uppercase">{titulo(visao, data)}</p>
+      </div>
+      {!filtrosNoTopo && (
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -315,81 +361,46 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
                 <Icone nome="direita" className="h-4 w-4" />
               </button>
             </div>
-          )}
-          <div
-            className="flex flex-1 rounded-xl border-2 border-borda bg-superficie p-0.5 sm:flex-none"
-            role="group"
-            aria-label="Visualizar por"
-          >
-            {(Object.keys(VISOES) as Visao[]).map((v) => (
-              <button
-                key={v}
-                aria-pressed={visao === v}
-                onClick={() => setVisao(v)}
-                className={`flex-1 rounded-lg px-4 py-1.5 font-bold sm:flex-none ${
-                  visao === v
-                    ? 'bg-primaria text-sobre-primaria'
-                    : 'text-suave hover:bg-primaria-clara hover:text-texto'
-                }`}
-              >
-                {VISOES[v]}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
-          <div className="min-w-0 sm:text-right">
-            <h1 className="titulo">Agenda</h1>
-            <p className="subtitulo first-letter:uppercase">{titulo(visao, data)}</p>
-          </div>
-          {podeEditar && (
-            <div className="relative">
-              <button className="botao" aria-expanded={menu} onClick={() => setMenu(!menu)}>
-                <Icone nome="mais" className="h-4 w-4" />
-                Adicionar
-              </button>
-              {menu && (
-                <>
-                  <div className="fixed inset-0 z-30" onClick={() => setMenu(false)} />
-                  <ul
-                    className="cartao absolute right-0 z-40 mt-2 w-60 p-1.5 shadow-lg"
-                    onKeyDown={(e) => e.key === 'Escape' && setMenu(false)}
-                  >
-                    {(
-                      [
-                        ['Nova consulta', 'agenda', () => abrirNovo()],
-                        ['Novo compromisso', 'pausa', () => abrirNovo({ tipo: 'COMPROMISSO' })],
-                        [
-                          'Alerta de retorno',
-                          'confirmacoes',
-                          () => {
-                            setMenu(false)
-                            setRetorno(true)
-                          },
-                        ],
-                      ] as const
-                    ).map(([rotulo, icone, acao]) => (
-                      <li key={rotulo}>
-                        <button
-                          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left font-bold hover:bg-primaria-clara"
-                          onClick={acao}
-                        >
-                          <Icone nome={icone} className="h-4 w-4 text-primaria" />
-                          {rotulo}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
+            <div
+              className="flex flex-1 rounded-xl border-2 border-borda bg-superficie p-0.5 sm:flex-none"
+              role="group"
+              aria-label="Visualizar por"
+            >
+              {(Object.keys(VISOES) as Visao[]).map((v) => (
+                <button
+                  key={v}
+                  aria-pressed={visao === v}
+                  onClick={() => setVisao(v)}
+                  className={`flex-1 rounded-lg px-4 py-1.5 font-bold sm:flex-none ${
+                    visao === v
+                      ? 'bg-primaria text-sobre-primaria'
+                      : 'text-suave hover:bg-primaria-clara hover:text-texto'
+                  }`}
+                >
+                  {VISOES[v]}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
-      </header>
+          </div>
+          <div className="ml-auto">{adicionar}</div>
+        </header>
+      )}
       {filtrosNoTopo && (
         <div className="cartao flex flex-wrap items-center gap-2 py-2">
           {/* Clicar fora fecha a janela aberta (calendário, profissionais ou retornos). */}
           {janela && <div className="fixed inset-0 z-30" onClick={() => setJanela(null)} />}
+          <select
+            className="campo w-auto border-borda py-1.5 font-bold"
+            aria-label="Visualizar por"
+            value={visao}
+            onChange={(e) => setVisao(e.target.value as Visao)}
+          >
+            {(Object.keys(VISOES) as Visao[]).map((v) => (
+              <option key={v} value={v}>
+                {VISOES[v]}
+              </option>
+            ))}
+          </select>
           <div className="relative flex w-full items-center gap-1 sm:w-auto">
             <button
               type="button"
@@ -519,13 +530,14 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
               </div>
             )}
           </div>
+          {adicionar}
         </div>
       )}
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         {!filtrosNoTopo && (
-          // Mesma altura da tabela (VisaoDia acima="10.25rem"): os alertas ocupam o que sobra.
-          <aside className="flex flex-col gap-4 lg:h-[calc(100vh-10.25rem)] lg:w-64 lg:shrink-0">
+          // Mesma altura da tabela (VisaoDia acima="13.25rem"): os alertas ocupam o que sobra.
+          <aside className="flex flex-col gap-4 lg:h-[calc(100vh-13.25rem)] lg:w-64 lg:shrink-0">
             {/* key: ao trocar de mês na agenda, o minicalendário volta para esse mês */}
             <MiniCalendario key={data.slice(0, 7)} data={data} hoje={hoje} aoEscolher={setData} />
             <div className="cartao space-y-2">
@@ -588,7 +600,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
 
           {visao === 'dia' && (
             <VisaoDia
-              acima={filtrosNoTopo ? '16rem' : '12rem'}
+              acima={filtrosNoTopo ? '15.5rem' : '15rem'}
               data={data}
               hoje={hoje}
               colunas={colunas}
@@ -605,7 +617,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
           {visao === 'semana' && (
             <VisaoSemana
               de={de}
-              acima={filtrosNoTopo ? '16rem' : '12rem'}
+              acima={filtrosNoTopo ? '15.5rem' : '15rem'}
               hoje={hoje}
               itens={itens}
               carregando={lista.isPending}
@@ -743,11 +755,11 @@ function VisaoDia(props: {
     return <p className="cartao text-suave">Nenhum profissional selecionado.</p>
 
   return (
-    <div
-      className="cartao overflow-auto p-0"
-      style={{ maxHeight: `calc(100vh - ${props.acima})` }}
-    >
-      <div className="sticky top-0 z-30 grid w-max min-w-full sm:w-auto bg-superficie" style={grade}>
+    <div className="cartao overflow-auto p-0" style={{ maxHeight: `calc(100vh - ${props.acima})` }}>
+      <div
+        className="sticky top-0 z-30 grid w-max min-w-full sm:w-auto bg-superficie"
+        style={grade}
+      >
         <div className="sticky left-0 z-10 border-b border-borda bg-superficie" />
         {props.colunas.map((c) => {
           const cor = c.corAgenda ?? COR_PADRAO

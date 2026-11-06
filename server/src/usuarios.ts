@@ -4,6 +4,7 @@ import { db } from './db'
 import { conferirSenha, exigir, gerarHash, usuarioDe } from './auth'
 import { MinhaSenhaDto, SenhaDto, UsuarioEdicaoDto, UsuarioNovoDto } from '../../shared/dtos'
 import { lerCorpo } from './dto'
+import { normalizar } from '../../shared/regras'
 
 const id = (req: Request) => Number(req.params.id) || 0
 
@@ -38,8 +39,12 @@ rotasUsuarios.get('/', exigir('usuario.gerenciar'), async (_req, res) => {
 rotasUsuarios.post('/', exigir('usuario.gerenciar'), async (req, res) => {
   const b = lerCorpo(UsuarioNovoDto, req.body, res)
   if (!b) return
-  const { nome, login, senha, perfis, pessoaId } = b
-  const prof = await erroProfissional(pessoaId)
+  const { nome, login, senha, perfis, pessoaId, profissional } = b
+  const novoProfissional = !pessoaId && perfis.includes('PROFISSIONAL') ? profissional : undefined
+  const prof =
+    perfis.includes('PROFISSIONAL') && !pessoaId && !profissional
+      ? 'Escolha o profissional ou preencha os dados dele.'
+      : await erroProfissional(pessoaId)
   if (prof) return res.status(400).json({ erro: 'Confira os campos.', erros: { pessoaId: prof } })
   if (await db.usuario.findUnique({ where: { login } }))
     return res
@@ -51,7 +56,21 @@ rotasUsuarios.post('/', exigir('usuario.gerenciar'), async (req, res) => {
       login,
       senhaHash: await gerarHash(senha),
       perfis,
-      pessoaId,
+      // Profissional novo nasce junto com o usuário, na mesma gravação.
+      ...(novoProfissional
+        ? {
+            pessoa: {
+              create: {
+                ...novoProfissional,
+                nome,
+                nomeBusca: normalizar(nome),
+                tipo: 'PROFISSIONAL',
+                criadoPorId: usuarioDe(res).id,
+                alteradoPorId: usuarioDe(res).id,
+              },
+            },
+          }
+        : { pessoaId }),
     },
     select: campos,
   })
