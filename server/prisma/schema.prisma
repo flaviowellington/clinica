@@ -67,6 +67,8 @@ model Pessoa {
   foto          Bytes?
   /// Quando a foto mudou; vai na URL para o navegador não mostrar a antiga do cache.
   fotoEm        DateTime?
+  /// Agenda de trabalho: horários da semana em que o profissional não atende ("d-hh:mm").
+  horariosIndisponiveis String[] @default([])
 
   ativo                     Boolean           @default(true)
   motivoInativacao          MotivoInativacao?

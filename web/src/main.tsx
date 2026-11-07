@@ -42,6 +42,7 @@ import { Lixeira } from './paginas/Lixeira'
 import { Agenda } from './paginas/Agenda'
 import { Inicio } from './paginas/Inicio'
 import { Profissionais } from './paginas/Profissionais'
+import { ProfissionalPagina } from './paginas/Profissional'
 import { ABAS as ABAS_FINANCEIRO, Financeiro } from './paginas/Financeiro'
 import { Relatorios } from './paginas/Relatorios'
 import { DocumentoImpresso } from './paginas/DocumentoImpresso'
@@ -716,6 +717,11 @@ const profissionais = createRoute({
   path: '/profissionais',
   component: Profissionais,
 })
+const profissional = createRoute({
+  getParentRoute: () => logado,
+  path: '/profissionais/$id',
+  component: ProfissionalPagina,
+})
 const relatorios = createRoute({
   getParentRoute: () => logado,
   path: '/relatorios',
@@ -785,6 +791,7 @@ const router = createRouter({
       lixeira,
       financeiro,
       profissionais,
+      profissional,
       relatorios,
       documento,
       usuarios,

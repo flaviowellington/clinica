@@ -13,7 +13,7 @@ import {
   type TipoLancamento,
 } from '../../shared/financeiro'
 import { acharRelatorio, type Filtros } from '../../shared/relatorios'
-import { STATUS } from '../../shared/agenda'
+import { STATUS, lerHorariosSemana } from '../../shared/agenda'
 import { GERADORES_FINANCEIRO } from './financeiro'
 import { GERADORES_EXTRA, naAgenda, type Gerador } from './relatorios'
 import { AtivoDto, LancamentoDto, ProfissionalDto } from '../../shared/dtos'
@@ -44,6 +44,7 @@ const camposProfissional = {
   corAgenda: true,
   ativo: true,
   fotoEm: true,
+  horariosIndisponiveis: true,
 } as const
 
 rotasProfissionais.get('/', exigir('profissional.ver'), async (req, res) => {
@@ -90,6 +91,29 @@ rotasProfissionais.put('/:id', exigir('profissional.editar'), async (req, res) =
   const p = await db.pessoa.update({
     where: { id: id(req) },
     data: { ...d, nomeBusca: normalizar(d.nome), alteradoPorId: usuarioDe(res).id },
+    select: camposProfissional,
+  })
+  res.json(p)
+})
+
+rotasProfissionais.get('/:id', exigir('profissional.ver'), async (req, res) => {
+  const p = await db.pessoa.findFirst({
+    where: { id: id(req), tipo: 'PROFISSIONAL', excluidoEm: null },
+    select: camposProfissional,
+  })
+  if (!p) return res.status(404).json({ erro: 'Profissional não encontrado.' })
+  res.json(p)
+})
+
+/** Agenda de trabalho: troca a lista inteira de horários em que o profissional não atende. */
+rotasProfissionais.put('/:id/horarios', exigir('profissional.editar'), async (req, res) => {
+  if (!(await acharProfissional(req)))
+    return res.status(404).json({ erro: 'Profissional não encontrado.' })
+  const horarios = lerHorariosSemana(req.body?.horarios)
+  if (!horarios) return res.status(400).json({ erro: 'Horário fora da grade da agenda.' })
+  const p = await db.pessoa.update({
+    where: { id: id(req) },
+    data: { horariosIndisponiveis: horarios, alteradoPorId: usuarioDe(res).id },
     select: camposProfissional,
   })
   res.json(p)

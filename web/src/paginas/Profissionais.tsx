@@ -1,14 +1,13 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
-import { api, consultaConfig, consultaEu, errosDosCampos, mensagemDeErro } from '../api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
+import { api, consultaConfig, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
-import { pode } from '../../../shared/permissoes'
 import { Dialogo } from '../componentes/Dialogo'
 import { CampoCelular, CampoEmail } from '../componentes/CampoMascara'
 import { Icone } from '../componentes/Icones'
 import { CampoBusca } from '../componentes/BuscaPaciente'
-import { FotoRecortada, RecorteFoto, type FotoNova } from '../componentes/RecorteFoto'
 import { normalizar } from '../../../shared/regras'
 
 export interface Profissional {
@@ -21,13 +20,14 @@ export interface Profissional {
   corAgenda: string | null
   ativo: boolean
   fotoEm: string | null
+  horariosIndisponiveis: string[]
 }
 
-const FOTO_MAXIMO_MB = 10
+export const FOTO_MAXIMO_MB = 10
 
 /** Ações que pedem para digitar a palavra (o próprio nome da ação) antes de confirmar. */
-type Acao = 'inativar' | 'deletar'
-const TEXTOS: Record<
+export type Acao = 'inativar' | 'deletar'
+export const TEXTOS: Record<
   Acao,
   { titulo: string; aviso: (nome: string) => string; detalhe: string; botao: string }
 > = {
@@ -48,7 +48,7 @@ const TEXTOS: Record<
 }
 
 /** Foto do profissional, ou as iniciais na cor da agenda quando não tem. */
-function Retrato(props: {
+export function Retrato(props: {
   p: Pick<Profissional, 'id' | 'nome' | 'corAgenda' | 'fotoEm'>
   className: string
 }) {
@@ -246,7 +246,6 @@ export function CampoEspecialidade({
   )
 }
 
-/** Cadastro dos profissionais da clínica (F-024, S-013). */
 /**
  * CRO, especialidade, celular, e-mail e cor na agenda (o nome fica com quem usa).
  * Usado no cadastro de profissional e no de usuário com perfil Profissional.
@@ -320,19 +319,8 @@ export function CamposProfissional({
 }
 
 export function Profissionais() {
-  const { data: eu } = useSuspenseQuery(consultaEu)
-  const podeEditar = pode(eu.perfis, 'profissional.editar')
-  const qc = useQueryClient()
   const [busca, setBusca] = useState('')
   const [ativos, setAtivos] = useState(true)
-  const [editando, setEditando] = useState<Profissional | 'novo' | null>(null)
-  // Ação perigosa esperando a palavra de confirmação.
-  const [confirmando, setConfirmando] = useState<{ acao: Acao; p: Profissional } | null>(null)
-  const [confirmacao, setConfirmacao] = useState('')
-  // Foto escolhida no formulário, enviada ao salvar; 'remover' apaga a atual.
-  const [foto, setFoto] = useState<FotoNova | 'remover' | null>(null)
-  const [ajustando, setAjustando] = useState<File | null>(null)
-  const confirmou = !!confirmando && confirmacao.trim().toLowerCase() === confirmando.acao
 
   const lista = useQuery({
     queryKey: ['profissionais', busca, ativos],
@@ -343,72 +331,15 @@ export function Profissionais() {
         })
       ).data,
   })
-
-  const atualizar = () => {
-    qc.invalidateQueries({ queryKey: ['profissionais'] })
-    qc.invalidateQueries({ queryKey: ['agenda', 'profissionais'] })
-  }
-
-  const abrirEditor = (p: Profissional | 'novo') => {
-    setFoto(null)
-    setEditando(p)
-  }
-  const salvar = useMutation({
-    mutationFn: async (d: Record<string, string>) => {
-      const p: Profissional =
-        editando && editando !== 'novo'
-          ? (await api.put(`/profissionais/${editando.id}`, d)).data
-          : (await api.post('/profissionais', d)).data
-      // A foto vai depois do cadastro, pois o profissional novo só tem id agora.
-      if (foto === 'remover') await api.delete(`/profissionais/${p.id}/foto`)
-      else if (foto) {
-        const f = new FormData()
-        f.append('foto', foto.arquivo)
-        for (const [k, v] of Object.entries(foto.recorte)) f.append(k, String(v))
-        await api.post(`/profissionais/${p.id}/foto`, f)
-      }
-      return p
-    },
-    onSuccess: () => {
-      avisar('Profissional salvo')
-      atualizar()
-      setEditando(null)
-    },
-    onError: (e) => avisar(mensagemDeErro(e), true),
-  })
-  const ativar = useMutation({
-    mutationFn: async (p: Profissional) =>
-      (await api.post(`/profissionais/${p.id}/ativo`, { ativo: !p.ativo })).data,
-    onSuccess: (p: Profissional) => {
-      avisar(p.ativo ? 'Profissional ativado' : 'Profissional inativado')
-      atualizar()
-    },
-    onError: (e) => avisar(mensagemDeErro(e), true),
-  })
-  const excluir = useMutation({
-    mutationFn: async (p: Profissional) => (await api.delete(`/profissionais/${p.id}`)).data,
-    onSuccess: () => {
-      avisar('Profissional excluído')
-      atualizar()
-    },
-    onError: (e) => avisar(mensagemDeErro(e), true),
-  })
-  const erros = errosDosCampos(salvar.error)
-  const atual = editando && editando !== 'novo' ? editando : null
-  const temFoto = foto === 'remover' ? false : !!foto || !!atual?.fotoEm
-  const fecharConfirmacao = () => {
-    setConfirmando(null)
-    setConfirmacao('')
-  }
-  const textos = confirmando && TEXTOS[confirmando.acao]
-  const enviandoConfirmacao = ativar.isPending || excluir.isPending
   const ativosDaLista = lista.data?.filter((p) => p.ativo) ?? []
   const inativosDaLista = lista.data?.filter((p) => !p.ativo) ?? []
 
   const cartao = (p: Profissional) => (
-    <article
+    <Link
       key={p.id}
-      className={`cartao flex flex-col gap-4 overflow-hidden p-0 ${p.ativo ? 'hover:border-primaria/40 hover:shadow-md' : 'border-2 border-dashed bg-superficie-2'}`}
+      to="/profissionais/$id"
+      params={{ id: String(p.id) }}
+      className={`cartao flex flex-col gap-4 overflow-hidden p-0 pb-4 transition ${p.ativo ? 'hover:border-primaria/40 hover:shadow-md' : 'border-2 border-dashed bg-superficie-2 hover:border-suave'}`}
     >
       {/* Faixa na cor da agenda; listrada e sem cor no inativo. */}
       <div
@@ -469,40 +400,7 @@ export function Profissionais() {
           </dd>
         </div>
       </dl>
-      {podeEditar && (
-        <div
-          className={`mt-auto flex justify-end gap-1 border-t px-3 py-2 ${p.ativo ? 'border-borda' : 'border-dashed border-borda'}`}
-        >
-          <button className="botao-fantasma botao-pequeno" onClick={() => abrirEditor(p)}>
-            Editar
-          </button>
-          {p.ativo ? (
-            <button
-              className="botao-fantasma botao-pequeno text-perigo hover:bg-perigo/10"
-              onClick={() => setConfirmando({ acao: 'inativar', p })}
-            >
-              Inativar
-            </button>
-          ) : (
-            <>
-              <button
-                className="botao-fantasma botao-pequeno"
-                disabled={ativar.isPending}
-                onClick={() => ativar.mutate(p)}
-              >
-                Ativar
-              </button>
-              <button
-                className="botao-fantasma botao-pequeno text-perigo hover:bg-perigo/10"
-                onClick={() => setConfirmando({ acao: 'deletar', p })}
-              >
-                Excluir
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </article>
+    </Link>
   )
 
   return (
@@ -596,147 +494,6 @@ export function Profissionais() {
             </div>
           </section>
         )}
-
-        <Dialogo aberto={!!confirmando} aoFechar={fecharConfirmacao} titulo={textos?.titulo ?? ''}>
-          {confirmando && textos && (
-            <form
-              className="space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault()
-                if (!confirmou) return
-                const mutacao = confirmando.acao === 'inativar' ? ativar : excluir
-                mutacao.mutate(confirmando.p, { onSuccess: fecharConfirmacao })
-              }}
-            >
-              <div className="alerta-perigo space-y-1">
-                <p className="font-bold">{textos.aviso(confirmando.p.nome)}</p>
-                <p>{textos.detalhe}</p>
-              </div>
-              <div>
-                <label className="rotulo" htmlFor="p-confirma">
-                  Digite <span className="text-perigo">{confirmando.acao}</span> para confirmar
-                </label>
-                <input
-                  id="p-confirma"
-                  className="campo"
-                  autoComplete="off"
-                  autoFocus
-                  value={confirmacao}
-                  onChange={(e) => setConfirmacao(e.target.value)}
-                />
-              </div>
-              <div className="flex justify-end gap-2 border-t border-borda pt-4">
-                <button type="button" className="botao-leve" onClick={fecharConfirmacao}>
-                  Cancelar
-                </button>
-                <button className="botao-perigo" disabled={!confirmou || enviandoConfirmacao}>
-                  {textos.botao}
-                </button>
-              </div>
-            </form>
-          )}
-        </Dialogo>
-
-        <Dialogo aberto={!!ajustando} aoFechar={() => setAjustando(null)} titulo="Ajustar foto">
-          {ajustando && (
-            <RecorteFoto
-              arquivo={ajustando}
-              aoCancelar={() => setAjustando(null)}
-              aoConfirmar={(f) => {
-                setFoto(f)
-                setAjustando(null)
-              }}
-            />
-          )}
-        </Dialogo>
-
-        <Dialogo
-          aberto={!!editando}
-          aoFechar={() => setEditando(null)}
-          titulo={atual ? 'Editar profissional' : 'Novo profissional'}
-        >
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault()
-              salvar.mutate(
-                Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>,
-              )
-            }}
-          >
-            <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-superficie-2 p-3">
-              {foto && foto !== 'remover' ? (
-                <FotoRecortada foto={foto} lado={64} className="rounded-2xl" />
-              ) : (
-                <Retrato
-                  p={{
-                    id: atual?.id ?? 0,
-                    nome: atual?.nome ?? '',
-                    corAgenda: atual?.corAgenda ?? null,
-                    fotoEm: foto === 'remover' ? null : (atual?.fotoEm ?? null),
-                  }}
-                  className="size-16 rounded-2xl text-lg"
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="font-bold">Foto</p>
-                <p className="text-xs text-suave">
-                  JPEG, PNG ou WEBP até {FOTO_MAXIMO_MB} MB. Você ajusta o recorte antes de salvar.
-                </p>
-              </div>
-              <div className="flex gap-1">
-                <label className="botao-leve botao-pequeno has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primaria">
-                  {temFoto ? 'Trocar foto' : 'Escolher foto'}
-                  {/* Sem name: não vai junto com os dados do formulário. */}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="sr-only"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      e.target.value = '' // deixa escolher o mesmo arquivo de novo
-                      if (!f) return
-                      if (f.size > FOTO_MAXIMO_MB * 1024 * 1024)
-                        return avisar(`A foto pode ter no máximo ${FOTO_MAXIMO_MB} MB.`, true)
-                      setAjustando(f)
-                    }}
-                  />
-                </label>
-                {temFoto && (
-                  <button
-                    type="button"
-                    className="botao-fantasma botao-pequeno text-perigo hover:bg-perigo/10"
-                    onClick={() => setFoto('remover')}
-                  >
-                    Remover
-                  </button>
-                )}
-              </div>
-            </div>
-            <div>
-              <label className="rotulo" htmlFor="p-nome">
-                Nome *
-              </label>
-              <input
-                id="p-nome"
-                name="nome"
-                className="campo"
-                defaultValue={atual?.nome}
-                autoFocus
-              />
-              {erros.nome && <p className="erro-campo">{erros.nome}</p>}
-            </div>
-            <CamposProfissional atual={atual} erros={erros} />
-            <div className="flex justify-end gap-2 border-t border-borda pt-4">
-              <button type="button" className="botao-leve" onClick={() => setEditando(null)}>
-                Cancelar
-              </button>
-              <button className="botao" disabled={salvar.isPending}>
-                Salvar
-              </button>
-            </div>
-          </form>
-        </Dialogo>
       </div>
     </div>
   )

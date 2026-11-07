@@ -11,6 +11,7 @@ import {
   sugerirColunas,
   type TipoImportacao,
 } from '../../../shared/importacao'
+import { linhasDoHar } from '../../../shared/importacaoHar'
 import { CampoSelect } from '../componentes/CampoSelect'
 
 type Celula = string | number | boolean | Date | null
@@ -35,7 +36,15 @@ interface Historico {
 }
 
 const LOTE = 200
-const ORDEM: TipoImportacao[] = ['pacientes', 'agendamentos', 'procedimentos']
+const ORDEM: TipoImportacao[] = [
+  'profissionais',
+  'pacientes',
+  'agendamentos',
+  'procedimentos',
+  'retornos',
+]
+type LinhasHar = ReturnType<typeof linhasDoHar>
+const ORDEM_HAR = ['profissionais', 'pacientes', 'procedimentos', 'retornos'] as const
 
 /** Célula da planilha → texto que o servidor entende (datas aaaa-mm-dd, horas HH:MM). */
 function valorCelula(v: Celula, campo: string): string | null {
@@ -58,6 +67,7 @@ export function Importacao() {
   const [mapa, setMapa] = useState<Record<string, number | null>>({})
   const [progresso, setProgresso] = useState<{ feitas: number; total: number } | null>(null)
   const [resultado, setResultado] = useState<Resultado | null>(null)
+  const [har, setHar] = useState<{ arquivo: string; linhas: LinhasHar } | null>(null)
   const historico = useQuery({
     queryKey: ['importacoes'],
     queryFn: async () => (await api.get<Historico[]>('/importacao')).data,
@@ -82,6 +92,19 @@ export function Importacao() {
   }
 
   async function lerArquivo(f: File) {
+    setResultado(null)
+    if (f.name.toLowerCase().endsWith('.har')) {
+      try {
+        const linhas = linhasDoHar(JSON.parse(await f.text()))
+        if (!ORDEM_HAR.some((t) => linhas[t].length)) throw new Error()
+        setPlanilha(null)
+        setHar({ arquivo: f.name, linhas })
+      } catch {
+        avisar('Não achei dados de pacientes neste arquivo HAR.', true)
+      }
+      return
+    }
+    setHar(null)
     try {
       const abas = await readXlsxFile(f)
       const p: Planilha = { arquivo: f.name, abas: abas as Planilha['abas'] }
@@ -97,25 +120,42 @@ export function Importacao() {
       campos.map(([c]) => [c, mapa[c] == null ? null : valorCelula(l[mapa[c]!] ?? null, c)]),
     )
 
+  /** Envia em lotes; "linha" do erro: número no Excel (1ª é o cabeçalho) ou registro no HAR. */
+  async function enviar(
+    t: TipoImportacao,
+    lista: Record<string, unknown>[],
+    arquivo: string,
+    soma: Resultado,
+    inicio: number,
+    rotulo = '',
+  ) {
+    for (let i = 0; i < lista.length; i += LOTE) {
+      const r = (
+        await api.post<Resultado>(`/importacao/${t}`, {
+          arquivo,
+          primeiraLinha: i + inicio,
+          linhas: lista.slice(i, i + LOTE),
+        })
+      ).data
+      soma.criados += r.criados
+      soma.ignorados += r.ignorados
+      soma.erros.push(...r.erros.map((e) => ({ ...e, erro: rotulo + e.erro })))
+      setProgresso((p) => p && { ...p, feitas: p.feitas + Math.min(LOTE, lista.length - i) })
+    }
+  }
+
   async function importar() {
-    const total = linhas.length
     const soma: Resultado = { criados: 0, ignorados: 0, erros: [] }
     setResultado(null)
-    setProgresso({ feitas: 0, total })
     try {
-      for (let i = 0; i < total; i += LOTE) {
-        const r = (
-          await api.post<Resultado>(`/importacao/${tipo}`, {
-            arquivo: planilha!.arquivo,
-            // Número da linha como no Excel: a 1ª é o cabeçalho.
-            primeiraLinha: i + 2,
-            linhas: linhas.slice(i, i + LOTE).map(montar),
-          })
-        ).data
-        soma.criados += r.criados
-        soma.ignorados += r.ignorados
-        soma.erros.push(...r.erros)
-        setProgresso({ feitas: Math.min(total, i + LOTE), total })
+      if (har) {
+        setProgresso({ feitas: 0, total: ORDEM_HAR.reduce((s, t) => s + har.linhas[t].length, 0) })
+        // Profissionais e pacientes primeiro: procedimentos e retornos procuram os dois já gravados.
+        for (const t of ORDEM_HAR)
+          await enviar(t, har.linhas[t], har.arquivo, soma, 1, `${TITULOS_IMPORTACAO[t]}: `)
+      } else {
+        setProgresso({ feitas: 0, total: linhas.length })
+        await enviar(tipo, linhas.map(montar), planilha!.arquivo, soma, 2)
       }
       avisar(`Importação concluída: ${soma.criados} novo(s).`)
     } catch (e) {
@@ -133,9 +173,15 @@ export function Importacao() {
         <h1 className="text-xl font-semibold">Importar dados do sistema antigo</h1>
         <p className="text-suave">
           No sistema antigo, use “Exportar dados” para baixar as planilhas (XLSX). Importe nesta
-          ordem: <strong>1. pacientes</strong>, 2. agendamentos, 3. procedimentos do prontuário.
-          Antes, cadastre os profissionais com o mesmo nome usado no sistema antigo. Pode importar o
-          mesmo arquivo de novo: o que já existe é ignorado.
+          ordem: <strong>1. profissionais</strong>, 2. pacientes, 3. agendamentos, 4. procedimentos
+          do prontuário, 5. alertas de retorno. Profissional já cadastrado com o mesmo nome não é
+          duplicado. Pode importar o mesmo arquivo de novo: o que já existe é ignorado.
+        </p>
+        <p className="text-suave">
+          Sem planilha? No sistema antigo, abra o DevTools (F12) na aba Rede, abra a ficha de cada
+          paciente passando pelas abas e use “Exportar HAR”. Envie aqui o arquivo .har:
+          profissionais, pacientes, procedimentos do odontograma e alertas de retorno entram de uma
+          vez.
         </p>
       </div>
 
@@ -155,10 +201,10 @@ export function Importacao() {
             />
           </label>
           <label className="botao">
-            Escolher planilha (.xlsx)
+            Escolher arquivo (.xlsx ou .har)
             <input
               type="file"
-              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept=".xlsx,.har,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               className="sr-only"
               onChange={(e) => {
                 const f = e.target.files?.[0]
@@ -266,6 +312,33 @@ export function Importacao() {
         </section>
       )}
 
+      {har && (
+        <section className="cartao space-y-3">
+          <h2 className="font-semibold">Encontrado em {har.arquivo}</h2>
+          <ul>
+            {ORDEM_HAR.map((t) => (
+              <li key={t}>
+                {TITULOS_IMPORTACAO[t]}: <strong>{har.linhas[t].length}</strong>
+              </li>
+            ))}
+          </ul>
+          <p className="text-suave">
+            Endereço, profissão e convênio vão para as observações do paciente. Profissional já
+            cadastrado com o mesmo nome não é duplicado; o excluído no sistema antigo entra inativo.
+          </p>
+          <div className="flex items-center justify-end gap-3">
+            {progresso && (
+              <span className="text-suave" role="status">
+                Enviando {progresso.feitas} de {progresso.total}…
+              </span>
+            )}
+            <button className="botao" disabled={!!progresso} onClick={importar}>
+              Importar tudo
+            </button>
+          </div>
+        </section>
+      )}
+
       {resultado && (
         <section className="cartao space-y-2" role="status">
           <h2 className="font-semibold">Resultado</h2>
@@ -278,9 +351,9 @@ export function Importacao() {
           </p>
           {!!resultado.erros.length && (
             <ul className="max-h-64 overflow-y-auto text-perigo">
-              {resultado.erros.slice(0, 300).map((e) => (
-                <li key={e.linha}>
-                  Linha {e.linha}: {e.erro}
+              {resultado.erros.slice(0, 300).map((e, i) => (
+                <li key={i}>
+                  {har ? 'Registro' : 'Linha'} {e.linha}: {e.erro}
                 </li>
               ))}
             </ul>

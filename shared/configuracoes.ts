@@ -8,7 +8,7 @@ import {
   type Pergunta,
 } from './prontuario'
 import { normalizar } from './regras'
-import { CATEGORIAS } from './agenda'
+import { CATEGORIAS, lerHorariosSemana } from './agenda'
 
 export interface DadosClinica {
   nome: string
@@ -63,6 +63,8 @@ export const PADROES = {
   medicamentos: [] as Medicamento[],
   /** Categorias da agenda (nome → cor); a clínica pode criar outras. */
   categorias: { ...CATEGORIAS } as Record<string, string>,
+  /** Horários da semana em que a clínica não atende ninguém ("d-hh:mm"). */
+  horariosFechados: [] as string[],
   especialidades: [
     'Clínica geral',
     'Cirurgia',
@@ -200,6 +202,10 @@ export function validarConfig(
         .map((m) => ({ nome: txt(m?.nome, 120), posologia: txt(m?.posologia, 300) }))
         .filter((m) => m.nome)
       return { valor }
+    }
+    case 'horariosFechados': {
+      const valor = lerHorariosSemana(bruto)
+      return valor ? { valor } : { erro: 'Horário fora da grade da agenda.' }
     }
     case 'especialidades':
     case 'especialidadesFicha': {

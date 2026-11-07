@@ -27,6 +27,7 @@ import {
   type ModeloAnamnese,
 } from '../../../shared/configuracoes'
 import { CampoSelect } from '../componentes/CampoSelect'
+import { GradeSemana } from '../componentes/GradeSemana'
 import { CampoEspecialidade } from './Profissionais'
 import { Situacao } from './Pacientes'
 import { CampoEmail } from '../componentes/CampoMascara'
@@ -36,6 +37,7 @@ import { ETAPAS, type Etapa } from '../../../shared/protetico'
 // o atendimento (anamnese → documentos → medicamentos da receita); a comunicação.
 export const ABAS = [
   { id: 'clinica', rotulo: 'Clínica' },
+  { id: 'horarios', rotulo: 'Horários de atendimento' },
   { id: 'especialidades', rotulo: 'Especialidades' },
   { id: 'procedimentos', rotulo: 'Procedimentos e preços' },
   { id: 'laboratorios', rotulo: 'Laboratórios' },
@@ -65,6 +67,7 @@ export function Configuracoes() {
         aoTrocar={(a) => navegar({ search: { aba: a === 'clinica' ? undefined : a } })}
       />
       {aba === 'clinica' && <Clinica />}
+      {aba === 'horarios' && <Horarios />}
       {aba === 'procedimentos' && <Procedimentos />}
       {aba === 'laboratorios' && <Laboratorios />}
       {aba === 'anamnese' && <ModelosAnamnese />}
@@ -1416,6 +1419,54 @@ function UsoDoMedicamento({ nome }: { nome: string }) {
 }
 
 // ── Especialidades ──────────────────────────────────────────────────────────
+function Horarios() {
+  const c = useQuery(consultaConfig('horariosFechados'))
+  return c.data ? <GradeHorarios salvos={c.data} /> : <Carregando />
+}
+
+/** Horários da semana em que a clínica não atende ninguém (vale para todos os profissionais). */
+function GradeHorarios({ salvos }: { salvos: string[] }) {
+  const [fechados, setFechados] = useState(() => new Set(salvos))
+  const salvar = useSalvar('horariosFechados', 'Horários de atendimento salvos')
+  const mudou = fechados.size !== salvos.length || salvos.some((c) => !fechados.has(c))
+  return (
+    <Secao
+      titulo="Horários de atendimento"
+      descricao="Marque quando a clínica não atende ninguém, como sábado à tarde. Vale para todos os profissionais."
+      className="max-w-4xl"
+      acao={
+        <div className="flex items-center gap-2">
+          {mudou && <span className="text-sm font-bold text-aviso">Alterações não salvas</span>}
+          <button
+            type="button"
+            className="botao-leve"
+            disabled={!mudou || salvar.isPending}
+            onClick={() => setFechados(new Set(salvos))}
+          >
+            Desfazer
+          </button>
+          <button
+            type="button"
+            className="botao"
+            disabled={!mudou || salvar.isPending}
+            onClick={() => salvar.mutate([...fechados])}
+          >
+            {salvar.isPending ? 'Salvando…' : 'Salvar'}
+          </button>
+        </div>
+      }
+    >
+      <GradeSemana
+        marcados={fechados}
+        aoMudar={setFechados}
+        cor="clinica"
+        editavel
+        dica="Clique no primeiro horário sem atendimento e depois no último. Dá para pegar vários dias de uma vez."
+      />
+    </Secao>
+  )
+}
+
 function Especialidades() {
   const c = useQuery(consultaConfig('especialidades'))
   return c.data ? <ListaEspecialidades inicial={c.data} /> : <Carregando />

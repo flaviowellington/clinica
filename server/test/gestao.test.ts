@@ -49,6 +49,36 @@ describe('PT-24 (F-024) profissionais', () => {
     const ruim = await api('POST', '/api/profissionais', { nome: '', corAgenda: 'azul' })
     expect(Object.keys(ruim.corpo.erros).sort()).toEqual(['corAgenda', 'nome'])
   })
+  it('agenda de trabalho: guarda os horários indisponíveis e recusa os fora da grade', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { corpo: p } = await api('POST', '/api/profissionais', DENTISTA)
+    const ok = await api('PUT', `/api/profissionais/${p.id}/horarios`, {
+      horarios: ['5-10:15', '5-10:00', '5-10:00'],
+    })
+    expect(ok.status).toBe(200)
+    expect((await api('GET', `/api/profissionais/${p.id}`)).corpo.horariosIndisponiveis).toEqual([
+      '5-10:00',
+      '5-10:15',
+    ])
+    for (const ruim of ['0-10:00', '7-10:00', '1-07:00', '1-10:10'])
+      expect(
+        (await api('PUT', `/api/profissionais/${p.id}/horarios`, { horarios: [ruim] })).status,
+      ).toBe(400)
+    const rec = await entrarComo('RECEPCAO')
+    expect((await rec('PUT', `/api/profissionais/${p.id}/horarios`, { horarios: [] })).status).toBe(
+      403,
+    )
+  })
+  it('horários sem atendimento da clínica ficam nas configurações', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    expect((await api('GET', '/api/configuracoes/horariosFechados')).corpo).toEqual([])
+    await api('PUT', '/api/configuracoes/horariosFechados', ['6-12:30', '6-12:45'])
+    expect((await api('GET', '/api/configuracoes/horariosFechados')).corpo).toEqual([
+      '6-12:30',
+      '6-12:45',
+    ])
+    expect((await api('PUT', '/api/configuracoes/horariosFechados', ['8-12:30'])).status).toBe(400)
+  })
   it('só o administrador cadastra', async () => {
     const api = await entrarComo('RECEPCAO')
     expect((await api('POST', '/api/profissionais', DENTISTA)).status).toBe(403)

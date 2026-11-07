@@ -5,6 +5,7 @@ import { Router } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
 import { cpfValido, normalizar } from '../../shared/regras'
+import { celularValido, REGEX_EMAIL } from '../../shared/dtos'
 import { STATUS, type StatusAgenda } from '../../shared/agenda'
 import { DENTES_VALIDOS, normalizarFaces } from '../../shared/prontuario'
 import { CAMPOS_IMPORTACAO, type TipoImportacao } from '../../shared/importacao'
@@ -85,6 +86,37 @@ const IMPORTADORES: Record<
   TipoImportacao,
   (l: Linha, ctx: { usuarioId: number; profissional: (v: unknown) => number }) => Promise<boolean>
 > = {
+  async profissionais(l, { usuarioId }) {
+    const nome = txt(l.nome, 150)
+    if (!nome) throw new ErroLinha('Falta o nome.')
+    // Mesmo nome, com ou sem "Dr."/"Dra.": é o mesmo profissional.
+    const todos = await db.pessoa.findMany({
+      where: { tipo: 'PROFISSIONAL', excluidoEm: null },
+      select: { nome: true },
+    })
+    if (todos.some((p) => semTitulo(p.nome) === semTitulo(nome))) return false
+    // Contato inválido no sistema antigo não impede a importação: o campo fica vazio.
+    const email = txt(l.email, 254)
+    const celular = txt(l.celular, 30)
+    const cor = txt(l.corAgenda, 7)
+    await db.pessoa.create({
+      data: {
+        tipo: 'PROFISSIONAL',
+        nome,
+        nomeBusca: normalizar(nome),
+        cro: txt(l.cro, 40),
+        especialidade: txt(l.especialidade, 80),
+        email: email && REGEX_EMAIL.test(email) ? email : null,
+        celular: celular && celularValido(celular) ? celular : null,
+        corAgenda: cor && /^#[0-9a-f]{6}$/i.test(cor) ? cor : null,
+        ativo: !['nao', 'não', 'inativo', 'false', '0'].includes(normalizar(txt(l.ativo) ?? '')),
+        criadoPorId: usuarioId,
+        alteradoPorId: usuarioId,
+      },
+    })
+    return true
+  },
+
   async pacientes(l, { usuarioId }) {
     const nome = txt(l.nome, 150)
     if (!nome) throw new ErroLinha('Falta o nome.')
@@ -171,10 +203,20 @@ const IMPORTADORES: Record<
     if (!data) throw new ErroLinha('Data do procedimento inválida.')
     const denteBruto = txt(l.dente, 10)
     const dente = denteBruto && DENTES_VALIDOS.has(denteBruto) ? denteBruto : null
+    // Excluído no sistema antigo: entra excluído, para o prontuário guardar o histórico.
+    const excluidoEm = lerData(l.excluidoEm) ?? null
     const existe = await db.procedimentoClinico.findFirst({
-      where: { pacienteId: paciente.id, nome, data, dente, excluidoEm: null },
+      where: {
+        pacienteId: paciente.id,
+        nome,
+        data,
+        dente,
+        excluidoEm: excluidoEm ? { not: null } : null,
+      },
     })
     if (existe) return false
+    const situacao = txt(l.situacao)
+    const status = situacao === 'A_REALIZAR' || situacao === 'EXISTENTE' ? situacao : 'EXECUTADO'
     const observacao = [
       txt(l.observacao, 1500),
       denteBruto && !dente ? `Região: ${denteBruto}` : null,
@@ -188,11 +230,30 @@ const IMPORTADORES: Record<
         nome,
         dente,
         faces: dente ? normalizarFaces(txt(l.faces, 10)) || null : null,
-        status: 'EXECUTADO',
+        status,
         data,
         observacao: observacao.slice(0, 1500) || null,
+        observacaoPaciente: txt(l.observacaoPaciente, 1500),
+        excluidoEm,
+        excluidoPorId: excluidoEm ? usuarioId : null,
         criadoPorId: usuarioId,
       },
+    })
+    return true
+  },
+
+  async retornos(l, { usuarioId, profissional }) {
+    const paciente = await acharPaciente(l)
+    const profissionalId = profissional(l.profissional)
+    const data = lerData(l.data)
+    if (!data) throw new ErroLinha('Data do retorno inválida.')
+    const motivo = txt(l.motivo, 500)
+    const existe = await db.alertaRetorno.findFirst({
+      where: { pacienteId: paciente.id, profissionalId, data, motivo, excluidoEm: null },
+    })
+    if (existe) return false
+    await db.alertaRetorno.create({
+      data: { pacienteId: paciente.id, profissionalId, data, motivo, criadoPorId: usuarioId },
     })
     return true
   },

@@ -152,3 +152,29 @@ export function clicarHorario(
   else return recomeca // dentro da faixa
   return ocupadoEntre(a, b) ? recomeca : { inicio: a, ultimo: b, clicado: h }
 }
+
+// ── Agenda de trabalho (semana fixa) ────────────────────────────────────────
+/** Colunas da semana: 1 = segunda ... 6 = sábado (domingo não tem expediente). */
+export const DIAS_SEMANA = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+
+/** Um horário da semana: "d-hh:mm" (ex.: "5-10:00" = sexta às 10:00). */
+export const celulaSemana = (dia: number, h: string) => `${dia}-${h}`
+
+/** Lista de horários da semana limpa e ordenada; null se algum não existe na grade. */
+export function lerHorariosSemana(v: unknown): string[] | null {
+  if (!Array.isArray(v) || v.length > DIAS_SEMANA.length * HORARIOS.length) return null
+  const validos = v.every(
+    (x) => typeof x === 'string' && /^[1-6]-\d\d:\d\d$/.test(x) && HORARIOS.includes(x.slice(2)),
+  )
+  return validos ? [...new Set(v as string[])].sort() : null
+}
+
+/** Retângulo entre dois cliques da grade semanal (dias e horários em qualquer ordem). */
+export function celulasEntre(a: string, b: string) {
+  const [da, db] = [Number(a[0]), Number(b[0])].sort()
+  const [ha, hb] = [a.slice(2), b.slice(2)].sort() // "hh:mm" ordena como texto
+  const r: string[] = []
+  for (let d = da; d <= db; d++)
+    for (const h of HORARIOS) if (h >= ha && h <= hb) r.push(celulaSemana(d, h))
+  return r
+}

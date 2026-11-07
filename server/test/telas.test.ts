@@ -628,6 +628,85 @@ describe('importação de planilhas', () => {
     })
   })
 
+  it('procedimentos com situação e exclusão, e alertas de retorno (arquivo HAR)', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    await dentista()
+    await pacienteCom(admin)
+    const base = { paciente: 'Fulano de Teste', profissional: 'Dra. Teste', data: '2025-03-10' }
+    const pr = await admin('POST', '/api/importacao/procedimentos', {
+      arquivo: 'sistema-antigo.har',
+      linhas: [
+        { ...base, procedimento: 'Canal', dente: '24', situacao: 'EXISTENTE' },
+        { ...base, procedimento: 'Coroa', situacao: 'A_REALIZAR', observacaoPaciente: 'Leve' },
+        { ...base, procedimento: 'Limpeza', excluidoEm: '2025-03-12' },
+        { ...base, procedimento: 'Limpeza', excluidoEm: '2025-03-12' },
+      ],
+    })
+    expect(pr.corpo).toMatchObject({ criados: 3, ignorados: 1, erros: [] })
+    const lista = await db.procedimentoClinico.findMany({ orderBy: { id: 'asc' } })
+    expect(lista.map((p) => [p.nome, p.status])).toEqual([
+      ['Canal', 'EXISTENTE'],
+      ['Coroa', 'A_REALIZAR'],
+      ['Limpeza', 'EXECUTADO'],
+    ])
+    expect(lista[1].observacaoPaciente).toBe('Leve')
+    // Excluído no sistema antigo: entra excluído, para o histórico do prontuário.
+    expect(lista[2].excluidoEm).not.toBeNull()
+
+    const rt = await admin('POST', '/api/importacao/retornos', {
+      arquivo: 'sistema-antigo.har',
+      linhas: [
+        {
+          paciente: 'Fulano de Teste',
+          profissional: 'Dra. Teste',
+          data: '2025-11-30',
+          motivo: 'Revisão',
+        },
+        {
+          paciente: 'Fulano de Teste',
+          profissional: 'Dra. Teste',
+          data: '2025-11-30',
+          motivo: 'Revisão',
+        },
+        { paciente: 'Fulano de Teste', profissional: 'Dra. Teste', data: '30-11' },
+      ],
+    })
+    expect(rt.corpo).toMatchObject({ criados: 1, ignorados: 1, erros: [{ linha: 3 }] })
+    expect(await db.alertaRetorno.findFirst()).toMatchObject({ motivo: 'Revisão' })
+  })
+
+  it('profissionais: cria, ignora o mesmo nome (com ou sem "Dra.") e descarta contato inválido', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    await dentista()
+    const r = await admin('POST', '/api/importacao/profissionais', {
+      arquivo: 'sistema-antigo.har',
+      linhas: [
+        { nome: 'Teste' },
+        {
+          nome: 'Dr. Novo',
+          cro: 'RN-1234',
+          especialidade: 'Ortodontia',
+          email: 'nao-e-email',
+          celular: '+55 (11) 98888-7777',
+          corAgenda: 'azul',
+          ativo: 'NAO',
+        },
+        { nome: '' },
+      ],
+    })
+    expect(r.corpo).toMatchObject({ criados: 1, ignorados: 1, erros: [{ linha: 3 }] })
+    expect(
+      await db.pessoa.findFirst({ where: { tipo: 'PROFISSIONAL', nome: 'Dr. Novo' } }),
+    ).toMatchObject({
+      cro: 'RN-1234',
+      especialidade: 'Ortodontia',
+      email: null,
+      celular: '+55 (11) 98888-7777',
+      corAgenda: null,
+      ativo: false,
+    })
+  })
+
   it('só o administrador importa', async () => {
     const recepcao = await entrarComo('RECEPCAO')
     expect(

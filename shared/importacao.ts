@@ -9,6 +9,15 @@ interface Campo {
 }
 
 export const CAMPOS_IMPORTACAO = {
+  profissionais: {
+    nome: { rotulo: 'Nome', obrigatorio: true, sinonimos: ['nome', 'profissional', 'dentista'] },
+    cro: { rotulo: 'CRO', sinonimos: ['cro', 'conselho', 'registro'] },
+    especialidade: { rotulo: 'Especialidade', sinonimos: ['especialidade', 'especialidades'] },
+    email: { rotulo: 'E-mail', sinonimos: ['email', 'e-mail'] },
+    celular: { rotulo: 'Celular', sinonimos: ['celular', 'whatsapp', 'telefone'] },
+    corAgenda: { rotulo: 'Cor na agenda (#rrggbb)', sinonimos: ['cor', 'cor na agenda'] },
+    ativo: { rotulo: 'Ativo (SIM ou NAO)', sinonimos: ['ativo', 'situacao', 'status'] },
+  },
   pacientes: {
     nome: {
       rotulo: 'Nome',
@@ -94,15 +103,41 @@ export const CAMPOS_IMPORTACAO = {
       rotulo: 'Observação',
       sinonimos: ['observacao', 'observacoes', 'obs', 'evolucao', 'anotacao'],
     },
+    observacaoPaciente: {
+      rotulo: 'Observação para o paciente',
+      sinonimos: ['observacao para o paciente', 'observacao do paciente'],
+    },
+    situacao: {
+      rotulo: 'Situação (A_REALIZAR, EXECUTADO, EXISTENTE)',
+      sinonimos: ['situacao', 'status'],
+    },
+    excluidoEm: { rotulo: 'Excluído em', sinonimos: ['excluido em', 'data de exclusao'] },
+  },
+  retornos: {
+    paciente: {
+      rotulo: 'Paciente',
+      obrigatorio: true,
+      sinonimos: ['paciente', 'nome do paciente', 'nome'],
+    },
+    pacienteCpf: { rotulo: 'CPF do paciente', sinonimos: ['cpf', 'cpf do paciente'] },
+    profissional: {
+      rotulo: 'Profissional',
+      obrigatorio: true,
+      sinonimos: ['profissional', 'dentista'],
+    },
+    data: { rotulo: 'Data do retorno', obrigatorio: true, sinonimos: ['data', 'retorno'] },
+    motivo: { rotulo: 'Motivo', sinonimos: ['motivo', 'observacao', 'obs'] },
   },
 } satisfies Record<string, Record<string, Campo>>
 
 export type TipoImportacao = keyof typeof CAMPOS_IMPORTACAO
 
 export const TITULOS_IMPORTACAO: Record<TipoImportacao, string> = {
+  profissionais: 'Profissionais',
   pacientes: 'Pacientes',
   agendamentos: 'Agendamentos',
   procedimentos: 'Procedimentos do prontuário',
+  retornos: 'Alertas de retorno',
 }
 
 /** Sugere, para cada campo, a coluna da planilha cujo cabeçalho combina. */
