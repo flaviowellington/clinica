@@ -186,7 +186,6 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
   const meuId = useQuery(consultaProfissionais).data?.meuId ?? ''
   const modelos = useQuery(consultaConfig('documentos')).data
   const clinica = useQuery(consultaConfig('clinica')).data
-  const medicamentos = useQuery(consultaConfig('medicamentos')).data ?? []
   const padroes = useQuery(consultaConfig('documentosPadrao')).data ?? []
   // Modelo fixo (atestado…) ou documento padrão da clínica, como "p:<posição>".
   const [modelo, setModelo] = useState<string>('atestado')
@@ -274,29 +273,6 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
           <Passo n={2} texto="Revise o texto" />
           <span className={`etiqueta ${tom(modelo)}`}>{MODELOS_DOCUMENTO[fixo].titulo}</span>
         </div>
-        {modelo === 'receita' && medicamentos.length > 0 && (
-          <label className="block">
-            <span className="rotulo">Inserir medicamento</span>
-            <CampoSelect
-              value=""
-              onChange={(e) => {
-                const m = medicamentos[Number(e.target.value)]
-                if (!m) return
-                // Entra antes da data, como mais um item da lista.
-                const linha = m.posologia ? `${m.nome}\n   ${m.posologia}` : m.nome
-                const n = (texto.match(/^\d+\. /gm) ?? []).length
-                const vazio = /^\d+\. *$/m
-                setTexto(
-                  vazio.test(texto)
-                    ? texto.replace(vazio, `${n}. ${linha}`)
-                    : texto.replace(/\n\n\n/, `\n${n + 1}. ${linha}\n\n\n`),
-                )
-              }}
-              vazio="Escolha para inserir na receita…"
-              opcoes={medicamentos.map((m, i) => [i, m.nome] as const)}
-            />
-          </label>
-        )}
         <label className="block">
           <span className="rotulo">Texto do documento</span>
           <textarea

@@ -23,6 +23,16 @@ import { rotasPainel } from './painel'
 import { rotasImportacao } from './importacao'
 import { lerCorpo } from './dto'
 import { EntrarDto } from '../../shared/dtos'
+import type { Usuario } from './generated/prisma/client'
+
+// O login e o /eu devolvem o mesmo formato: a tela de entrar grava a resposta como o "eu".
+const dadosDoEu = ({ id, nome, login, perfis, preferencias }: Usuario) => ({
+  id,
+  nome,
+  login,
+  perfis,
+  preferencias: preferencias ?? {},
+})
 
 export function criarApp() {
   const app = express()
@@ -46,7 +56,7 @@ export function criarApp() {
       const usuario = await conferirSenha(b.login, b.senha)
       if (!usuario) return res.status(401).json({ erro: 'Usuário ou senha incorretos.' })
       abrirSessao(res, usuario.id)
-      res.json({ id: usuario.id, nome: usuario.nome, login: usuario.login, perfis: usuario.perfis })
+      res.json(dadosDoEu(usuario))
     },
   )
 
@@ -62,8 +72,7 @@ export function criarApp() {
   app.use('/api/integracao', avisarAoMudar('retornos'), rotasIntegracao) // n8n: entra por token, não por login
 
   app.get('/api/eu', exigirLogin, (_req, res) => {
-    const { id, nome, login, perfis, preferencias } = usuarioDe(res)
-    res.json({ id, nome, login, perfis, preferencias: preferencias ?? {} })
+    res.json(dadosDoEu(usuarioDe(res)))
   })
 
   // Tempo real: o navegador fica ouvindo; alterações com avisarAoMudar avisam todos (tempoReal.ts).

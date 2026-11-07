@@ -16,7 +16,7 @@ function proximaSegunda() {
 test('PT-20, PT-29, PT-31, PT-34 e PT-35: marcar, fazer check-in e excluir', async ({ page }) => {
   await page.goto('/')
   await page.getByLabel('Usuário').fill('recepcao1')
-  await page.getByLabel('Senha').fill(env.SEED_SENHA)
+  await page.getByLabel('Senha').fill(env.SEED_SENHA_ADMIN)
   await page.getByRole('button', { name: 'Entrar' }).click()
 
   // Abre no Início; a Agenda fica no menu com as outras abas.
@@ -105,7 +105,7 @@ test('vários agendamentos: profissionais, categorias e horários diferentes de 
 }) => {
   await page.goto('/')
   await page.getByLabel('Usuário').fill('recepcao1')
-  await page.getByLabel('Senha').fill(env.SEED_SENHA)
+  await page.getByLabel('Senha').fill(env.SEED_SENHA_ADMIN)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('navigation').getByRole('link', { name: 'Agenda', exact: true }).click()
   await page.getByRole('button', { name: 'Adicionar' }).click()

@@ -217,3 +217,24 @@ describe('PT-71 inativar exige motivo', () => {
     ).toBe(200)
   })
 })
+
+describe('ordem da lista de pacientes', () => {
+  it('padrão: acessados recentemente (por qualquer usuário) no topo; o resto em ordem alfabética', async () => {
+    const api = await entrarComo('RECEPCAO')
+    const ids: Record<string, number> = {}
+    for (const nome of ['Ana', 'Bruno', 'Carla', 'Davi'])
+      ids[nome] = (await api('POST', '/api/pacientes', { nome, nascimento: '1980-05-05' })).corpo.id
+    await api('GET', `/api/pacientes/${ids.Carla}`)
+    await api('GET', `/api/pacientes/${ids.Bruno}`)
+    // Acesso de outro usuário também conta: vale para todos.
+    await (await entrarComo('RECEPCAO'))('GET', `/api/pacientes/${ids.Davi}`)
+
+    const nomes = async (q: string) =>
+      (await api('GET', `/api/pacientes?${q}`)).corpo.itens.map((p: { nome: string }) => p.nome)
+    expect(await nomes('')).toEqual(['Davi', 'Bruno', 'Carla', 'Ana'])
+    expect(await nomes('porPagina=10&pagina=1&ordem=recentes')).toEqual(['Davi', 'Bruno', 'Carla', 'Ana'])
+    expect(await nomes('ordem=az')).toEqual(['Ana', 'Bruno', 'Carla', 'Davi'])
+    expect(await nomes('ordem=za')).toEqual(['Davi', 'Carla', 'Bruno', 'Ana'])
+    expect(await nomes('busca=a&ordem=recentes')).toEqual(['Davi', 'Carla', 'Ana'])
+  })
+})

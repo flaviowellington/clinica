@@ -65,16 +65,37 @@ rotasPacientes.get('/', exigir('paciente.ver'), async (req, res) => {
       OR: [{ nomeBusca: { contains: termo } }, { id: { in: porNumero } }],
     }),
   }
-  const [total, itens] = await Promise.all([
-    db.pessoa.count({ where }),
-    db.pessoa.findMany({
+  const ordem = String(req.query.ordem ?? 'recentes')
+  const skip = (pagina - 1) * porPagina
+  const total = await db.pessoa.count({ where })
+
+  if (ordem === 'az' || ordem === 'za') {
+    const itens = await db.pessoa.findMany({
       where,
-      orderBy: { nomeBusca: 'asc' },
-      skip: (pagina - 1) * porPagina,
+      orderBy: { nomeBusca: ordem === 'az' ? 'asc' : 'desc' },
+      skip,
       take: porPagina,
-    }),
-  ])
-  res.json({ total, porPagina, itens: itens.map(paraTela) })
+    })
+    return res.json({ total, porPagina, itens: itens.map(paraTela) })
+  }
+
+  // Padrão: fichas abertas por último (por qualquer usuário, pelo log de acesso) vêm primeiro; o resto em ordem alfabética.
+  const idsDaPagina = (
+    await db.$queryRaw<{ id: number }[]>`
+      SELECT p.id FROM "Pessoa" p
+      LEFT JOIN (
+        SELECT "pessoaId", max(em) AS ultimo FROM "LogAcesso"
+        GROUP BY "pessoaId"
+      ) l ON l."pessoaId" = p.id
+      WHERE p.tipo = 'PACIENTE' AND p."excluidoEm" IS NULL
+        AND (${termo} = '' OR p."nomeBusca" LIKE ${`%${termo}%`} OR p.id = ANY(${porNumero}::int[]))
+      ORDER BY l.ultimo DESC NULLS LAST, p."nomeBusca"
+      LIMIT ${porPagina} OFFSET ${skip}`
+  ).map((r) => r.id)
+  const porId = new Map(
+    (await db.pessoa.findMany({ where: { id: { in: idsDaPagina } } })).map((p) => [p.id, p]),
+  )
+  res.json({ total, porPagina, itens: idsDaPagina.map((id) => paraTela(porId.get(id)!)) })
 })
 
 rotasPacientes.post('/', exigir('paciente.editar'), async (req, res) => {

@@ -6,7 +6,7 @@ const env = dotenv.config({ path: 'server/.env', quiet: true }).parsed ?? {}
 test('Início, Profissionais, Financeiro, e Relatórios', async ({ page }) => {
   await page.goto('/')
   await page.getByLabel('Usuário').fill('admin')
-  await page.getByLabel('Senha').fill(env.SEED_SENHA)
+  await page.getByLabel('Senha').fill(env.SEED_SENHA_ADMIN)
   await page.getByRole('button', { name: 'Entrar' }).click()
 
   // Início com os cartões.

@@ -243,29 +243,6 @@ describe('configurações', () => {
     expect((await recepcao('PUT', url, [])).status).toBe(403)
   })
 
-  it('medicamento: mostra em que documentos e modelos ele aparece', async () => {
-    const admin = await entrarComo('ADMINISTRADOR')
-    const paciente = await pacienteCom(admin)
-    const url = `/api/pacientes/${paciente.id}/documentos`
-    await admin('POST', url, { modelo: 'receita', texto: '1. AMOXICILINA 500 mg\n   8/8 h' })
-    const excluido = await admin('POST', url, { modelo: 'receita', texto: 'Amoxicilina 500 mg' })
-    await admin('DELETE', `/api/prontuario/documentos/${excluido.corpo.id}`)
-    await admin('POST', url, { modelo: 'receita', texto: 'Dipirona 1 g' })
-    await admin('PUT', '/api/configuracoes/documentosPadrao', [
-      { nome: 'Pós-extração', texto: 'Tomar amoxicilina 500 mg.' },
-    ])
-    const r = await admin('GET', '/api/configuracoes/medicamentos/uso?nome=Amoxicilina%20500%20mg')
-    expect(r.status).toBe(200)
-    expect(r.corpo.total).toBe(1)
-    expect(r.corpo.documentos).toMatchObject([{ titulo: 'Receita', paciente: { id: paciente.id } }])
-    expect(r.corpo.modelos).toEqual(['Pós-extração'])
-    expect((await admin('GET', '/api/configuracoes/medicamentos/uso')).status).toBe(400)
-    const recepcao = await entrarComo('RECEPCAO')
-    expect(
-      (await recepcao('GET', '/api/configuracoes/medicamentos/uso?nome=Dipirona')).status,
-    ).toBe(403)
-  })
-
   it('tabela de procedimentos: cria, edita preço e inativa', async () => {
     const admin = await entrarComo('ADMINISTRADOR')
     const r = await admin('POST', '/api/procedimentos', {

@@ -54,34 +54,6 @@ rotasConfiguracoes.post('/email/teste', exigir('configuracao.editar'), async (re
   res.json({ mensagem: `E-mail de teste enviado para ${para}.` })
 })
 
-/** Onde um medicamento aparece: receitas e documentos dos pacientes, e os documentos padrão. */
-rotasConfiguracoes.get('/medicamentos/uso', exigir('configuracao.editar'), async (req, res) => {
-  const nome = typeof req.query.nome === 'string' ? req.query.nome.trim().slice(0, 120) : ''
-  if (!nome) return res.status(400).json({ erro: 'Informe o medicamento.' })
-  const onde = {
-    excluidoEm: null,
-    texto: { contains: nome, mode: 'insensitive' as const },
-  }
-  const [total, documentos, padroes] = await Promise.all([
-    db.documento.count({ where: onde }),
-    db.documento.findMany({
-      where: onde,
-      select: {
-        id: true,
-        titulo: true,
-        criadoEm: true,
-        paciente: { select: { id: true, nome: true } },
-      },
-      orderBy: { id: 'desc' },
-      take: 50,
-    }),
-    lerConfig('documentosPadrao'),
-  ])
-  const busca = normalizar(nome)
-  const modelos = padroes.filter((d) => normalizar(d.texto).includes(busca)).map((d) => d.nome)
-  res.json({ total, documentos, modelos })
-})
-
 // Todas as configurações podem ser lidas por quem está logado (recibo, documentos, anamnese).
 rotasConfiguracoes.get('/:chave', async (req, res) => {
   if (!ehChave(req.params.chave)) return res.status(404).json({ erro: 'Configuração não existe.' })

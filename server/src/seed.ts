@@ -22,8 +22,8 @@ import type {
 } from './generated/prisma/client'
 
 if (process.env.NODE_ENV === 'production') throw new Error('O seed não roda em produção.')
-const senha = process.env.SEED_SENHA
-if (!senha) throw new Error('Defina SEED_SENHA em server/.env')
+const senha = process.env.SEED_SENHA_ADMIN
+if (!senha) throw new Error('Defina SEED_SENHA_ADMIN em server/.env')
 const senhaHash = await gerarHash(senha)
 
 const data = (iso: string) => new Date(`${iso}T00:00:00Z`)
@@ -1166,21 +1166,6 @@ const configs: [string, object][] = [
       email: 'contato@example.com',
     },
   ],
-  [
-    'medicamentos',
-    [
-      { nome: 'Amoxicilina 500 mg', posologia: '1 cápsula de 8 em 8 horas por 7 dias' },
-      {
-        nome: 'Ibuprofeno 600 mg',
-        posologia: '1 comprimido de 8 em 8 horas por 3 dias, após as refeições',
-      },
-      { nome: 'Dipirona 500 mg', posologia: '1 comprimido de 6 em 6 horas, se houver dor' },
-      {
-        nome: 'Clorexidina 0,12%',
-        posologia: 'Bochechar 15 ml por 1 minuto, 2 vezes ao dia, por 7 dias',
-      },
-    ],
-  ],
 ]
 for (const [chave, valor] of configs)
   if (!(await db.configuracao.findUnique({ where: { chave } })))
@@ -1953,6 +1938,6 @@ if (!(await db.mensagem.count())) {
   console.log('Confirmações e e-mails fictícios criados.')
 }
 
-console.log('Usuários (todos com a senha SEED_SENHA do server/.env):')
+console.log('Usuários (todos com a senha SEED_SENHA_ADMIN do server/.env):')
 console.table(usuarios.map((u) => ({ login: u.login, perfis: u.perfis.join(' + ') })))
 await db.$disconnect()

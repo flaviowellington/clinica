@@ -7,7 +7,7 @@ test('orçamento, recebimento, extrato, DRE e alerta de retorno', async ({ page 
   page.on('dialog', (d) => d.accept()) // confirmações do navegador ("Aprovar este orçamento?")
   await page.goto('/')
   await page.getByLabel('Usuário').fill('admin')
-  await page.getByLabel('Senha').fill(env.SEED_SENHA)
+  await page.getByLabel('Senha').fill(env.SEED_SENHA_ADMIN)
   await page.getByRole('button', { name: 'Entrar' }).click()
   const menu = page.getByRole('navigation')
 
