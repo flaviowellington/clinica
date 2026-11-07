@@ -323,7 +323,9 @@ rotasAutorizacoes.post('/:id/cancelar', exigir('prontuario.editar'), async (req,
   const a = await acharAutorizacao(req)
   if (!a) return res.status(404).json({ erro: 'Pedido não encontrado.' })
   if (a.assinadoEm)
-    return res.status(409).json({ erro: 'O paciente já assinou: a autorização não pode ser cancelada.' })
+    return res
+      .status(409)
+      .json({ erro: 'O paciente já assinou: a autorização não pode ser cancelada.' })
   await db.$transaction([
     db.autorizacao.update({ where: { id: a.id }, data: { canceladoEm: new Date() } }),
     ...soltar(a.id),

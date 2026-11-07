@@ -105,8 +105,14 @@ export function escreverPdf(
     doc.moveDown(0.5).font('Negrito').fontSize(11).text('Etapas e datas previstas')
     doc.moveDown(0.3)
     a.conteudo.etapas.forEach((e, k) => {
-      doc.font('Negrito').fontSize(10).text(`${k + 1}. ${e.nome}`, { continued: true })
-      doc.font('Normal').fillColor(cinza).text(e.data ? `  ·  ${dataIso(e.data)}` : '  ·  a definir')
+      doc
+        .font('Negrito')
+        .fontSize(10)
+        .text(`${k + 1}. ${e.nome}`, { continued: true })
+      doc
+        .font('Normal')
+        .fillColor(cinza)
+        .text(e.data ? `  ·  ${dataIso(e.data)}` : '  ·  a definir')
       doc.fillColor('black')
       if (e.comentario) doc.font('Italico').fontSize(9).text(e.comentario)
       doc.moveDown(0.3)

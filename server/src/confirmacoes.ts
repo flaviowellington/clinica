@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { Router, type Request } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
+import { pode } from '../../shared/permissoes'
 import { enviar, ErroEnvio } from './mensagens'
 import { lerConfig } from './configuracoes'
 import { preencherModelo } from '../../shared/prontuario'
@@ -61,8 +62,17 @@ export const rotasConfirmacoes = Router()
 
 rotasConfirmacoes.get('/', exigir('agenda.ver'), async (req, res) => {
   if (!dataIso(req.query.data)) return res.status(400).json({ erro: 'Data inválida.' })
+  const u = usuarioDe(res)
+  // Profissional sem outro perfil vê só as consultas dele (sem profissional ligado, nenhuma).
+  const soDele = pode(u.perfis, 'confirmacoes.todas') ? {} : { profissionalId: u.pessoaId ?? -1 }
   const lista = await db.agendamento.findMany({
-    where: { tipo: 'CONSULTA', excluidoEm: null, desmarcadoEm: null, data: dia(req.query.data) },
+    where: {
+      tipo: 'CONSULTA',
+      excluidoEm: null,
+      desmarcadoEm: null,
+      data: dia(req.query.data),
+      ...soDele,
+    },
     include: incluir,
     orderBy: [{ inicio: 'asc' }, { id: 'asc' }],
   })

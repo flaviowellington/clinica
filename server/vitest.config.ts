@@ -7,6 +7,7 @@ export default defineConfig({
   test: {
     globalSetup: './test/preparar-banco.ts',
     fileParallelism: false,
+    testTimeout: 20_000, // cada login gera hash de senha (bcrypt), que é lento de propósito
     env: { DATABASE_URL: process.env.DATABASE_URL_TESTE },
   },
 })

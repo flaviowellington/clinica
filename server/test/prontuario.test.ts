@@ -99,12 +99,12 @@ describe('anamnese (R-058, R-059, R-074, R-075)', () => {
     ])
   })
 
-  it('Recepção vê a anamnese mas não edita; Financeiro não vê', async () => {
+  it('Recepção e Financeiro não veem a anamnese', async () => {
     const prof = await entrarComo('PROFISSIONAL')
     const { paciente } = await base(prof)
     const url = `/api/pacientes/${paciente.id}/anamneses`
     const recepcao = await entrarComo('RECEPCAO')
-    expect((await recepcao('GET', url)).status).toBe(200)
+    expect((await recepcao('GET', url)).status).toBe(403)
     expect(
       (await recepcao('POST', url, { respondente: 'PACIENTE', perguntas: respondida() })).status,
     ).toBe(403)
@@ -525,12 +525,12 @@ describe('fotos e exames (R-076, R-077)', () => {
     expect(await db.arquivo.count()).toBe(1)
   })
 
-  it('Recepção vê fotos mas não exames nem envia', async () => {
+  it('Recepção não vê fotos nem exames, nem envia', async () => {
     const prof = await entrarComo('PROFISSIONAL')
     const { paciente } = await base(prof)
     const recepcao = await entrarComo('RECEPCAO')
     const url = `/api/pacientes/${paciente.id}/arquivos`
-    expect((await recepcao('GET', `${url}?categoria=FOTO`)).status).toBe(200)
+    expect((await recepcao('GET', `${url}?categoria=FOTO`)).status).toBe(403)
     expect((await recepcao('GET', `${url}?categoria=EXAME`)).status).toBe(403)
     expect(
       (await recepcao('POST', `${url}?categoria=FOTO&nome=a.png`, PNG, 'image/png')).status,
@@ -569,6 +569,26 @@ describe('PT-62 documentos de modelo', () => {
     await api('DELETE', `/api/prontuario/documentos/${r.corpo.id}`)
     expect((await api('GET', url)).corpo).toHaveLength(0)
     expect(await db.documento.count()).toBe(1)
+  })
+})
+
+describe('documento padrão da clínica', () => {
+  it('vai para o prontuário com o nome do modelo; sem nome é recusado', async () => {
+    const api = await entrarComo('PROFISSIONAL')
+    const { dentista, paciente } = await base(api)
+    const url = `/api/pacientes/${paciente.id}/documentos`
+    const r = await api('POST', url, {
+      modelo: 'padrao',
+      titulo: 'Orientações pós-extração',
+      profissionalId: dentista.id,
+      texto: 'Fulano de Teste: não cuspir nas primeiras 24 horas.',
+    })
+    expect(r.status).toBe(201)
+    expect(r.corpo).toMatchObject({ modelo: 'padrao', titulo: 'Orientações pós-extração' })
+    expect((await api('POST', url, { modelo: 'padrao', texto: 'x' })).status).toBe(400)
+    // Nos modelos fixos o título continua sendo o do modelo.
+    const a = await api('POST', url, { modelo: 'atestado', titulo: 'Outro', texto: 'Atesto.' })
+    expect(a.corpo.titulo).toBe('Atestado')
   })
 })
 

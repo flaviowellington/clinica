@@ -176,16 +176,15 @@ describe('PT-85 mover consulta', () => {
 })
 
 describe('permissões da agenda', () => {
-  it('Financeiro só visualiza', async () => {
+  it('Financeiro mexe na agenda como a recepção', async () => {
     const recepcao = await entrarComo('RECEPCAO')
     const { marcar } = await preparar(recepcao)
     const { corpo: c } = await marcar()
     const fin = await entrarComo('FINANCEIRO')
     expect((await fin('GET', `/api/agenda?de=${SEGUNDA}&ate=${SEGUNDA}`)).corpo).toHaveLength(1)
-    expect((await fin('DELETE', `/api/agenda/${c.id}`)).status).toBe(403)
     expect(
       (await fin('PATCH', `/api/agenda/${c.id}/status`, { status: 'CONFIRMADO' })).status,
-    ).toBe(403)
+    ).toBe(200)
   })
 })
 
@@ -193,14 +192,29 @@ describe('tempo real', () => {
   it('quem está ouvindo recebe o aviso quando outro marca uma consulta', async () => {
     const api = await entrarComo('RECEPCAO')
     expect((await fetch(urlBase() + '/api/eventos')).status).toBe(401) // só logado
+    const { marcar } = await preparar(api) // antes de ouvir: criar o paciente também avisa
     const ouvindo = await fetch(urlBase() + '/api/eventos', { headers: { cookie: api.cookie } })
     const leitor = ouvindo.body!.getReader()
     await leitor.read() // "retry" inicial: a conexão está aberta
 
-    const { marcar } = await preparar(api)
     expect((await marcar()).status).toBe(201)
     const { value } = await leitor.read()
     expect(new TextDecoder().decode(value)).toContain('"assunto":"agenda"')
+    await leitor.cancel()
+  })
+  it('avisa também quando muda paciente e configurações; leitura não avisa', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const ouvindo = await fetch(urlBase() + '/api/eventos', { headers: { cookie: api.cookie } })
+    const leitor = ouvindo.body!.getReader()
+    await leitor.read()
+    const proximo = async () => new TextDecoder().decode((await leitor.read()).value)
+
+    await api('GET', '/api/pacientes')
+    expect((await api('POST', '/api/pacientes', PACIENTE)).status).toBe(201)
+    expect(await proximo()).toContain('"assunto":"pacientes"') // o GET antes não gerou aviso
+    const cats = (await api('GET', '/api/configuracoes/categorias')).corpo
+    expect((await api('PUT', '/api/configuracoes/categorias', cats)).status).toBe(200)
+    expect(await proximo()).toContain('"assunto":"config"')
     await leitor.cancel()
   })
 })

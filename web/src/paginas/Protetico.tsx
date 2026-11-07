@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import {
   api,
+  consultaConfig,
   consultaEu,
   consultaProfissionais,
   dataBR,
@@ -201,6 +202,7 @@ export function Protetico() {
   const [arrastando, setArrastando] = useState<number | null>(null)
   const [alvo, setAlvo] = useState<Etapa | null>(null)
   const podeEditar = pode(eu.perfis, 'protetico.editar')
+  const podeCriar = pode(eu.perfis, 'protetico.criar')
   const hoje = isoLocal(new Date())
 
   const mover = useMutation({
@@ -231,7 +233,7 @@ export function Protetico() {
             Trabalhos de laboratório, do envio à instalação. Arraste o cartão ou use as setas.
           </p>
         </div>
-        {podeEditar && (
+        {podeCriar && (
           <button className="botao" onClick={() => setAberto('novo')}>
             <Icone nome="mais" className="size-4" /> Novo trabalho
           </button>
@@ -374,6 +376,7 @@ export function Protetico() {
           <FormTrabalho
             trabalho={aberto === 'novo' ? undefined : aberto}
             podeEditar={podeEditar}
+            podeCriar={podeCriar}
             aoTerminar={() => setAberto(null)}
           />
         )}
@@ -382,32 +385,53 @@ export function Protetico() {
   )
 }
 
-function FormTrabalho(props: { trabalho?: Trabalho; podeEditar: boolean; aoTerminar: () => void }) {
+function FormTrabalho(props: {
+  trabalho?: Trabalho
+  podeEditar: boolean
+  podeCriar: boolean
+  aoTerminar: () => void
+}) {
   const qc = useQueryClient()
   const t = props.trabalho
+  // Quem não cria trabalho mexe no andamento, mas não no que o define (o servidor também trava).
+  const travado = !!t && !props.podeCriar
   const { data: prof } = useQuery(consultaProfissionais)
   const [paciente, setPaciente] = useState<Pick<Paciente, 'id' | 'nome'> | null>(
     t?.paciente ?? null,
   )
   const [laboratorio, setLaboratorio] = useState(t?.laboratorio ?? '')
   const [trabalho, setTrabalho] = useState(t?.trabalho ?? '')
-  // Sugestões saem dos trabalhos já cadastrados (a lista do quadro).
+  // Sugestões: o cadastro de laboratórios (Configurações) primeiro, depois o histórico do quadro.
+  const cadastro = useQuery(consultaConfig('laboratorios')).data ?? []
+  const doCadastro = (lab: string) => cadastro.find((l) => normalizar(l.nome) === normalizar(lab))
+  const tabela = doCadastro(laboratorio)?.trabalhos ?? []
   const todos = useQuery(consultaProtetico).data ?? []
   const doLaboratorio = todos.filter(
     (x) => !laboratorio || normalizar(x.laboratorio) === normalizar(laboratorio),
   )
-  // Contato do laboratório: o mais recente informado em algum trabalho dele.
+  // Contato: o do cadastro; sem ele, o mais recente informado em algum trabalho do laboratório.
   const contatoDe = (lab: string) =>
-    todos
+    doCadastro(lab)?.contato ||
+    (todos
       .filter((x) => x.laboratorioContato && normalizar(x.laboratorio) === normalizar(lab))
-      .sort((a, b) => b.id - a.id)[0]?.laboratorioContato ?? ''
+      .sort((a, b) => b.id - a.id)[0]?.laboratorioContato ??
+      '')
   const [contato, setContato] = useState(t?.laboratorioContato ?? '')
-  const laboratorios = contar(
+  const historico = contar(
     todos.map((x) => x.laboratorio),
     'trabalho',
   )
-  // Valor padrão de um trabalho: o do cadastro mais recente com esse nome no laboratório.
+  const laboratorios = [
+    ...cadastro.map((l) => ({
+      nome: l.nome,
+      detalhe:
+        historico.find((h) => normalizar(h.nome) === normalizar(l.nome))?.detalhe ?? 'Cadastrado',
+    })),
+    ...historico.filter((h) => !doCadastro(h.nome)),
+  ]
+  // Valor padrão de um trabalho: o da tabela do laboratório; sem ele, o do mais recente com esse nome.
   const valorPadrao = (nome: string) =>
+    tabela.find((x) => normalizar(x.nome) === normalizar(nome))?.valorCentavos ??
     doLaboratorio
       .filter((x) => x.id !== t?.id && normalizar(x.trabalho) === normalizar(nome))
       .sort((a, b) => b.id - a.id)[0]?.valorCentavos
@@ -489,11 +513,13 @@ function FormTrabalho(props: { trabalho?: Trabalho; podeEditar: boolean; aoTermi
                 </Link>
               )}
             </span>
-            <BuscaPaciente
-              valor={paciente as Paciente | null}
-              aoEscolher={setPaciente}
-              autoFocus={!t}
-            />
+            <fieldset disabled={travado} className="contents">
+              <BuscaPaciente
+                valor={paciente as Paciente | null}
+                aoEscolher={setPaciente}
+                autoFocus={!t}
+              />
+            </fieldset>
             {erro('pacienteId')}
           </div>
           <label>
@@ -509,24 +535,26 @@ function FormTrabalho(props: { trabalho?: Trabalho; podeEditar: boolean; aoTermi
             <span id="rotulo-laboratorio" className="rotulo">
               Laboratório *
             </span>
-            <Escolha
-              rotulo="rotulo-laboratorio"
-              valor={laboratorio}
-              aoMudar={(v) => {
-                setLaboratorio(v)
-                setContato(v ? contatoDe(v) : '')
-              }}
-              opcoes={laboratorios.map((o) => ({
-                ...o,
-                detalhe: `${o.detalhe} · ${contatoDe(o.nome) || 'Sem contato'}`,
-              }))}
-              detalheEscolhido={`${
-                laboratorios.find((o) => normalizar(o.nome) === normalizar(laboratorio))?.detalhe ??
-                'Novo'
-              } · ${contato || 'Sem contato'}`}
-              placeholder="Buscar laboratório"
-              textoNovo="Novo laboratório"
-            />
+            <fieldset disabled={travado} className="contents">
+              <Escolha
+                rotulo="rotulo-laboratorio"
+                valor={laboratorio}
+                aoMudar={(v) => {
+                  setLaboratorio(v)
+                  setContato(v ? contatoDe(v) : '')
+                }}
+                opcoes={laboratorios.map((o) => ({
+                  ...o,
+                  detalhe: `${o.detalhe} · ${contatoDe(o.nome) || 'Sem contato'}`,
+                }))}
+                detalheEscolhido={`${
+                  laboratorios.find((o) => normalizar(o.nome) === normalizar(laboratorio))
+                    ?.detalhe ?? 'Novo'
+                } · ${contato || 'Sem contato'}`}
+                placeholder="Buscar laboratório"
+                textoNovo="Novo laboratório"
+              />
+            </fieldset>
             {erro('laboratorio')}
             {laboratorio && (
               <input
@@ -543,35 +571,43 @@ function FormTrabalho(props: { trabalho?: Trabalho; podeEditar: boolean; aoTermi
             <span id="rotulo-trabalho" className="rotulo">
               Trabalho *
             </span>
-            <Escolha
-              rotulo="rotulo-trabalho"
-              valor={trabalho}
-              aoMudar={(v) => {
-                setTrabalho(v)
-                const p = v && valorPadrao(v)
-                if (p !== '' && p !== undefined) setValor(p)
-              }}
-              // Só os trabalhos já feitos pelo laboratório escolhido (mais usados primeiro), com o último valor.
-              opcoes={contar(
-                doLaboratorio.map((x) => x.trabalho),
-                '',
-              ).map((o) => ({
-                nome: o.nome,
-                detalhe: reais(
-                  doLaboratorio
-                    .filter((x) => normalizar(x.trabalho) === normalizar(o.nome))
-                    .sort((a, b) => b.id - a.id)[0].valorCentavos,
-                ),
-              }))}
-              placeholder="Ex.: coroa em porcelana"
-              textoNovo="Novo trabalho"
-            />
+            <fieldset disabled={travado} className="contents">
+              <Escolha
+                rotulo="rotulo-trabalho"
+                valor={trabalho}
+                aoMudar={(v) => {
+                  setTrabalho(v)
+                  const p = v && valorPadrao(v)
+                  if (p !== '' && p !== undefined) setValor(p)
+                }}
+                // A tabela do laboratório primeiro; depois os já feitos por ele (mais usados primeiro), com o último valor.
+                opcoes={[
+                  ...tabela.map((x) => ({ nome: x.nome, detalhe: reais(x.valorCentavos) })),
+                  ...contar(
+                    doLaboratorio.map((x) => x.trabalho),
+                    '',
+                  )
+                    .filter((o) => !tabela.some((x) => normalizar(x.nome) === normalizar(o.nome)))
+                    .map((o) => ({
+                      nome: o.nome,
+                      detalhe: reais(
+                        doLaboratorio
+                          .filter((x) => normalizar(x.trabalho) === normalizar(o.nome))
+                          .sort((a, b) => b.id - a.id)[0].valorCentavos,
+                      ),
+                    })),
+                ]}
+                placeholder="Ex.: coroa em porcelana"
+                textoNovo="Novo trabalho"
+              />
+            </fieldset>
             {erro('trabalho')}
           </div>
           <label>
             <span className="rotulo">Dentes</span>
             <input
               name="dentes"
+              readOnly={travado}
               className="campo"
               defaultValue={t?.dentes ?? ''}
               placeholder="Ex.: 11, 21"
@@ -579,7 +615,13 @@ function FormTrabalho(props: { trabalho?: Trabalho; podeEditar: boolean; aoTermi
           </label>
           <label>
             <span className="rotulo">Cor</span>
-            <input name="cor" className="campo" defaultValue={t?.cor ?? ''} placeholder="Ex.: A2" />
+            <input
+              name="cor"
+              readOnly={travado}
+              className="campo"
+              defaultValue={t?.cor ?? ''}
+              placeholder="Ex.: A2"
+            />
           </label>
           <CampoReais
             id="protetico-valor"
@@ -618,7 +660,7 @@ function FormTrabalho(props: { trabalho?: Trabalho; podeEditar: boolean; aoTermi
       </fieldset>
       {props.podeEditar && (
         <div className="flex justify-between gap-2">
-          {t ? (
+          {t && props.podeCriar ? (
             <button
               type="button"
               className="botao-leve text-perigo"

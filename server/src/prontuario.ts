@@ -514,11 +514,12 @@ rotasFichaPaciente.post('/:id/documentos', exigir('prontuario.editar'), async (r
     return res
       .status(400)
       .json({ erro: ERRO_CAMPOS, erros: { profissionalId: 'Profissional não encontrado.' } })
+  const { titulo, ...resto } = b
   const d = await db.documento.create({
     data: {
-      ...b,
+      ...resto,
       pacienteId: pacienteDe(res),
-      titulo: MODELOS_DOCUMENTO[b.modelo].titulo,
+      titulo: b.modelo === 'padrao' ? titulo! : MODELOS_DOCUMENTO[b.modelo].titulo,
       criadoPorId: usuarioDe(res).id,
     },
     include: comPessoasDoc,

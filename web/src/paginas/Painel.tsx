@@ -228,14 +228,14 @@ export function Painel() {
   const blocos = d && graficos ? montarBlocos(d, graficos) : null
 
   return (
-    <div className="mx-auto flex max-w-[1320px] flex-col gap-4">
-      <header className="flex flex-wrap items-center gap-3.5">
+    <div className="mx-auto flex max-w-[1320px] flex-col gap-4 lg:h-[calc(100dvh-2rem)]">
+      <header className="flex shrink-0 flex-wrap items-center gap-3.5">
         <h1 className="titulo">Painel</h1>
         <span aria-hidden="true" className="h-6 w-px bg-borda" />
         <span className="text-base text-suave">Indicadores de gestão da clínica</span>
       </header>
 
-      <div className="cartao flex flex-wrap items-center gap-x-4 gap-y-2 py-2">
+      <div className="cartao flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 py-2">
         <PeriodoSuspenso p={p} />
         {ant && (
           <span className="text-xs text-suave">
@@ -244,160 +244,171 @@ export function Painel() {
         )}
       </div>
 
-      {r.isError && <p className="alerta-perigo">{mensagemDeErro(r.error)}</p>}
-      {r.isPending && <p className="cartao py-16 text-center text-suave">Carregando…</p>}
+      <div className="relative min-h-0 flex-1 space-y-4 lg:-mr-2 lg:overflow-y-auto lg:pr-2">
+        {r.isError && <p className="alerta-perigo">{mensagemDeErro(r.error)}</p>}
+        {r.isPending && <p className="cartao py-16 text-center text-suave">Carregando…</p>}
 
-      {d && graficos && (
-        <div className={`flex flex-col gap-4 ${r.isFetching ? 'opacity-60' : ''}`}>
-          {/* ---------- Cartões principais ---------- */}
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Cartao
-              rotulo="Recebido"
-              valor={reais(d.financeiro.recebido)}
-              variacao={
-                a && <Variacao atual={d.financeiro.recebido} antes={a.financeiro.recebido} />
-              }
-              nota={`${d.financeiro.recibos} recebimento(s)`}
-              tendencia={d.financeiro.tendencia.map((x) => x.recebido)}
-              cor="var(--serie-3)"
-            />
-            <Cartao
-              rotulo="Resultado do caixa"
-              valor={reais(d.financeiro.resultado)}
-              tom={d.financeiro.resultado < 0 ? 'perigo' : undefined}
-              variacao={
-                a && <Variacao atual={d.financeiro.resultado} antes={a.financeiro.resultado} />
-              }
-              nota={`Recebido − despesas (${reais(d.financeiro.despesas)})`}
-              tendencia={d.financeiro.tendencia.map((x) => x.recebido - x.despesas)}
-              cor="var(--serie-7)"
-            />
-            <Cartao
-              rotulo="Vendido"
-              valor={reais(d.orcamentos.valorAprovado)}
-              variacao={
-                a && (
-                  <Variacao atual={d.orcamentos.valorAprovado} antes={a.orcamentos.valorAprovado} />
-                )
-              }
-              nota={`Ticket médio ${reais(d.orcamentos.ticketMedio)} · ${d.orcamentos.aprovados} orçamento(s)`}
-              tendencia={d.financeiro.tendencia.map((x) => x.vendido)}
-              cor="var(--serie-1)"
-            />
-            <Cartao
-              rotulo="Inadimplência hoje"
-              valor={reais(d.inadimplencia.valor)}
-              tom={d.inadimplencia.valor ? 'perigo' : 'sucesso'}
-              nota={`${d.inadimplencia.parcelas} parcela(s) de ${d.inadimplencia.pacientes} paciente(s)`}
-            />
-            <Medidor
-              rotulo="Conversão de orçamentos"
-              v={d.orcamentos.conversao}
-              variacao={
-                a && (
-                  <Variacao atual={d.orcamentos.conversao} antes={a.orcamentos.conversao} pontos />
-                )
-              }
-              nota={`${d.orcamentos.aprovados} aprovados de ${d.orcamentos.criados} criados`}
-              meta={0.7}
-            />
-            <Medidor
-              rotulo="Comparecimento"
-              v={d.consultas.comparecimento}
-              variacao={
-                a && (
-                  <Variacao
-                    atual={d.consultas.comparecimento}
-                    antes={a.consultas.comparecimento}
-                    pontos
-                  />
-                )
-              }
-              nota={`${d.consultas.faltas} falta(s) · ${d.consultas.desmarcadas} desmarcação(ões)`}
-              meta={0.9}
-            />
-            <Medidor
-              rotulo="Ocupação da agenda"
-              v={d.consultas.ocupacao}
-              variacao={
-                a && <Variacao atual={d.consultas.ocupacao} antes={a.consultas.ocupacao} pontos />
-              }
-              nota={`${d.consultas.total} consulta(s) nos dias atendidos`}
-              meta={0.8}
-            />
-            <Medidor
-              rotulo="Margem bruta das vendas"
-              v={d.orcamentos.margem}
-              variacao={
-                a && <Variacao atual={d.orcamentos.margem} antes={a.orcamentos.margem} pontos />
-              }
-              nota={`Custo ${reais(d.orcamentos.custoAprovado)}`}
-            />
-          </div>
+        {d && graficos && (
+          <div className={`flex flex-col gap-4 ${r.isFetching ? 'opacity-60' : ''}`}>
+            {/* ---------- Cartões principais ---------- */}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <Cartao
+                rotulo="Recebido"
+                valor={reais(d.financeiro.recebido)}
+                variacao={
+                  a && <Variacao atual={d.financeiro.recebido} antes={a.financeiro.recebido} />
+                }
+                nota={`${d.financeiro.recibos} recebimento(s)`}
+                tendencia={d.financeiro.tendencia.map((x) => x.recebido)}
+                cor="var(--serie-3)"
+              />
+              <Cartao
+                rotulo="Resultado do caixa"
+                valor={reais(d.financeiro.resultado)}
+                tom={d.financeiro.resultado < 0 ? 'perigo' : undefined}
+                variacao={
+                  a && <Variacao atual={d.financeiro.resultado} antes={a.financeiro.resultado} />
+                }
+                nota={`Recebido − despesas (${reais(d.financeiro.despesas)})`}
+                tendencia={d.financeiro.tendencia.map((x) => x.recebido - x.despesas)}
+                cor="var(--serie-7)"
+              />
+              <Cartao
+                rotulo="Vendido"
+                valor={reais(d.orcamentos.valorAprovado)}
+                variacao={
+                  a && (
+                    <Variacao
+                      atual={d.orcamentos.valorAprovado}
+                      antes={a.orcamentos.valorAprovado}
+                    />
+                  )
+                }
+                nota={`Ticket médio ${reais(d.orcamentos.ticketMedio)} · ${d.orcamentos.aprovados} orçamento(s)`}
+                tendencia={d.financeiro.tendencia.map((x) => x.vendido)}
+                cor="var(--serie-1)"
+              />
+              <Cartao
+                rotulo="Inadimplência hoje"
+                valor={reais(d.inadimplencia.valor)}
+                tom={d.inadimplencia.valor ? 'perigo' : 'sucesso'}
+                nota={`${d.inadimplencia.parcelas} parcela(s) de ${d.inadimplencia.pacientes} paciente(s)`}
+              />
+              <Medidor
+                rotulo="Conversão de orçamentos"
+                v={d.orcamentos.conversao}
+                variacao={
+                  a && (
+                    <Variacao
+                      atual={d.orcamentos.conversao}
+                      antes={a.orcamentos.conversao}
+                      pontos
+                    />
+                  )
+                }
+                nota={`${d.orcamentos.aprovados} aprovados de ${d.orcamentos.criados} criados`}
+                meta={0.7}
+              />
+              <Medidor
+                rotulo="Comparecimento"
+                v={d.consultas.comparecimento}
+                variacao={
+                  a && (
+                    <Variacao
+                      atual={d.consultas.comparecimento}
+                      antes={a.consultas.comparecimento}
+                      pontos
+                    />
+                  )
+                }
+                nota={`${d.consultas.faltas} falta(s) · ${d.consultas.desmarcadas} desmarcação(ões)`}
+                meta={0.9}
+              />
+              <Medidor
+                rotulo="Ocupação da agenda"
+                v={d.consultas.ocupacao}
+                variacao={
+                  a && <Variacao atual={d.consultas.ocupacao} antes={a.consultas.ocupacao} pontos />
+                }
+                nota={`${d.consultas.total} consulta(s) nos dias atendidos`}
+                meta={0.8}
+              />
+              <Medidor
+                rotulo="Margem bruta das vendas"
+                v={d.orcamentos.margem}
+                variacao={
+                  a && <Variacao atual={d.orcamentos.margem} antes={a.orcamentos.margem} pontos />
+                }
+                nota={`Custo ${reais(d.orcamentos.custoAprovado)}`}
+              />
+            </div>
 
-          {/* ---------- Cartões menores ---------- */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Mini
-              rotulo="Pacientes novos"
-              valor={d.pacientes.novos}
-              variacao={a && <Variacao atual={d.pacientesNovos} antes={a.pacientesNovos} />}
-            />
-            <Mini
-              rotulo="Pacientes atendidos"
-              valor={d.pacientes.atendidos}
-              variacao={a && <Variacao atual={d.atendidos} antes={a.atendidos} />}
-            />
-            <Mini
-              rotulo="Recebido por paciente"
-              valor={reais(Math.round(d.financeiro.porPaciente))}
-              variacao={
-                a && <Variacao atual={d.financeiro.porPaciente} antes={a.financeiro.porPaciente} />
-              }
-            />
-            <Mini
-              rotulo="Retornos atrasados"
-              valor={d.retornosVencidos}
-              tom={d.retornosVencidos ? 'aviso' : undefined}
-              nota="pacientes a chamar de volta"
-            />
-          </div>
+            {/* ---------- Cartões menores ---------- */}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Mini
+                rotulo="Pacientes novos"
+                valor={d.pacientes.novos}
+                variacao={a && <Variacao atual={d.pacientesNovos} antes={a.pacientesNovos} />}
+              />
+              <Mini
+                rotulo="Pacientes atendidos"
+                valor={d.pacientes.atendidos}
+                variacao={a && <Variacao atual={d.atendidos} antes={a.atendidos} />}
+              />
+              <Mini
+                rotulo="Recebido por paciente"
+                valor={reais(Math.round(d.financeiro.porPaciente))}
+                variacao={
+                  a && (
+                    <Variacao atual={d.financeiro.porPaciente} antes={a.financeiro.porPaciente} />
+                  )
+                }
+              />
+              <Mini
+                rotulo="Retornos atrasados"
+                valor={d.retornosVencidos}
+                tom={d.retornosVencidos ? 'aviso' : undefined}
+                nota="pacientes a chamar de volta"
+              />
+            </div>
 
-          {/* ---------- Gráficos (arrastáveis; a ordem fica salva neste navegador) ---------- */}
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs text-suave">
-              Arraste pelo <Icone nome="arrastar" className="inline h-3.5 w-3.5" /> para mudar a
-              ordem dos gráficos.
-            </p>
-            {ordem.join() !== ORDEM_PADRAO.join() && (
-              <button
-                className="botao-leve botao-pequeno"
-                onClick={() => salvarOrdem([...ORDEM_PADRAO])}
-              >
-                Restaurar ordem
-              </button>
-            )}
-          </div>
-          <div className="grid gap-4 xl:grid-cols-2">
-            {ordem.map((id, i) => {
-              const b = blocos![id]
-              return (
-                <Secao
-                  key={id}
-                  titulo={b.titulo}
-                  dica={b.dica}
-                  largo={b.largo}
-                  arrastando={arrastando === id}
-                  aoArrastar={(ativo) => setArrastando(ativo ? id : null)}
-                  aoPassar={() => arrastando && arrastando !== id && mover(arrastando, i)}
-                  aoMover={(passo) => mover(id, i + passo)}
+            {/* ---------- Gráficos (arrastáveis; a ordem fica salva neste navegador) ---------- */}
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-suave">
+                Arraste pelo <Icone nome="arrastar" className="inline h-3.5 w-3.5" /> para mudar a
+                ordem dos gráficos.
+              </p>
+              {ordem.join() !== ORDEM_PADRAO.join() && (
+                <button
+                  className="botao-leve botao-pequeno"
+                  onClick={() => salvarOrdem([...ORDEM_PADRAO])}
                 >
-                  {b.corpo}
-                </Secao>
-              )
-            })}
+                  Restaurar ordem
+                </button>
+              )}
+            </div>
+            <div className="grid gap-4 xl:grid-cols-2">
+              {ordem.map((id, i) => {
+                const b = blocos![id]
+                return (
+                  <Secao
+                    key={id}
+                    titulo={b.titulo}
+                    dica={b.dica}
+                    largo={b.largo}
+                    arrastando={arrastando === id}
+                    aoArrastar={(ativo) => setArrastando(ativo ? id : null)}
+                    aoPassar={() => arrastando && arrastando !== id && mover(arrastando, i)}
+                    aoMover={(passo) => mover(id, i + passo)}
+                  >
+                    {b.corpo}
+                  </Secao>
+                )
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

@@ -47,6 +47,7 @@ const TOM: Record<string, string> = {
   atestado: 'bg-aviso/15 text-aviso',
   comparecimento: 'bg-primaria-clara text-primaria',
   receita: 'bg-sucesso/15 text-sucesso',
+  padrao: 'bg-secundaria-clara text-titulo',
 }
 const tom = (modelo: string) => TOM[modelo] ?? 'bg-superficie-2 text-suave'
 
@@ -186,33 +187,44 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
   const modelos = useQuery(consultaConfig('documentos')).data
   const clinica = useQuery(consultaConfig('clinica')).data
   const medicamentos = useQuery(consultaConfig('medicamentos')).data ?? []
-  const [modelo, setModelo] = useState<ModeloDocumento>('atestado')
+  const padroes = useQuery(consultaConfig('documentosPadrao')).data ?? []
+  // Modelo fixo (atestado…) ou documento padrão da clínica, como "p:<posição>".
+  const [modelo, setModelo] = useState<string>('atestado')
+  const padrao = modelo.startsWith('p:') ? padroes[Number(modelo.slice(2))] : undefined
+  const fixo = (padrao ? 'atestado' : modelo) as ModeloDocumento
+  const variaveis = padrao
+    ? (['horario', 'dias'] as const).filter((v) => padrao.texto.includes(`{${v}}`))
+    : MODELOS_DOCUMENTO[fixo].variaveis
   const [escolhido, setEscolhido] = useState<number | '' | null>(null)
   const profissionalId = escolhido ?? meuId
   const [valores, setValores] = useState<Record<string, string>>({})
   const [inicial, setInicial] = useState<string | null>(null)
   const [texto, setTexto] = useState('')
+  const [salvo, setSalvo] = useState<Documento | null>(null)
 
   const salvar = useMutation({
-    mutationFn: async () =>
+    mutationFn: async (texto: string) =>
       (
-        await api.post(`/pacientes/${props.paciente.id}/documentos`, {
-          modelo,
+        await api.post<Documento>(`/pacientes/${props.paciente.id}/documentos`, {
+          modelo: padrao ? 'padrao' : modelo,
+          titulo: padrao?.nome,
           profissionalId: profissionalId || null,
           texto,
         })
       ).data,
-    onSuccess: () => {
-      avisar('Documento salvo')
+    onSuccess: (d) => {
+      avisar('Documento salvo no prontuário')
       qc.invalidateQueries({ queryKey: ['documentos', props.paciente.id] })
-      props.aoTerminar()
+      // Documento padrão não passa pelo editor: fica a opção de imprimir.
+      if (padrao) setSalvo(d)
+      else props.aoTerminar()
     },
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
 
-  function abrirEditor() {
+  function preencher(base: string) {
     const prof = profissionais.data?.find((p) => p.id === profissionalId)
-    const pronto = preencherModelo(modelos?.[modelo] ?? MODELOS_DOCUMENTO[modelo].texto, {
+    return preencherModelo(base, {
       clinica: clinica?.nome,
       cidade: clinica?.cidade,
       paciente: props.paciente.nome,
@@ -223,16 +235,44 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
       data: dataBR(isoLocal(new Date())),
       ...valores,
     })
+  }
+
+  function abrirEditor() {
+    const pronto = preencher(modelos?.[fixo] ?? MODELOS_DOCUMENTO[fixo].texto)
     setInicial(pronto)
     setTexto(pronto)
   }
+
+  if (salvo)
+    return (
+      <div className="flex flex-col items-center gap-3 py-6 text-center">
+        <span className="grid size-14 place-items-center rounded-full bg-sucesso/15 text-sucesso">
+          <Icone nome="arquivo" className="h-7 w-7" />
+        </span>
+        <div>
+          <p className="font-bold text-titulo">{salvo.titulo} salvo no prontuário</p>
+          <p className="text-suave">
+            {props.paciente.nome} · {salvo.profissional?.nome ?? 'Sem profissional'}
+          </p>
+        </div>
+        <div className="flex flex-wrap justify-center gap-2">
+          <button type="button" className="botao-leve" onClick={props.aoTerminar}>
+            Fechar
+          </button>
+          <Link to="/documento/$id" params={{ id: String(salvo.id) }} className="botao">
+            <Icone nome="imprimir" className="h-4 w-4" />
+            Imprimir
+          </Link>
+        </div>
+      </div>
+    )
 
   if (inicial !== null)
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Passo n={2} texto="Revise o texto" />
-          <span className={`etiqueta ${tom(modelo)}`}>{MODELOS_DOCUMENTO[modelo].titulo}</span>
+          <span className={`etiqueta ${tom(modelo)}`}>{MODELOS_DOCUMENTO[fixo].titulo}</span>
         </div>
         {modelo === 'receita' && medicamentos.length > 0 && (
           <label className="block">
@@ -279,7 +319,7 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
           <button
             className="botao"
             disabled={texto === inicial || !texto.trim() || salvar.isPending}
-            onClick={() => salvar.mutate()}
+            onClick={() => salvar.mutate(texto)}
           >
             {salvar.isPending ? 'Salvando…' : 'Salvar'}
           </button>
@@ -292,14 +332,28 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault()
-        abrirEditor()
+        if (padrao) salvar.mutate(preencher(padrao.texto))
+        else abrirEditor()
       }}
     >
-      <Passo n={1} texto="Preencha os dados" />
+      {padrao ? (
+        <p className="text-xs font-extrabold tracking-wide text-suave uppercase">
+          Documento padrão · confira os dados e salve
+        </p>
+      ) : (
+        <Passo n={1} texto="Preencha os dados" />
+      )}
       <fieldset>
         <legend className="rotulo">Modelo</legend>
         <div className="grid gap-2 sm:grid-cols-3">
-          {(Object.keys(MODELOS_DOCUMENTO) as ModeloDocumento[]).map((id) => (
+          {[
+            ...(Object.keys(MODELOS_DOCUMENTO) as ModeloDocumento[]).map((id) => ({
+              id,
+              nome: MODELOS_DOCUMENTO[id].titulo as string,
+              cor: id,
+            })),
+            ...padroes.map((d, i) => ({ id: `p:${i}`, nome: d.nome, cor: 'padrao' })),
+          ].map(({ id, nome, cor }) => (
             <label
               key={id}
               className="flex items-center gap-3 rounded-xl border-2 border-borda p-3 hover:border-primaria/50 has-checked:border-primaria has-checked:bg-primaria-clara has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-primaria"
@@ -311,14 +365,19 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
                 checked={modelo === id}
                 onChange={() => setModelo(id)}
               />
-              <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${tom(id)}`}>
+              <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${tom(cor)}`}>
                 <Icone nome="arquivo" className="h-4 w-4" />
               </span>
-              <span className="font-bold">{MODELOS_DOCUMENTO[id].titulo}</span>
+              <span className="min-w-0 font-bold break-words">{nome}</span>
             </label>
           ))}
         </div>
       </fieldset>
+      {padrao && (
+        <div className="max-h-48 overflow-y-auto rounded-xl bg-superficie-2 p-3 font-serif text-sm whitespace-pre-wrap">
+          {padrao.texto}
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <label>
           <span className="rotulo">Profissional</span>
@@ -328,7 +387,7 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
             opcoes={profissionais.data?.map((p) => [p.id, p.nome] as const)}
           />
         </label>
-        {MODELOS_DOCUMENTO[modelo].variaveis.map((v) => (
+        {variaveis.map((v) => (
           <label key={v}>
             <span className="rotulo">{ROTULO_VARIAVEL[v]}</span>
             <input
@@ -344,10 +403,16 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
         <button type="button" className="botao-leve" onClick={props.aoTerminar}>
           Cancelar
         </button>
-        <button className="botao" disabled={!profissionalId}>
-          Abrir editor
-          <Icone nome="direita" className="h-4 w-4" />
-        </button>
+        {padrao ? (
+          <button className="botao" disabled={!profissionalId || salvar.isPending}>
+            {salvar.isPending ? 'Salvando…' : 'Salvar no prontuário'}
+          </button>
+        ) : (
+          <button className="botao" disabled={!profissionalId}>
+            Abrir editor
+            <Icone nome="direita" className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </form>
   )

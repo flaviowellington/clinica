@@ -27,6 +27,17 @@ export interface ModeloAnamnese {
   nome: string
   perguntas: Pergunta[]
 }
+/** Documento de texto fixo da clínica (orientações, termos): vai pronto para o prontuário. */
+export interface DocumentoPadrao {
+  nome: string
+  texto: string
+}
+/** Laboratório de prótese e a tabela de trabalhos que ele faz, com o valor cobrado. */
+export interface Laboratorio {
+  nome: string
+  contato: string
+  trabalhos: { nome: string; valorCentavos: number }[]
+}
 export interface Mensagens {
   confirmacao: string
 }
@@ -47,6 +58,8 @@ export const PADROES = {
   documentos: Object.fromEntries(
     Object.entries(MODELOS_DOCUMENTO).map(([id, m]) => [id, m.texto]),
   ) as Record<keyof typeof MODELOS_DOCUMENTO, string>,
+  documentosPadrao: [] as DocumentoPadrao[],
+  laboratorios: [] as Laboratorio[],
   medicamentos: [] as Medicamento[],
   /** Categorias da agenda (nome → cor); a clínica pode criar outras. */
   categorias: { ...CATEGORIAS } as Record<string, string>,
@@ -134,6 +147,50 @@ export function validarConfig(
         const t = txt(b?.[id], 20_000)
         if (!t) return { erro: `O modelo "${MODELOS_DOCUMENTO[id].titulo}" está vazio.` }
         valor[id] = t
+      }
+      return { valor }
+    }
+    case 'documentosPadrao': {
+      if (!Array.isArray(bruto) || bruto.length > 100)
+        return { erro: 'Lista de documentos inválida.' }
+      const vistos = new Set<string>()
+      const valor: DocumentoPadrao[] = []
+      for (const d of bruto as Record<string, unknown>[]) {
+        const nome = txt(d?.nome, 120)
+        const texto = txt(d?.texto, 20_000)
+        if (!nome) return { erro: 'Informe o nome do documento.' }
+        if (!texto) return { erro: `O documento "${nome}" está vazio.` }
+        if (vistos.has(normalizar(nome))) return { erro: `Já existe o documento "${nome}".` }
+        vistos.add(normalizar(nome))
+        valor.push({ nome, texto })
+      }
+      return { valor }
+    }
+    case 'laboratorios': {
+      if (!Array.isArray(bruto) || bruto.length > 100)
+        return { erro: 'Lista de laboratórios inválida.' }
+      const vistos = new Set<string>()
+      const valor: Laboratorio[] = []
+      for (const l of bruto as Record<string, unknown>[]) {
+        const nome = txt(l?.nome, 120)
+        if (!nome) return { erro: 'Informe o nome do laboratório.' }
+        if (vistos.has(normalizar(nome))) return { erro: `Já existe o laboratório "${nome}".` }
+        vistos.add(normalizar(nome))
+        if (!Array.isArray(l.trabalhos) || l.trabalhos.length > 200)
+          return { erro: `${nome}: lista de trabalhos inválida.` }
+        const feitos = new Set<string>()
+        const trabalhos: Laboratorio['trabalhos'] = []
+        for (const t of l.trabalhos as Record<string, unknown>[]) {
+          const n = txt(t?.nome, 200)
+          const v = t?.valorCentavos
+          if (!n) return { erro: `${nome}: informe o nome do trabalho.` }
+          if (feitos.has(normalizar(n))) return { erro: `${nome}: "${n}" aparece duas vezes.` }
+          if (!Number.isInteger(v) || (v as number) < 0 || (v as number) > 100_000_000)
+            return { erro: `${nome}: valor inválido em "${n}".` }
+          feitos.add(normalizar(n))
+          trabalhos.push({ nome: n, valorCentavos: v as number })
+        }
+        valor.push({ nome, contato: txt(l.contato, 120), trabalhos })
       }
       return { valor }
     }

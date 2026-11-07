@@ -5,6 +5,7 @@ import { exigir, usuarioDe } from './auth'
 import { EtapaDto, TrabalhoProteticoDto } from '../../shared/dtos'
 import { lerCorpo } from './dto'
 import { hojeNaClinica } from '../../shared/regras'
+import { pode } from '../../shared/permissoes'
 
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
 const id = (req: Request) => Number(req.params.id) || 0
@@ -58,7 +59,7 @@ rotasProtetico.get('/', exigir('protetico.ver'), async (_req, res) => {
 })
 
 /** Novo cartão entra sempre na primeira coluna (Pré-envio). */
-rotasProtetico.post('/', exigir('protetico.editar'), async (req, res) => {
+rotasProtetico.post('/', exigir('protetico.criar'), async (req, res) => {
   const dados = await lerTrabalho(req.body, res)
   if (!dados) return
   const t = await db.trabalhoProtetico.create({
@@ -73,9 +74,19 @@ rotasProtetico.put('/:id', exigir('protetico.editar'), async (req, res) => {
   if (!t) return res.status(404).json({ erro: 'Trabalho não encontrado.' })
   const dados = await lerTrabalho(req.body, res)
   if (!dados) return
+  // Sem permissão de criar, o que define o trabalho fica como está; o andamento pode mudar.
+  const travados = pode(usuarioDe(res).perfis, 'protetico.criar')
+    ? {}
+    : {
+        pacienteId: t.pacienteId,
+        laboratorio: t.laboratorio,
+        trabalho: t.trabalho,
+        dentes: t.dentes,
+        cor: t.cor,
+      }
   const novo = await db.trabalhoProtetico.update({
     where: { id: t.id },
-    data: dados,
+    data: { ...dados, ...travados },
     include: incluir,
   })
   res.json(paraTela(novo))
@@ -104,7 +115,7 @@ rotasProtetico.patch('/:id/etapa', exigir('protetico.editar'), async (req, res) 
   res.json(paraTela(novo))
 })
 
-rotasProtetico.delete('/:id', exigir('protetico.editar'), async (req, res) => {
+rotasProtetico.delete('/:id', exigir('protetico.criar'), async (req, res) => {
   const t = await db.trabalhoProtetico.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!t) return res.status(404).json({ erro: 'Trabalho não encontrado.' })
   await db.trabalhoProtetico.update({

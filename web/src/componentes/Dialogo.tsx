@@ -45,7 +45,8 @@ export function Dialogo(props: {
         if (apertouFora.current && e.target === e.currentTarget) props.aoFechar()
         apertouFora.current = false
       }}
-      className={`m-auto scroll-pt-6 scroll-pb-24 scroll-smooth ${props.largo ? 'w-[min(1000px,calc(100%-2rem))]' : 'w-[min(640px,calc(100%-2rem))]'} rounded-2xl border border-borda bg-superficie p-0 text-texto outline-none backdrop:bg-black/40`}
+      // has-[.dialogo-largo]: o conteúdo pode pedir a janela larga sozinho (ex.: usuário + profissional).
+      className={`m-auto has-[.dialogo-largo]:w-[min(1000px,calc(100%-2rem))] scroll-pt-6 scroll-pb-24 scroll-smooth ${props.largo ? 'w-[min(1000px,calc(100%-2rem))]' : 'w-[min(640px,calc(100%-2rem))]'} rounded-2xl border border-borda bg-superficie p-0 text-texto outline-none backdrop:bg-black/40`}
     >
       <div className="flex items-center justify-between border-b border-borda px-5 py-3">
         <h2 className="text-lg font-semibold">{props.titulo}</h2>

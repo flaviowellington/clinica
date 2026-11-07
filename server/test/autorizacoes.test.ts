@@ -392,8 +392,6 @@ describe('planejamento (ficha de especialidade) para o paciente assinar', () => 
       especialidade: 'Endodontia',
       profissionalId: dentista.id,
     })
-    expect((await api('POST', '/api/autorizacoes/ficha', { fichaId: f.corpo.id })).status).toBe(
-      400,
-    )
+    expect((await api('POST', '/api/autorizacoes/ficha', { fichaId: f.corpo.id })).status).toBe(400)
   })
 })

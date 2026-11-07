@@ -202,6 +202,70 @@ describe('configurações', () => {
     ])
   })
 
+  it('documentos padrão: nome único e texto obrigatório', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    expect((await admin('GET', '/api/configuracoes/documentosPadrao')).corpo).toEqual([])
+    const url = '/api/configuracoes/documentosPadrao'
+    expect((await admin('PUT', url, [{ nome: 'Pós', texto: '' }])).status).toBe(400)
+    expect((await admin('PUT', url, [{ nome: '', texto: 'x' }])).status).toBe(400)
+    const repetido = [
+      { nome: 'Pós', texto: 'a' },
+      { nome: 'pós', texto: 'b' },
+    ]
+    expect((await admin('PUT', url, repetido)).status).toBe(400)
+    const r = await admin('PUT', url, [{ nome: ' Pós-extração ', texto: 'Não cuspir.' }])
+    expect(r.corpo).toEqual([{ nome: 'Pós-extração', texto: 'Não cuspir.' }])
+  })
+
+  it('laboratórios: nome único, trabalhos com valor e sem repetir no mesmo laboratório', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const url = '/api/configuracoes/laboratorios'
+    expect((await admin('GET', url)).corpo).toEqual([])
+    const coroa = { nome: 'Coroa em porcelana', valorCentavos: 45000 }
+    expect((await admin('PUT', url, [{ nome: '', trabalhos: [] }])).status).toBe(400)
+    const repetido = [
+      { nome: 'Lab Fictício', trabalhos: [] },
+      { nome: 'lab fictício', trabalhos: [] },
+    ]
+    expect((await admin('PUT', url, repetido)).status).toBe(400)
+    const trabalhoRepetido = [{ nome: 'Lab', trabalhos: [coroa, { ...coroa, valorCentavos: 1 }] }]
+    expect((await admin('PUT', url, trabalhoRepetido)).status).toBe(400)
+    const negativo = [{ nome: 'Lab', trabalhos: [{ nome: 'Faceta', valorCentavos: -5 }] }]
+    expect((await admin('PUT', url, negativo)).status).toBe(400)
+    const r = await admin('PUT', url, [
+      { nome: ' Lab Fictício ', contato: ' (11) 0000-0000 ', trabalhos: [coroa] },
+    ])
+    expect(r.corpo).toEqual([
+      { nome: 'Lab Fictício', contato: '(11) 0000-0000', trabalhos: [coroa] },
+    ])
+    const recepcao = await entrarComo('RECEPCAO')
+    expect((await recepcao('GET', url)).status).toBe(200)
+    expect((await recepcao('PUT', url, [])).status).toBe(403)
+  })
+
+  it('medicamento: mostra em que documentos e modelos ele aparece', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const paciente = await pacienteCom(admin)
+    const url = `/api/pacientes/${paciente.id}/documentos`
+    await admin('POST', url, { modelo: 'receita', texto: '1. AMOXICILINA 500 mg\n   8/8 h' })
+    const excluido = await admin('POST', url, { modelo: 'receita', texto: 'Amoxicilina 500 mg' })
+    await admin('DELETE', `/api/prontuario/documentos/${excluido.corpo.id}`)
+    await admin('POST', url, { modelo: 'receita', texto: 'Dipirona 1 g' })
+    await admin('PUT', '/api/configuracoes/documentosPadrao', [
+      { nome: 'Pós-extração', texto: 'Tomar amoxicilina 500 mg.' },
+    ])
+    const r = await admin('GET', '/api/configuracoes/medicamentos/uso?nome=Amoxicilina%20500%20mg')
+    expect(r.status).toBe(200)
+    expect(r.corpo.total).toBe(1)
+    expect(r.corpo.documentos).toMatchObject([{ titulo: 'Receita', paciente: { id: paciente.id } }])
+    expect(r.corpo.modelos).toEqual(['Pós-extração'])
+    expect((await admin('GET', '/api/configuracoes/medicamentos/uso')).status).toBe(400)
+    const recepcao = await entrarComo('RECEPCAO')
+    expect(
+      (await recepcao('GET', '/api/configuracoes/medicamentos/uso?nome=Dipirona')).status,
+    ).toBe(403)
+  })
+
   it('tabela de procedimentos: cria, edita preço e inativa', async () => {
     const admin = await entrarComo('ADMINISTRADOR')
     const r = await admin('POST', '/api/procedimentos', {
@@ -277,7 +341,7 @@ describe('recebimento', () => {
 // ── Controle Protético (R-082) ──────────────────────────────────────────────
 describe('PT-82 controle protético', () => {
   it('cria o cartão em Pré-envio, move gravando a data da etapa e exclui sem apagar', async () => {
-    const api = await entrarComo('RECEPCAO')
+    const api = await entrarComo('PROFISSIONAL')
     const prof = await dentista()
     const pac = await pacienteCom(api)
     const r = await api('POST', '/api/protetico', {
@@ -301,7 +365,38 @@ describe('PT-82 controle protético', () => {
     await api('DELETE', `/api/protetico/${r.corpo.id}`)
     expect((await api('GET', '/api/protetico')).corpo).toEqual([])
     expect(await db.trabalhoProtetico.count()).toBe(1)
-    expect((await (await entrarComo('FINANCEIRO'))('GET', '/api/protetico')).status).toBe(403)
+    expect((await (await entrarComo('FINANCEIRO'))('GET', '/api/protetico')).status).toBe(200)
+  })
+
+  it('recepção não cria nem exclui, e não muda paciente, laboratório, trabalho, dentes e cor', async () => {
+    const dono = await entrarComo('PROFISSIONAL')
+    const prof = await dentista()
+    const pac = await pacienteCom(dono)
+    const outro = await pacienteCom(dono, { nome: 'Ciclano de Teste' })
+    const base = {
+      pacienteId: pac.id,
+      profissionalId: prof.id,
+      laboratorio: 'Laboratório Fictício',
+      trabalho: 'Coroa',
+      dentes: '11',
+      cor: 'A2',
+    }
+    const t = (await dono('POST', '/api/protetico', base)).corpo
+    const rec = await entrarComo('RECEPCAO')
+    expect((await rec('POST', '/api/protetico', base)).status).toBe(403)
+    expect((await rec('DELETE', '/api/protetico/' + t.id)).status).toBe(403)
+    const e = await rec('PUT', '/api/protetico/' + t.id, {
+      ...base,
+      pacienteId: outro.id,
+      laboratorio: 'Outro',
+      trabalho: 'Ponte',
+      dentes: '21',
+      cor: 'B1',
+      observacoes: 'Ligar antes',
+      prazo: '2026-12-01',
+    })
+    expect(e.status).toBe(200)
+    expect(e.corpo).toMatchObject({ ...base, observacoes: 'Ligar antes', prazo: '2026-12-01' })
   })
 })
 
@@ -320,6 +415,36 @@ describe('confirmação de consultas', () => {
       })
     ).corpo
   }
+
+  it('o profissional só vê as consultas dele', async () => {
+    const api = await entrarComo('RECEPCAO')
+    const c = await consulta(api, null)
+    await consulta(api, null) // de outro profissional
+    expect((await api('GET', '/api/confirmacoes?data=2026-10-27')).corpo).toHaveLength(2)
+    const dele = await entrarComo('PROFISSIONAL')
+    await db.usuario.update({
+      where: { id: dele.usuario.id },
+      data: { pessoaId: c.profissionalId },
+    })
+    const lista = await dele('GET', '/api/confirmacoes?data=2026-10-27')
+    expect(lista.corpo.map((x: { id: number }) => x.id)).toEqual([c.id])
+    expect(
+      (await (await entrarComo('PROFISSIONAL'))('GET', '/api/confirmacoes?data=2026-10-27')).corpo,
+    ).toEqual([])
+  })
+
+  it('cada conta guarda os profissionais escondidos', async () => {
+    const api = await entrarComo('RECEPCAO')
+    expect((await api('GET', '/api/eu')).corpo.preferencias).toEqual({})
+    await api('PUT', '/api/eu/preferencias', { agenda: [3, 4] })
+    await api('PUT', '/api/eu/preferencias', { confirmacoes: [5] })
+    expect((await api('GET', '/api/eu')).corpo.preferencias).toEqual({
+      agenda: [3, 4],
+      confirmacoes: [5],
+    })
+    expect((await (await entrarComo('RECEPCAO'))('GET', '/api/eu')).corpo.preferencias).toEqual({})
+    expect((await api('PUT', '/api/eu/preferencias', { agenda: ['x'] })).status).toBe(400)
+  })
 
   it('envia o e-mail com o link; o paciente confirma pelo link e a consulta vira Confirmado', async () => {
     const api = await entrarComo('RECEPCAO')

@@ -192,6 +192,11 @@ export const MinhaSenhaDto = z.object({
   nova: senha(`A nova senha precisa de ${SENHA_MINIMA} caracteres ou mais.`),
 })
 
+/** Profissionais escondidos em cada tela; ausente = o padrão do perfil. */
+const ocultos = z.array(z.number().int().positive()).max(500).optional()
+export const PreferenciasDto = z.object({ agenda: ocultos, confirmacoes: ocultos })
+export type Preferencias = z.infer<typeof PreferenciasDto>
+
 // ── Pacientes ───────────────────────────────────────────────────────────────
 
 export const PacienteDto = z.object({
@@ -286,7 +291,6 @@ export const ProcedimentoTabelaDto = z.object({
 })
 
 // ── Profissionais e conta corrente ───────────────────────────
-
 
 export const AtivoDto = z.object({ ativo: z.boolean().catch(false) })
 
@@ -564,16 +568,23 @@ export const ArquivoDto = z.object({
 
 export const LIMITE_DOCUMENTO = 20_000
 
-export const DocumentoDto = z.object({
-  modelo: z.enum(chaves(MODELOS_DOCUMENTO), { error: 'Escolha o modelo.' }),
-  texto: z.preprocess(
-    limpo(),
-    z
-      .string({ error: 'O documento está vazio.' })
-      .max(LIMITE_DOCUMENTO, 'O documento está grande demais.'),
-  ),
-  profissionalId: idOpcional,
-})
+export const DocumentoDto = z
+  .object({
+    /** "padrao": documento padrão da clínica (Configurações), com o nome em "titulo". */
+    modelo: z.enum([...chaves(MODELOS_DOCUMENTO), 'padrao'], { error: 'Escolha o modelo.' }),
+    titulo: z.preprocess(limpo(120), z.string().nullable()).optional(),
+    texto: z.preprocess(
+      limpo(),
+      z
+        .string({ error: 'O documento está vazio.' })
+        .max(LIMITE_DOCUMENTO, 'O documento está grande demais.'),
+    ),
+    profissionalId: idOpcional,
+  })
+  .refine((d) => d.modelo !== 'padrao' || d.titulo, {
+    path: ['titulo'],
+    error: 'Informe o nome do documento.',
+  })
 
 const DOCUMENTO_INVALIDO = 'O documento está vazio ou grande demais.'
 export const TextoDocumentoDto = z.object({

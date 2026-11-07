@@ -64,7 +64,8 @@ export const ABAS: {
     rotulo: 'Financeiro',
     descricao: 'Entradas, saídas e vendas da clínica.',
     icone: 'financeiro',
-    visivel: (p) => pode(p, 'financeiro.ver'),
+    // Todos entram; quem não é do financeiro vê só os orçamentos abertos.
+    visivel: (p) => pode(p, 'orcamento.ver'),
   },
   {
     para: '/profissionais',

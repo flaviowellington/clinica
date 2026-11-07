@@ -506,21 +506,15 @@ export function Profissionais() {
   )
 
   return (
-    <div className="space-y-5">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+    <div className="flex flex-col gap-5 lg:h-[calc(100dvh-2rem)]">
+      <header className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="titulo">Profissionais</h1>
           <p className="subtitulo">Dentistas da clínica, especialidades e cor na agenda.</p>
         </div>
-        {podeEditar && (
-          <button className="botao" onClick={() => abrirEditor('novo')}>
-            <Icone nome="mais" className="h-4 w-4" />
-            Adicionar profissional
-          </button>
-        )}
       </header>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
         <label className="relative block w-full max-w-sm">
           <span className="sr-only">Pesquisar profissional</span>
           <Icone
@@ -566,176 +560,184 @@ export function Profissionais() {
         )}
       </div>
 
-      {lista.data?.length === 0 && (
-        <div className="cartao flex flex-col items-center gap-2 py-10 text-center">
-          <span className="flex size-12 items-center justify-center rounded-full bg-primaria-clara text-primaria">
-            <Icone nome="profissionais" className="h-6 w-6" />
-          </span>
-          <p className="font-bold">Nenhum profissional encontrado</p>
-          <p className="text-suave">
-            {busca
-              ? 'Tente outro nome ou limpe a pesquisa.'
-              : 'Cadastre o primeiro dentista da clínica.'}
-          </p>
+      <div className="relative min-h-0 flex-1 space-y-5 lg:-mr-2 lg:overflow-y-auto lg:pr-2">
+        {lista.data?.length === 0 && (
+          <div className="cartao flex flex-col items-center gap-2 py-10 text-center">
+            <span className="flex size-12 items-center justify-center rounded-full bg-primaria-clara text-primaria">
+              <Icone nome="profissionais" className="h-6 w-6" />
+            </span>
+            <p className="font-bold">Nenhum profissional encontrado</p>
+            <p className="text-suave">
+              {busca
+                ? 'Tente outro nome ou limpe a pesquisa.'
+                : 'Cadastre em Usuários, com o perfil Profissional.'}
+            </p>
+          </div>
+        )}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {ativosDaLista.map(cartao)}
         </div>
-      )}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {ativosDaLista.map(cartao)}
-      </div>
 
-      {inativosDaLista.length > 0 && (
-        <section aria-labelledby="titulo-inativos" className="space-y-4">
-          <div className="flex items-center gap-3">
-            <h2
-              id="titulo-inativos"
-              className="flex items-center gap-2 text-sm font-bold tracking-wide text-suave uppercase"
+        {inativosDaLista.length > 0 && (
+          <section aria-labelledby="titulo-inativos" className="space-y-4">
+            <div className="flex items-center gap-3">
+              <h2
+                id="titulo-inativos"
+                className="flex items-center gap-2 text-sm font-bold tracking-wide text-suave uppercase"
+              >
+                <Icone nome="pausa" className="h-4 w-4" />
+                Inativos
+                <span className="etiqueta">{inativosDaLista.length}</span>
+              </h2>
+              <span className="h-px flex-1 border-t border-dashed border-borda" />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {inativosDaLista.map(cartao)}
+            </div>
+          </section>
+        )}
+
+        <Dialogo aberto={!!confirmando} aoFechar={fecharConfirmacao} titulo={textos?.titulo ?? ''}>
+          {confirmando && textos && (
+            <form
+              className="space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!confirmou) return
+                const mutacao = confirmando.acao === 'inativar' ? ativar : excluir
+                mutacao.mutate(confirmando.p, { onSuccess: fecharConfirmacao })
+              }}
             >
-              <Icone nome="pausa" className="h-4 w-4" />
-              Inativos
-              <span className="etiqueta">{inativosDaLista.length}</span>
-            </h2>
-            <span className="h-px flex-1 border-t border-dashed border-borda" />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {inativosDaLista.map(cartao)}
-          </div>
-        </section>
-      )}
+              <div className="alerta-perigo space-y-1">
+                <p className="font-bold">{textos.aviso(confirmando.p.nome)}</p>
+                <p>{textos.detalhe}</p>
+              </div>
+              <div>
+                <label className="rotulo" htmlFor="p-confirma">
+                  Digite <span className="text-perigo">{confirmando.acao}</span> para confirmar
+                </label>
+                <input
+                  id="p-confirma"
+                  className="campo"
+                  autoComplete="off"
+                  autoFocus
+                  value={confirmacao}
+                  onChange={(e) => setConfirmacao(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end gap-2 border-t border-borda pt-4">
+                <button type="button" className="botao-leve" onClick={fecharConfirmacao}>
+                  Cancelar
+                </button>
+                <button className="botao-perigo" disabled={!confirmou || enviandoConfirmacao}>
+                  {textos.botao}
+                </button>
+              </div>
+            </form>
+          )}
+        </Dialogo>
 
-      <Dialogo aberto={!!confirmando} aoFechar={fecharConfirmacao} titulo={textos?.titulo ?? ''}>
-        {confirmando && textos && (
+        <Dialogo aberto={!!ajustando} aoFechar={() => setAjustando(null)} titulo="Ajustar foto">
+          {ajustando && (
+            <RecorteFoto
+              arquivo={ajustando}
+              aoCancelar={() => setAjustando(null)}
+              aoConfirmar={(f) => {
+                setFoto(f)
+                setAjustando(null)
+              }}
+            />
+          )}
+        </Dialogo>
+
+        <Dialogo
+          aberto={!!editando}
+          aoFechar={() => setEditando(null)}
+          titulo={atual ? 'Editar profissional' : 'Novo profissional'}
+        >
           <form
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault()
-              if (!confirmou) return
-              const mutacao = confirmando.acao === 'inativar' ? ativar : excluir
-              mutacao.mutate(confirmando.p, { onSuccess: fecharConfirmacao })
+              salvar.mutate(
+                Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>,
+              )
             }}
           >
-            <div className="alerta-perigo space-y-1">
-              <p className="font-bold">{textos.aviso(confirmando.p.nome)}</p>
-              <p>{textos.detalhe}</p>
+            <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-superficie-2 p-3">
+              {foto && foto !== 'remover' ? (
+                <FotoRecortada foto={foto} lado={64} className="rounded-2xl" />
+              ) : (
+                <Retrato
+                  p={{
+                    id: atual?.id ?? 0,
+                    nome: atual?.nome ?? '',
+                    corAgenda: atual?.corAgenda ?? null,
+                    fotoEm: foto === 'remover' ? null : (atual?.fotoEm ?? null),
+                  }}
+                  className="size-16 rounded-2xl text-lg"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="font-bold">Foto</p>
+                <p className="text-xs text-suave">
+                  JPEG, PNG ou WEBP até {FOTO_MAXIMO_MB} MB. Você ajusta o recorte antes de salvar.
+                </p>
+              </div>
+              <div className="flex gap-1">
+                <label className="botao-leve botao-pequeno has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primaria">
+                  {temFoto ? 'Trocar foto' : 'Escolher foto'}
+                  {/* Sem name: não vai junto com os dados do formulário. */}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      e.target.value = '' // deixa escolher o mesmo arquivo de novo
+                      if (!f) return
+                      if (f.size > FOTO_MAXIMO_MB * 1024 * 1024)
+                        return avisar(`A foto pode ter no máximo ${FOTO_MAXIMO_MB} MB.`, true)
+                      setAjustando(f)
+                    }}
+                  />
+                </label>
+                {temFoto && (
+                  <button
+                    type="button"
+                    className="botao-fantasma botao-pequeno text-perigo hover:bg-perigo/10"
+                    onClick={() => setFoto('remover')}
+                  >
+                    Remover
+                  </button>
+                )}
+              </div>
             </div>
             <div>
-              <label className="rotulo" htmlFor="p-confirma">
-                Digite <span className="text-perigo">{confirmando.acao}</span> para confirmar
+              <label className="rotulo" htmlFor="p-nome">
+                Nome *
               </label>
               <input
-                id="p-confirma"
+                id="p-nome"
+                name="nome"
                 className="campo"
-                autoComplete="off"
+                defaultValue={atual?.nome}
                 autoFocus
-                value={confirmacao}
-                onChange={(e) => setConfirmacao(e.target.value)}
               />
+              {erros.nome && <p className="erro-campo">{erros.nome}</p>}
             </div>
+            <CamposProfissional atual={atual} erros={erros} />
             <div className="flex justify-end gap-2 border-t border-borda pt-4">
-              <button type="button" className="botao-leve" onClick={fecharConfirmacao}>
+              <button type="button" className="botao-leve" onClick={() => setEditando(null)}>
                 Cancelar
               </button>
-              <button className="botao-perigo" disabled={!confirmou || enviandoConfirmacao}>
-                {textos.botao}
+              <button className="botao" disabled={salvar.isPending}>
+                Salvar
               </button>
             </div>
           </form>
-        )}
-      </Dialogo>
-
-      <Dialogo aberto={!!ajustando} aoFechar={() => setAjustando(null)} titulo="Ajustar foto">
-        {ajustando && (
-          <RecorteFoto
-            arquivo={ajustando}
-            aoCancelar={() => setAjustando(null)}
-            aoConfirmar={(f) => {
-              setFoto(f)
-              setAjustando(null)
-            }}
-          />
-        )}
-      </Dialogo>
-
-      <Dialogo
-        aberto={!!editando}
-        aoFechar={() => setEditando(null)}
-        titulo={atual ? 'Editar profissional' : 'Novo profissional'}
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault()
-            salvar.mutate(
-              Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>,
-            )
-          }}
-        >
-          <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-superficie-2 p-3">
-            {foto && foto !== 'remover' ? (
-              <FotoRecortada foto={foto} lado={64} className="rounded-2xl" />
-            ) : (
-              <Retrato
-                p={{
-                  id: atual?.id ?? 0,
-                  nome: atual?.nome ?? '',
-                  corAgenda: atual?.corAgenda ?? null,
-                  fotoEm: foto === 'remover' ? null : (atual?.fotoEm ?? null),
-                }}
-                className="size-16 rounded-2xl text-lg"
-              />
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="font-bold">Foto</p>
-              <p className="text-xs text-suave">
-                JPEG, PNG ou WEBP até {FOTO_MAXIMO_MB} MB. Você ajusta o recorte antes de salvar.
-              </p>
-            </div>
-            <div className="flex gap-1">
-              <label className="botao-leve botao-pequeno has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primaria">
-                {temFoto ? 'Trocar foto' : 'Escolher foto'}
-                {/* Sem name: não vai junto com os dados do formulário. */}
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  className="sr-only"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0]
-                    e.target.value = '' // deixa escolher o mesmo arquivo de novo
-                    if (!f) return
-                    if (f.size > FOTO_MAXIMO_MB * 1024 * 1024)
-                      return avisar(`A foto pode ter no máximo ${FOTO_MAXIMO_MB} MB.`, true)
-                    setAjustando(f)
-                  }}
-                />
-              </label>
-              {temFoto && (
-                <button
-                  type="button"
-                  className="botao-fantasma botao-pequeno text-perigo hover:bg-perigo/10"
-                  onClick={() => setFoto('remover')}
-                >
-                  Remover
-                </button>
-              )}
-            </div>
-          </div>
-          <div>
-            <label className="rotulo" htmlFor="p-nome">
-              Nome *
-            </label>
-            <input id="p-nome" name="nome" className="campo" defaultValue={atual?.nome} autoFocus />
-            {erros.nome && <p className="erro-campo">{erros.nome}</p>}
-          </div>
-          <CamposProfissional atual={atual} erros={erros} />
-          <div className="flex justify-end gap-2 border-t border-borda pt-4">
-            <button type="button" className="botao-leve" onClick={() => setEditando(null)}>
-              Cancelar
-            </button>
-            <button className="botao" disabled={salvar.isPending}>
-              Salvar
-            </button>
-          </div>
-        </form>
-      </Dialogo>
+        </Dialogo>
+      </div>
     </div>
   )
 }

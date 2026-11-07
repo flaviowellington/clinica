@@ -2,7 +2,14 @@
 import { Router, type Request } from 'express'
 import { db } from './db'
 import { conferirSenha, exigir, gerarHash, usuarioDe } from './auth'
-import { MinhaSenhaDto, SenhaDto, UsuarioEdicaoDto, UsuarioNovoDto } from '../../shared/dtos'
+import {
+  MinhaSenhaDto,
+  PreferenciasDto,
+  SenhaDto,
+  UsuarioEdicaoDto,
+  UsuarioNovoDto,
+  type Preferencias,
+} from '../../shared/dtos'
 import { lerCorpo } from './dto'
 import { normalizar } from '../../shared/regras'
 
@@ -128,4 +135,14 @@ rotasEu.post('/senha', async (req, res) => {
     return res.status(400).json({ erro: 'A senha atual está incorreta.' })
   await db.usuario.update({ where: { id: eu.id }, data: { senhaHash: await gerarHash(b.nova) } })
   res.json({ mensagem: 'Senha alterada.' })
+})
+
+/** Cada conta guarda seus filtros de profissionais (agenda e confirmações). Só troca o que vier. */
+rotasEu.put('/preferencias', async (req, res) => {
+  const eu = usuarioDe(res)
+  const b = lerCorpo(PreferenciasDto, req.body, res, null)
+  if (!b) return
+  const preferencias = { ...(eu.preferencias as Preferencias | null), ...b }
+  await db.usuario.update({ where: { id: eu.id }, data: { preferencias } })
+  res.json(preferencias)
 })

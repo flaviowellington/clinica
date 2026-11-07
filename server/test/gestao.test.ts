@@ -261,11 +261,12 @@ describe('relatórios', () => {
       ['Retorno', 1],
     ])
   })
-  it('respeita o grupo do perfil e recusa relatório que ainda não existe', async () => {
+  it('só administrador e financeiro veem relatórios; recusa relatório que não existe', async () => {
+    const url = '/api/relatorios/agenda-geral?de=2026-10-19&ate=2026-10-19'
     const fin = await entrarComo('FINANCEIRO')
-    expect(
-      (await fin('GET', '/api/relatorios/agenda-geral?de=2026-10-19&ate=2026-10-19')).status,
-    ).toBe(403)
+    expect((await fin('GET', url)).status).toBe(200)
+    for (const p of ['RECEPCAO', 'PROFISSIONAL'] as const)
+      expect((await (await entrarComo(p))('GET', url)).status).toBe(403)
     expect(
       (await fin('GET', '/api/relatorios/financeiro-caixa?de=2026-10-19&ate=2026-10-19')).status,
     ).toBe(200)

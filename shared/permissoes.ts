@@ -1,4 +1,4 @@
-// Quem pode fazer o quê (data-model/permissions.md, "Matriz para o clone").
+// Quem pode fazer o quê. Base: data-model/permissions.md; ajustada à clínica (matriz combinada com o responsável).
 // Um usuário pode ter vários perfis: a permissão final é a soma deles.
 
 export const PERFIS = {
@@ -10,46 +10,52 @@ export const PERFIS = {
 export type Perfil = keyof typeof PERFIS
 
 const TODOS: Perfil[] = ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO', 'FINANCEIRO']
+const ADM: Perfil[] = ['ADMINISTRADOR']
+const CLINICO: Perfil[] = ['ADMINISTRADOR', 'PROFISSIONAL']
+const GESTAO: Perfil[] = ['ADMINISTRADOR', 'FINANCEIRO']
 
 const MATRIZ = {
   'paciente.ver': TODOS,
-  'paciente.editar': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
-  'paciente.inativar': ['ADMINISTRADOR', 'PROFISSIONAL'],
-  'paciente.excluir': ['ADMINISTRADOR', 'PROFISSIONAL'],
-  'lixeira.restaurar': ['ADMINISTRADOR'],
-  // Financeiro só visualiza a agenda (permissions.md).
+  'paciente.editar': TODOS,
+  'paciente.inativar': TODOS,
+  'paciente.excluir': ADM,
+  'lixeira.restaurar': ADM,
   'agenda.ver': TODOS,
-  'agenda.editar': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
-  // Orçamento (permissions.md): Recepção cria; aprovar é de todos; cancelar aprovado só Adm e Financeiro.
+  'agenda.editar': TODOS,
+  // Confirmações: o profissional só vê as consultas dele.
+  'confirmacoes.todas': ['ADMINISTRADOR', 'RECEPCAO', 'FINANCEIRO'],
   'orcamento.ver': TODOS,
-  'orcamento.editar': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
+  'orcamento.editar': TODOS,
   'orcamento.aprovar': TODOS,
-  'orcamento.cancelar': ['ADMINISTRADOR', 'FINANCEIRO'],
-  'procedimento.executar': ['ADMINISTRADOR', 'PROFISSIONAL'],
-  // Prontuário clínico (permissions.md): Recepção no máximo vê anamnese e fotos; Financeiro nada.
-  'prontuario.ver': ['ADMINISTRADOR', 'PROFISSIONAL'],
-  'prontuario.editar': ['ADMINISTRADOR', 'PROFISSIONAL'],
-  'anamnese.ver': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
-  'fotos.ver': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
+  'orcamento.cancelar': GESTAO,
+  'procedimento.executar': CLINICO,
+  // Prontuário clínico (anamnese, plano, odontograma, arquivos): só quem atende.
+  'prontuario.ver': CLINICO,
+  'prontuario.editar': CLINICO,
+  'anamnese.ver': CLINICO,
+  'fotos.ver': CLINICO,
   'profissional.ver': TODOS,
-  'profissional.editar': ['ADMINISTRADOR'],
-  'financeiro.ver': ['ADMINISTRADOR', 'FINANCEIRO'],
-  // Financeiro do paciente: todos veem; Recepção recebe no balcão e emite recibo (permissions.md).
+  'profissional.editar': ADM,
+  // Financeiro da clínica: só Adm e Financeiro; os outros veem só os orçamentos abertos (orcamento.ver).
+  'financeiro.ver': GESTAO,
+  'financeiro.editar': GESTAO,
   'financeiro.paciente': TODOS,
+  // Receber no balcão: o profissional não recebe (vê os orçamentos abertos, sem aprovar com pagamento).
   'financeiro.receber': ['ADMINISTRADOR', 'FINANCEIRO', 'RECEPCAO'],
-  'protetico.ver': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
-  'protetico.editar': ['ADMINISTRADOR', 'PROFISSIONAL', 'RECEPCAO'],
-  'painel.ver': ['ADMINISTRADOR', 'FINANCEIRO'],
-  'usuario.gerenciar': ['ADMINISTRADOR'],
-  'configuracao.editar': ['ADMINISTRADOR'],
-  'dados.importar': ['ADMINISTRADOR'],
-  'financeiro.editar': ['ADMINISTRADOR', 'FINANCEIRO'],
-  // Relatórios por grupo (permissions.md: cada perfil vê os da sua área).
-  'relatorio.agenda': ['ADMINISTRADOR', 'RECEPCAO'],
-  'relatorio.pacientes': ['ADMINISTRADOR', 'RECEPCAO'],
-  'relatorio.financeiro': ['ADMINISTRADOR', 'FINANCEIRO'],
-  'relatorio.geral': ['ADMINISTRADOR'],
-  'relatorio.tratamentos': ['ADMINISTRADOR', 'PROFISSIONAL'],
+  // Protético: todos mexem no andamento; criar, excluir e mudar paciente, laboratório,
+  // trabalho, dentes e cor é de quem atende.
+  'protetico.ver': TODOS,
+  'protetico.editar': TODOS,
+  'protetico.criar': CLINICO,
+  'painel.ver': ADM,
+  'usuario.gerenciar': ADM,
+  'configuracao.editar': ADM,
+  'dados.importar': ADM,
+  'relatorio.agenda': GESTAO,
+  'relatorio.pacientes': GESTAO,
+  'relatorio.financeiro': GESTAO,
+  'relatorio.geral': GESTAO,
+  'relatorio.tratamentos': GESTAO,
 } satisfies Record<string, Perfil[]>
 
 export type Acao = keyof typeof MATRIZ

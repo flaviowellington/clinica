@@ -119,6 +119,8 @@ model Usuario {
   /// Profissional ligado ao usuário (quando for dentista).
   pessoaId  Int?     @unique
   pessoa    Pessoa?  @relation(fields: [pessoaId], references: [id])
+  /// Preferências da conta: profissionais escondidos na agenda e nas confirmações.
+  preferencias Json?
   criadoEm  DateTime @default(now())
 
   acessos           LogAcesso[]

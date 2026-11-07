@@ -24,9 +24,14 @@ describe('login e permissões', () => {
     await db.usuario.update({ where: { id: api.usuario.id }, data: { ativo: false } })
     expect((await api('GET', '/api/eu')).status).toBe(401)
   })
-  it('Financeiro vê, mas não cadastra paciente', async () => {
+  it('Financeiro cadastra paciente, mas ninguém além do administrador exclui', async () => {
     const api = await entrarComo('FINANCEIRO')
-    expect((await api('POST', '/api/pacientes', PACIENTE)).status).toBe(403)
+    const { status, corpo: p } = await api('POST', '/api/pacientes', PACIENTE)
+    expect(status).toBe(201)
+    for (const perfil of ['RECEPCAO', 'FINANCEIRO', 'PROFISSIONAL'] as const)
+      expect((await (await entrarComo(perfil))('DELETE', '/api/pacientes/' + p.id)).status).toBe(
+        403,
+      )
     expect((await api('GET', '/api/pacientes?busca=f')).status).toBe(200)
   })
 })
@@ -204,11 +209,11 @@ describe('PT-71 inativar exige motivo', () => {
     const a = await api('POST', `/api/pacientes/${p.id}/ativar`)
     expect(a.corpo).toMatchObject({ ativo: true, motivoInativacao: null })
   })
-  it('Recepção não inativa', async () => {
+  it('Recepção inativa', async () => {
     const api = await entrarComo('RECEPCAO')
     const { corpo: p } = await api('POST', '/api/pacientes', PACIENTE)
     expect(
       (await api('POST', `/api/pacientes/${p.id}/inativar`, { motivo: 'FALECIMENTO' })).status,
-    ).toBe(403)
+    ).toBe(200)
   })
 })

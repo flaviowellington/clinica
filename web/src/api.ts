@@ -1,5 +1,7 @@
 import axios from 'axios'
-import { queryOptions } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { queryOptions, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import type { Preferencias } from '../../shared/dtos'
 import type { Perfil } from '../../shared/permissoes'
 import type { MotivoInativacao } from '../../shared/regras'
 import type { StatusAgenda } from '../../shared/agenda'
@@ -29,6 +31,30 @@ export interface Eu {
   nome: string
   login: string
   perfis: Perfil[]
+  preferencias: Preferencias
+}
+
+/**
+ * Profissionais escondidos numa tela, guardados na conta: vale em qualquer computador.
+ * Sem preferência salva, usa `padrao`.
+ */
+export function useOcultos(tela: keyof Preferencias, padrao: () => number[]) {
+  const { data: eu } = useSuspenseQuery(consultaEu)
+  const qc = useQueryClient()
+  const [ocultos, setOcultos] = useState<number[]>(() => eu.preferencias[tela] ?? padrao())
+  const primeira = useRef(true)
+  useEffect(() => {
+    if (primeira.current) {
+      primeira.current = false
+      return
+    }
+    qc.setQueryData<Eu>(
+      ['eu'],
+      (e) => e && { ...e, preferencias: { ...e.preferencias, [tela]: ocultos } },
+    )
+    api.put('/eu/preferencias', { [tela]: ocultos }).catch(() => {})
+  }, [ocultos, tela, qc])
+  return [ocultos, setOcultos] as const
 }
 
 export const consultaEu = queryOptions({

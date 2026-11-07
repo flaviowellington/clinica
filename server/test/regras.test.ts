@@ -37,9 +37,57 @@ describe('regras de apoio', () => {
     expect(normalizar('  JOSÉ   da  Conceição ')).toBe('jose da conceicao')
   })
   it('a permissão é a soma dos perfis', () => {
-    expect(pode(['RECEPCAO'], 'paciente.excluir')).toBe(false)
-    expect(pode(['RECEPCAO', 'PROFISSIONAL'], 'paciente.excluir')).toBe(true)
-    expect(pode(['FINANCEIRO'], 'paciente.editar')).toBe(false)
+    expect(pode(['RECEPCAO'], 'protetico.criar')).toBe(false)
+    expect(pode(['RECEPCAO', 'PROFISSIONAL'], 'protetico.criar')).toBe(true)
+  })
+  it('matriz da clínica: cada perfil vê só a sua área', () => {
+    const R = ['RECEPCAO'] as const
+    const F = ['FINANCEIRO'] as const
+    const P = ['PROFISSIONAL'] as const
+    // Agenda e confirmações: todos editam; só o profissional fica restrito a si nas confirmações.
+    for (const p of [R, F, P]) expect(pode(p, 'agenda.editar')).toBe(true)
+    expect(pode(R, 'confirmacoes.todas')).toBe(true)
+    expect(pode(F, 'confirmacoes.todas')).toBe(true)
+    expect(pode(P, 'confirmacoes.todas')).toBe(false)
+    // Pacientes: ninguém além do administrador exclui; recepção e financeiro sem prontuário clínico.
+    for (const p of [R, F, P]) {
+      expect(pode(p, 'paciente.editar')).toBe(true)
+      expect(pode(p, 'paciente.inativar')).toBe(true)
+      expect(pode(p, 'paciente.excluir')).toBe(false)
+    }
+    for (const p of [R, F]) {
+      expect(pode(p, 'anamnese.ver')).toBe(false)
+      expect(pode(p, 'fotos.ver')).toBe(false)
+      expect(pode(p, 'prontuario.ver')).toBe(false)
+      expect(pode(p, 'orcamento.editar')).toBe(true)
+    }
+    expect(pode(P, 'prontuario.editar')).toBe(true)
+    // Protético: recepção e financeiro mexem, mas não criam.
+    for (const p of [R, F]) {
+      expect(pode(p, 'protetico.editar')).toBe(true)
+      expect(pode(p, 'protetico.criar')).toBe(false)
+    }
+    expect(pode(P, 'protetico.criar')).toBe(true)
+    // Financeiro: recepção e profissional só os orçamentos abertos.
+    for (const p of [R, P]) {
+      expect(pode(p, 'orcamento.ver')).toBe(true)
+      expect(pode(p, 'financeiro.ver')).toBe(false)
+    }
+    expect(pode(F, 'financeiro.ver')).toBe(true)
+    // Relatórios só o financeiro; painel e o resto do sistema só o administrador.
+    for (const a of ['relatorio.agenda', 'relatorio.financeiro', 'relatorio.geral'] as const) {
+      expect(pode(F, a)).toBe(true)
+      expect(pode(R, a)).toBe(false)
+      expect(pode(P, a)).toBe(false)
+    }
+    for (const a of [
+      'painel.ver',
+      'usuario.gerenciar',
+      'configuracao.editar',
+      'dados.importar',
+      'lixeira.restaurar',
+    ] as const)
+      for (const p of [R, F, P]) expect(pode(p, a)).toBe(false)
   })
 })
 

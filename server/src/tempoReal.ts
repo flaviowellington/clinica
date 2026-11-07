@@ -31,7 +31,6 @@ export function avisarTodos(assunto: string) {
 /** Depois de qualquer alteração que deu certo, avisa todos com o assunto informado. */
 export const avisarAoMudar =
   (assunto: string) => (req: Request, res: Response, next: NextFunction) => {
-    if (req.method !== 'GET')
-      res.on('finish', () => res.statusCode < 400 && avisarTodos(assunto))
+    if (req.method !== 'GET') res.on('finish', () => res.statusCode < 400 && avisarTodos(assunto))
     next()
   }

@@ -9,6 +9,7 @@ import {
   mensagemDeErro,
   somarDias,
   type Agendamento,
+  useOcultos,
 } from '../api'
 import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
@@ -210,7 +211,12 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
   const hoje = isoLocal(new Date())
   const [data, setData] = useState(hoje)
   const [visao, setVisao] = useState<Visao>(lerVisao)
-  const [ocultos, setOcultos] = useState<number[]>([]) // padrão: todos visíveis
+  // Padrão: todos visíveis; o profissional começa vendo só a própria agenda.
+  const [ocultos, setOcultos] = useOcultos('agenda', () =>
+    pode(eu.perfis, 'confirmacoes.todas') || !prof.meuId
+      ? []
+      : prof.profissionais.filter((p) => p.id !== prof.meuId).map((p) => p.id),
+  )
   const [busca, setBusca] = useState<string | null>(null) // null = caixa de busca fechada
   const [janela, setJanela] = useState<'data' | 'profissionais' | 'retornos' | null>(null) // só na Agenda 2
   const [novo, setNovo] = useState<Inicial | null>(null)

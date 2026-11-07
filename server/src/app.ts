@@ -62,27 +62,35 @@ export function criarApp() {
   app.use('/api/integracao', avisarAoMudar('retornos'), rotasIntegracao) // n8n: entra por token, não por login
 
   app.get('/api/eu', exigirLogin, (_req, res) => {
-    const { id, nome, login, perfis } = usuarioDe(res)
-    res.json({ id, nome, login, perfis })
+    const { id, nome, login, perfis, preferencias } = usuarioDe(res)
+    res.json({ id, nome, login, perfis, preferencias: preferencias ?? {} })
   })
 
-  app.use('/api/pacientes', exigirLogin, rotasPacientes, rotasFichaPaciente)
-  app.use('/api/prontuario', exigirLogin, rotasProntuario)
-  app.use('/api/lixeira', exigirLogin, rotasLixeira)
-  // Tempo real: o navegador fica ouvindo; alterações abaixo avisam todos (tempoReal.ts).
+  // Tempo real: o navegador fica ouvindo; alterações com avisarAoMudar avisam todos (tempoReal.ts).
   app.get('/api/eventos', exigirLogin, abrirEventos)
+  const pacientes = avisarAoMudar('pacientes')
+  app.use('/api/pacientes', exigirLogin, pacientes, rotasPacientes, rotasFichaPaciente)
+  app.use('/api/prontuario', exigirLogin, pacientes, rotasProntuario)
+  app.use('/api/lixeira', exigirLogin, pacientes, rotasLixeira)
   app.use('/api/agenda', exigirLogin, avisarAoMudar('agenda'), rotasAgenda)
   app.use('/api/profissionais', exigirLogin, avisarAoMudar('agenda'), rotasProfissionais)
-  app.use('/api/financeiro', exigirLogin, rotasFinanceiro, rotasFinanceiroContas)
+  const financeiro = avisarAoMudar('financeiro')
+  app.use('/api/financeiro', exigirLogin, financeiro, rotasFinanceiro, rotasFinanceiroContas)
   app.use('/api/retornos', exigirLogin, avisarAoMudar('retornos'), rotasRetornos)
-  app.use('/api/procedimentos', exigirLogin, rotasProcedimentos, rotasTabelaProcedimentos)
-  app.use('/api/orcamentos', exigirLogin, rotasOrcamentos)
+  app.use(
+    '/api/procedimentos',
+    exigirLogin,
+    avisarAoMudar('procedimentos'),
+    rotasProcedimentos,
+    rotasTabelaProcedimentos,
+  )
+  app.use('/api/orcamentos', exigirLogin, financeiro, rotasOrcamentos)
   app.use('/api/autorizacoes', exigirLogin, avisarAoMudar('autorizacoes'), rotasAutorizacoes)
   app.use('/api/relatorios', exigirLogin, rotasRelatorios)
   app.use('/api/eu', exigirLogin, rotasEu)
   app.use('/api/usuarios', exigirLogin, rotasUsuarios)
-  app.use('/api/configuracoes', exigirLogin, rotasConfiguracoes)
-  app.use('/api/protetico', exigirLogin, rotasProtetico)
+  app.use('/api/configuracoes', exigirLogin, avisarAoMudar('config'), rotasConfiguracoes)
+  app.use('/api/protetico', exigirLogin, avisarAoMudar('protetico'), rotasProtetico)
   app.use('/api/confirmacoes', exigirLogin, avisarAoMudar('agenda'), rotasConfirmacoes)
   app.use('/api/painel', exigirLogin, rotasPainel)
   app.use('/api/importacao', exigirLogin, rotasImportacao)

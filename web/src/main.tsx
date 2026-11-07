@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client'
 import {
   QueryClient,
   QueryClientProvider,
+  useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query'
@@ -29,11 +30,12 @@ import '@fontsource/nunito/latin-600.css'
 import '@fontsource/nunito/latin-700.css'
 import '@fontsource/nunito/latin-800.css'
 import './index.css'
-import { api, consultaEu } from './api'
+import { api, consultaConfig, consultaEu } from './api'
+import logoRiso from './assets/logo_riso.png'
 import { Confirmacao } from './componentes/Confirmar'
 import { PALETAS, avisar, useAvisos, useTema, type Paleta } from './estado'
 import { PERFIS, pode } from '../../shared/permissoes'
-import { Entrar } from './paginas/Entrar'
+import { Entrar, LOGO } from './paginas/Entrar'
 import { Pacientes } from './paginas/Pacientes'
 import { Ficha } from './paginas/Ficha'
 import { Lixeira } from './paginas/Lixeira'
@@ -122,6 +124,44 @@ const RECARREGAR: Record<string, string[][]> = {
   retornos: [['retornos']],
   autorizacoes: [['autorizacoes'], ['procedimentos'], ['fichas']],
   assinatura: [['autorizacoes'], ['procedimentos'], ['fichas']],
+  // Pode sobrar chave: só o que está aberto na tela busca de novo, o resto só fica "velho".
+  pacientes: [
+    ['pacientes'],
+    ['paciente'],
+    ['alertas'],
+    ['resumo'],
+    ['anamneses'],
+    ['odontograma'],
+    ['procedimentos'],
+    ['fichas'],
+    ['documentos'],
+    ['arquivos'],
+    ['indicacoes'],
+    ['autorizacoes'],
+    ['orcamentos'],
+    ['lixeira'],
+  ],
+  procedimentos: [
+    ['procedimentos'],
+    ['fichas'],
+    ['orcamentos'],
+    ['resumo'],
+    ['procedimentos-tabela'],
+    ['procedimentos-tabela-completa'],
+  ],
+  financeiro: [
+    ['abertos'],
+    ['analise'],
+    ['lancamentos'],
+    ['orcamentos'],
+    ['procedimentos'],
+    ['fichas'],
+    ['resumo'],
+    ['painel'],
+    ['grafico-codigo'],
+  ],
+  protetico: [['protetico']],
+  config: [['config'], ['email-estado']],
 }
 
 /** Tempo real: ouve os avisos do servidor e recarrega o que outra máquina mudou. */
@@ -263,7 +303,10 @@ function Layout() {
     })),
     ...(lixeira ? [{ para: '/lixeira', rotulo: 'Lixeira', icone: 'lixeira' as NomeIcone }] : []),
     ...abasDe('/configuracoes', ABAS_CONFIGURACOES),
-    ...abasDe('/financeiro', ABAS_FINANCEIRO),
+    ...abasDe(
+      '/financeiro',
+      ABAS_FINANCEIRO.filter((a) => pode(eu.perfis, a.acao)),
+    ),
     ...(relatorios
       ? GRUPOS.filter((g) => pode(eu.perfis, g.permissao)).flatMap((g) =>
           g.itens.map((i) => ({
@@ -340,6 +383,7 @@ function Layout() {
       </div>
     )
   }
+  const nomeClinica = useQuery(consultaConfig('clinica')).data?.nome
   const sistema = secoes.find((s) => s.titulo === 'Sistema')
   const opcaoConta =
     'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left font-semibold text-texto hover:bg-superficie-2'
@@ -359,10 +403,13 @@ function Layout() {
             <div className="flex items-center justify-between">
               <Link
                 to="/"
-                className="grid size-8.5 place-items-center rounded-[9px] bg-primaria text-base font-extrabold text-sobre-primaria"
-                aria-label="Clínica — início"
+                className="flex min-w-0 items-center gap-2.5"
+                aria-label={`${nomeClinica || 'Clínica'} — início`}
               >
-                C
+                <img src={logoRiso} alt="" className={`size-8.5 shrink-0 object-contain ${LOGO}`} />
+                {aberta && nomeClinica && (
+                  <span className="truncate font-extrabold text-texto">{nomeClinica}</span>
+                )}
               </Link>
               {/* O mesmo botão abre e fecha; recolhida, ele sai para fora da barra, na altura do logo. */}
               <button

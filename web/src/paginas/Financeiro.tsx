@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
-import { consultaProfissionais, mensagemDeErro } from '../api'
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
+import { consultaEu, consultaProfissionais, mensagemDeErro } from '../api'
+import { pode, type Acao } from '../../../shared/permissoes'
 import { reais } from '../../../shared/financeiro'
 import { normalizar } from '../../../shared/regras'
 import { Abas } from '../componentes/Abas'
@@ -20,25 +21,28 @@ import { OrcamentosAbertos } from './FinanceiroAbertos'
 import { COR_PADRAO } from './Profissionais'
 import { MESES, meio } from '../componentes/CalendarioIntervalo'
 
+// Recepção e profissional só veem os orçamentos abertos; o resto é do financeiro.
 export const ABAS = [
-  { id: 'abertos', rotulo: 'Orçamentos abertos' },
-  { id: 'controle', rotulo: 'Controle Financeiro' },
-  { id: 'graficos', rotulo: 'Gráficos' },
-  { id: 'graficos2', rotulo: 'Gráficos 2' },
-] as const
+  { id: 'abertos', rotulo: 'Orçamentos abertos', acao: 'orcamento.ver' },
+  { id: 'controle', rotulo: 'Controle Financeiro', acao: 'financeiro.ver' },
+  { id: 'graficos', rotulo: 'Gráficos', acao: 'financeiro.ver' },
+  { id: 'graficos2', rotulo: 'Gráficos 2', acao: 'financeiro.ver' },
+] as const satisfies readonly { id: string; rotulo: string; acao: Acao }[]
 type Aba = (typeof ABAS)[number]['id']
 
 /** Financeiro da clínica (S-009). */
 export function Financeiro() {
   const { aba: daUrl } = useSearch({ from: '/logado/financeiro' })
   const navegar = useNavigate({ from: '/financeiro' })
-  const aba = (ABAS.find((a) => a.id === daUrl)?.id ?? 'abertos') as Aba
+  const { data: eu } = useSuspenseQuery(consultaEu)
+  const abas = ABAS.filter((a) => pode(eu.perfis, a.acao))
+  const aba = (abas.find((a) => a.id === daUrl)?.id ?? 'abertos') as Aba
   const ir = (a: Aba) => navegar({ search: { aba: a === 'abertos' ? undefined : a } })
 
   return (
     <div className="space-y-5">
       <div className="print:hidden">
-        <Abas abas={[...ABAS]} atual={aba} aoTrocar={ir} />
+        {abas.length > 1 && <Abas abas={abas} atual={aba} aoTrocar={ir} />}
       </div>
       {aba === 'abertos' && <OrcamentosAbertos />}
       {aba === 'controle' && <ControleFinanceiro />}
@@ -167,13 +171,13 @@ function ControleFinanceiro() {
   const carregando = atual.isFetching ? 'opacity-60' : ''
 
   return (
-    <div className="mx-auto max-w-[1320px] space-y-4">
-      <header>
+    <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-4 lg:h-[calc(100dvh-6.5rem)] print:h-auto">
+      <header className="shrink-0">
         <h1 className="titulo">Controle Financeiro</h1>
         <p className="subtitulo">Orçamentos aprovados: o que faturou, o que entrou e o lucro.</p>
       </header>
 
-      <div className="space-y-4">
+      <div className="relative min-h-0 flex-1 space-y-4 lg:-mr-2 lg:overflow-y-auto lg:pr-2 print:overflow-visible">
         {/* Filtros (modelo de Orçamentos abertos). */}
         <div className="cartao flex flex-wrap items-center gap-2 py-2">
           <PeriodoSuspenso p={p} />
