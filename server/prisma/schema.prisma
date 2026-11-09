@@ -116,6 +116,12 @@ model Usuario {
   login     String   @unique
   nome      String
   senhaHash String
+  /// E-mail para onde vai o código de "esqueci a senha".
+  email     String?  @unique
+  /// Código de "esqueci a senha": hash, validade e tentativas erradas.
+  codigoHash       String?
+  codigoExpira     DateTime?
+  codigoTentativas Int       @default(0)
   perfis    Perfil[]
   ativo     Boolean  @default(true)
   /// Profissional ligado ao usuário (quando for dentista).

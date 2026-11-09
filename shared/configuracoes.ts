@@ -18,10 +18,6 @@ export interface DadosClinica {
   telefone: string
   email: string
 }
-export interface Medicamento {
-  nome: string
-  posologia: string
-}
 /** Modelo extra de anamnese, além do padrão da clínica. */
 export interface ModeloAnamnese {
   nome: string
@@ -60,7 +56,6 @@ export const PADROES = {
   ) as Record<keyof typeof MODELOS_DOCUMENTO, string>,
   documentosPadrao: [] as DocumentoPadrao[],
   laboratorios: [] as Laboratorio[],
-  medicamentos: [] as Medicamento[],
   /** Categorias da agenda (nome → cor); a clínica pode criar outras. */
   categorias: { ...CATEGORIAS } as Record<string, string>,
   /** Horários da semana em que a clínica não atende ninguém ("d-hh:mm"). */
@@ -194,13 +189,6 @@ export function validarConfig(
         }
         valor.push({ nome, contato: txt(l.contato, 120), trabalhos })
       }
-      return { valor }
-    }
-    case 'medicamentos': {
-      if (!Array.isArray(bruto) || bruto.length > 500) return { erro: 'Lista inválida.' }
-      const valor = (bruto as Record<string, unknown>[])
-        .map((m) => ({ nome: txt(m?.nome, 120), posologia: txt(m?.posologia, 300) }))
-        .filter((m) => m.nome)
       return { valor }
     }
     case 'horariosFechados': {

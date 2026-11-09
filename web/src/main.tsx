@@ -33,7 +33,7 @@ import './index.css'
 import { api, consultaConfig, consultaEu } from './api'
 import logoRiso from './assets/logo_riso.png'
 import { Confirmacao } from './componentes/Confirmar'
-import { PALETAS, avisar, useAvisos, useTema, type Paleta } from './estado'
+import { avisar, useAvisos, useTema } from './estado'
 import { PERFIS, pode } from '../../shared/permissoes'
 import { Entrar, LOGO } from './paginas/Entrar'
 import { Pacientes } from './paginas/Pacientes'
@@ -46,16 +46,15 @@ import { ProfissionalPagina } from './paginas/Profissional'
 import { ABAS as ABAS_FINANCEIRO, Financeiro } from './paginas/Financeiro'
 import { Relatorios } from './paginas/Relatorios'
 import { DocumentoImpresso } from './paginas/DocumentoImpresso'
-import { TrocarMinhaSenha, Usuarios } from './paginas/Usuarios'
+import { Usuarios } from './paginas/Usuarios'
 import { ABAS as ABAS_CONFIGURACOES, Configuracoes } from './paginas/Configuracoes'
 import { Protetico } from './paginas/Protetico'
 import { Confirmacoes } from './paginas/Confirmacoes'
+import { ENVIOS, Mensagens, type EnvioMensagem } from './paginas/Mensagens'
 import { ConfirmarPresenca } from './paginas/ConfirmarPresenca'
 import { AutorizarPlano } from './paginas/AutorizarPlano'
 import { Painel } from './paginas/Painel'
-import { Importacao } from './paginas/Importacao'
 import { Estilos } from './paginas/Estilos'
-import { Fontes } from './paginas/Fontes'
 import { Dialogo } from './componentes/Dialogo'
 import { ABAS } from './abas'
 import { GRUPOS } from '../../shared/relatorios'
@@ -67,16 +66,14 @@ const queryClient = new QueryClient({
 })
 
 function Raiz() {
-  const { tema, paleta } = useTema()
+  const tema = useTema((s) => s.tema)
   const avisos = useAvisos((s) => s.avisos)
   useEffect(() => {
     document.documentElement.dataset.tema = tema
-    document.documentElement.dataset.paleta = paleta
-  }, [tema, paleta])
+  }, [tema])
   return (
     <>
       <Outlet />
-      <SeletorPaleta />
       <Confirmacao />
       <div aria-live="polite" className="fixed right-4 bottom-4 space-y-2">
         {avisos.map((a) => (
@@ -89,33 +86,6 @@ function Raiz() {
         ))}
       </div>
     </>
-  )
-}
-
-// TEMPORÁRIO: para escolher a paleta da marca. Apagar quando a clínica decidir
-// (deixar só a paleta escolhida no index.css).
-function SeletorPaleta() {
-  const { tema, paleta, alternar, escolherPaleta } = useTema()
-  return (
-    <div className="fixed bottom-24 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center overflow-x-auto gap-1 rounded-full border border-borda bg-superficie p-1 shadow-lg md:bottom-4 print:hidden">
-      {(Object.keys(PALETAS) as Paleta[]).map((p) => (
-        <button
-          key={p}
-          onClick={() => escolherPaleta(p)}
-          aria-pressed={p === paleta}
-          className={`rounded-full px-3 py-1 text-xs font-bold whitespace-nowrap ${p === paleta ? 'bg-primaria text-sobre-primaria' : 'text-suave hover:bg-primaria-clara'}`}
-        >
-          {PALETAS[p]}
-        </button>
-      ))}
-      <button
-        onClick={alternar}
-        className="rounded-full px-3 py-1 text-xs font-bold whitespace-nowrap text-suave hover:bg-primaria-clara"
-        title="Alternar claro/escuro"
-      >
-        {tema === 'claro' ? '☾ Escuro' : '☀ Claro'}
-      </button>
-    </div>
   )
 }
 
@@ -192,10 +162,10 @@ function useTempoReal() {
 const SECOES: { titulo: string; paginas: string[] }[] = [
   {
     titulo: 'Atendimento',
-    paginas: ['/agenda', '/agenda-2', '/confirmacoes', '/pacientes', '/protetico'],
+    paginas: ['/agenda', '/confirmacoes', '/protetico', '/mensagens', '/pacientes'],
   },
-  { titulo: 'Gestão', paginas: ['/financeiro', '/profissionais', '/relatorios', '/painel'] },
-  { titulo: 'Sistema', paginas: ['/usuarios', '/configuracoes', '/importacao'] },
+  { titulo: 'Gestão', paginas: ['/financeiro', '/painel', '/profissionais', '/relatorios'] },
+  { titulo: 'Sistema', paginas: ['/usuarios', '/configuracoes'] },
 ]
 /** Abas fixas da barra de baixo no celular; o resto fica em "Mais". */
 const ABAS_CELULAR = ['/agenda', '/pacientes', '/financeiro']
@@ -230,7 +200,6 @@ function Layout() {
   const qc = useQueryClient()
   const navegar = useNavigate()
   useTempoReal()
-  const [trocarSenha, setTrocarSenha] = useState(false)
   const [mais, setMais] = useState(false)
   const busca = useRef<HTMLInputElement>(null)
   // Entre md e lg a barra fica sempre recolhida; abaixo de md vira a barra de baixo.
@@ -267,7 +236,7 @@ function Layout() {
   const lixeira = pode(eu.perfis, 'lixeira.restaurar')
   const secoes = SECOES.map((s) => ({
     ...s,
-    abas: visiveis.filter((a) => s.paginas.includes(a.para)),
+    abas: s.paginas.flatMap((p) => visiveis.filter((a) => a.para === p)),
   })).filter((s) => s.abas.length || (s.titulo === 'Sistema' && lixeira))
   const iniciais = eu.nome
     .split(/\s+/)
@@ -386,9 +355,13 @@ function Layout() {
   }
   const nomeClinica = useQuery(consultaConfig('clinica')).data?.nome
   const sistema = secoes.find((s) => s.titulo === 'Sistema')
-  const opcaoConta =
-    'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left font-semibold text-texto hover:bg-superficie-2'
-  const fecharConta = () => document.getElementById('menu-conta')?.hidePopover()
+  const acaoConta = `group relative grid size-8 place-items-center rounded-lg text-suave hover:text-texto ${aberta ? 'hover:bg-borda/60' : 'hover:bg-superficie-2'}`
+  // Barra aberta: o balão sobe, porque ao lado ele sairia por baixo do conteúdo da página.
+  const balaoAcima = balao.replace(
+    'top-1/2 left-full z-20 ml-3 -translate-y-1/2',
+    'bottom-full left-1/2 z-20 mb-2 -translate-x-1/2',
+  )
+  const rotuloTema = tema === 'claro' ? 'Tema escuro' : 'Tema claro'
   const abasCelular = visiveis.filter((a) => ABAS_CELULAR.includes(a.para))
   const abaCelular =
     'flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl py-1.5 text-[11px] font-extrabold text-suave [&.active]:text-primaria [&.active>span]:bg-primaria-clara'
@@ -516,50 +489,40 @@ function Layout() {
               </div>
             )}
           </nav>
-          {/* Rodapé: quem está conectado; o clique abre tema, senha e sair. */}
-          <button
-            popoverTarget="menu-conta"
-            className={`flex items-center gap-3 text-left ${aberta ? 'w-full rounded-b-2xl bg-superficie-2 px-4 py-3.5' : 'mb-3.5 rounded-full'}`}
-            title={aberta ? undefined : eu.nome}
-            aria-label={`Conta: ${eu.nome}. Abrir opções`}
+          {/* Rodapé: quem está conectado, com tema e sair sempre à vista. */}
+          <div
+            className={`flex items-center ${aberta ? 'w-full gap-3 rounded-b-2xl bg-superficie-2 py-3.5 pr-2.5 pl-4' : 'mb-3.5 flex-col-reverse gap-1.5'}`}
           >
-            <span className="relative grid size-9 shrink-0 place-items-center rounded-full bg-secundaria-clara text-xs font-extrabold text-texto">
+            <span
+              className="relative grid size-9 shrink-0 place-items-center rounded-full bg-secundaria-clara text-xs font-extrabold text-texto"
+              title={aberta ? undefined : eu.nome}
+            >
               {iniciais}
               <span className="absolute -right-px -bottom-px size-2.5 rounded-full border-2 border-superficie bg-sucesso" />
             </span>
             {aberta && (
-              <>
-                <span className="min-w-0 flex-1 leading-tight">
-                  <span className="block truncate font-extrabold text-titulo">{eu.nome}</span>
-                  <span className="block truncate text-xs font-semibold text-suave">{perfil}</span>
-                </span>
-                <span className="grid size-6 place-items-center rounded-md bg-borda/60 text-suave">
-                  <Icone nome="alternar" className="size-3.5" />
-                </span>
-              </>
+              <span className="min-w-0 flex-1 leading-tight" title={eu.nome}>
+                <span className="block truncate font-extrabold text-titulo">{eu.nome}</span>
+                <span className="block truncate text-xs font-semibold text-suave">{perfil}</span>
+              </span>
             )}
-          </button>
+            <div className={`flex gap-0.5 ${aberta ? '' : 'flex-col'}`}>
+              <button className={acaoConta} onClick={alternar} aria-label={rotuloTema}>
+                <Icone nome={tema === 'claro' ? 'escuro' : 'claro'} className={icone} />
+                <span className={aberta ? balaoAcima : balao}>{rotuloTema}</span>
+              </button>
+              <button
+                className={`${acaoConta} hover:bg-perigo/10! hover:text-perigo!`}
+                onClick={sair}
+                aria-label="Sair"
+              >
+                <Icone nome="sair" className={icone} />
+                <span className={aberta ? balaoAcima : balao}>Sair</span>
+              </button>
+            </div>
+          </div>
         </div>
       </aside>
-      <div
-        id="menu-conta"
-        popover="auto"
-        className="fixed inset-auto bottom-20 left-4 m-0 w-60 rounded-xl border border-borda bg-superficie p-1.5 text-sm text-texto shadow-xl"
-      >
-        <button className={opcaoConta} onClick={() => (alternar(), fecharConta())}>
-          <Icone nome={tema === 'claro' ? 'escuro' : 'claro'} className={icone} />
-          {tema === 'claro' ? 'Tema escuro' : 'Tema claro'}
-        </button>
-        <button className={opcaoConta} onClick={() => (setTrocarSenha(true), fecharConta())}>
-          <Icone nome="cadeado" className={icone} />
-          Trocar minha senha
-        </button>
-        <hr className="my-1 border-borda" />
-        <button className={`${opcaoConta} text-perigo`} onClick={sair}>
-          <Icone nome="sair" className={icone} />
-          Sair
-        </button>
-      </div>
       {/* Celular: barra de abas embaixo; "Mais" abre as outras páginas. */}
       <nav
         aria-label="Menu principal"
@@ -617,23 +580,10 @@ function Layout() {
           <button className="botao-secundario flex-1" onClick={alternar}>
             {tema === 'claro' ? 'Tema escuro' : 'Tema claro'}
           </button>
-          <button
-            className="botao-secundario flex-1"
-            onClick={() => (setMais(false), setTrocarSenha(true))}
-          >
-            Trocar senha
-          </button>
           <button className="botao-secundario flex-1 text-perigo" onClick={sair}>
             Sair
           </button>
         </div>
-      </Dialogo>
-      <Dialogo
-        aberto={trocarSenha}
-        aoFechar={() => setTrocarSenha(false)}
-        titulo="Trocar minha senha"
-      >
-        <TrocarMinhaSenha aoTerminar={() => setTrocarSenha(false)} />
       </Dialogo>
       <main className="min-w-0 flex-1 p-4 pb-28 md:pb-4">
         <div className="mx-auto max-w-screen-2xl">
@@ -673,8 +623,9 @@ const pacientes = createRoute({
   path: '/pacientes',
   validateSearch: (
     s: Record<string, unknown>,
-  ): { busca?: string; pagina?: number; linhas?: number } => ({
+  ): { busca?: string; pagina?: number; linhas?: number; ordem?: 'az' | 'za' } => ({
     busca: typeof s.busca === 'string' && s.busca ? s.busca : undefined,
+    ordem: s.ordem === 'az' || s.ordem === 'za' ? s.ordem : undefined,
     pagina: Number(s.pagina) > 1 ? Number(s.pagina) : undefined,
     linhas: [25, 50].includes(Number(s.linhas)) ? Number(s.linhas) : undefined,
   }),
@@ -699,12 +650,13 @@ const documento = createRoute({
 })
 const lixeira = createRoute({ getParentRoute: () => logado, path: '/lixeira', component: Lixeira })
 
-const agenda = createRoute({ getParentRoute: () => logado, path: '/agenda', component: Agenda })
-const agenda2 = createRoute({
+const agenda = createRoute({
   getParentRoute: () => logado,
-  path: '/agenda-2',
+  path: '/agenda',
   component: () => <Agenda filtrosNoTopo />,
 })
+// A agenda antiga (filtros na lateral): fora do menu, só pelo endereço.
+const agenda2 = createRoute({ getParentRoute: () => logado, path: '/agenda-2', component: Agenda })
 
 const financeiro = createRoute({
   getParentRoute: () => logado,
@@ -741,24 +693,27 @@ const configuracoes = createRoute({
 })
 const protetico = pagina('/protetico', Protetico)
 const confirmacoes = pagina('/confirmacoes', Confirmacoes)
+const mensagens = createRoute({
+  getParentRoute: () => logado,
+  path: '/mensagens',
+  // envio + pedido: vem da ficha com o pedido de assinatura (ou o PDF assinado) já escolhido.
+  validateSearch: (
+    s: Record<string, unknown>,
+  ): { paciente?: number; envio?: EnvioMensagem; pedido?: number } => ({
+    paciente: Number(s.paciente) > 0 ? Number(s.paciente) : undefined,
+    envio: ENVIOS.find((e) => e === s.envio),
+    pedido: Number(s.pedido) > 0 ? Number(s.pedido) : undefined,
+  }),
+  component: Mensagens,
+})
 const painel = pagina('/painel', Painel)
-const importacao = pagina('/importacao', Importacao)
-// TEMPORÁRIO e público (sem dados de paciente): vitrine para escolher a paleta.
+// Pública (sem dados de paciente): guia de estilo dos componentes.
 const estilos = createRoute({
   getParentRoute: () => raiz,
   path: '/estilos',
   component: () => (
     <main className="mx-auto max-w-5xl p-4">
       <Estilos />
-    </main>
-  ),
-})
-const fontes = createRoute({
-  getParentRoute: () => raiz,
-  path: '/fonts',
-  component: () => (
-    <main className="mx-auto max-w-6xl p-4">
-      <Fontes />
     </main>
   ),
 })
@@ -781,7 +736,6 @@ const router = createRouter({
     confirmar,
     autorizar,
     estilos,
-    fontes,
     logado.addChildren([
       inicio,
       agenda,
@@ -798,8 +752,8 @@ const router = createRouter({
       configuracoes,
       protetico,
       confirmacoes,
+      mensagens,
       painel,
-      importacao,
     ]),
   ]),
   context: { queryClient },

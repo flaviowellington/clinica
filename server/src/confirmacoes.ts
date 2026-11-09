@@ -4,7 +4,7 @@ import { Router, type Request } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
 import { pode } from '../../shared/permissoes'
-import { enviar, ErroEnvio } from './mensagens'
+import { enviar, responderErroEnvio } from './mensagens'
 import { lerConfig } from './configuracoes'
 import { preencherModelo } from '../../shared/prontuario'
 import { EnviarConfirmacaoDto } from '../../shared/dtos'
@@ -39,7 +39,8 @@ function idDoToken(token: string) {
 /** Endereço público do sistema, para o link do e-mail (URL_PUBLICA no server/.env). */
 export const enderecoPublico = () =>
   (process.env.URL_PUBLICA ?? process.env.ORIGEM_WEB ?? 'http://localhost:5173').replace(/\/$/, '')
-const linkConfirmacao = (id: number) => `${enderecoPublico()}/confirmar/${tokenConfirmacao(id)}`
+const linkConfirmacao = (id: number) =>
+  `${enderecoPublico()}/confirmar/${tokenConfirmacao(id)}?confirmar=1`
 
 const incluir = {
   paciente: { select: { id: true, nome: true, celular: true, email: true } },
@@ -109,7 +110,7 @@ rotasConfirmacoes.post('/:id/enviar', exigir('agenda.editar'), async (req, res) 
     })
     res.json(m)
   } catch (e) {
-    res.status(e instanceof ErroEnvio ? e.status : 502).json({ erro: (e as Error).message })
+    responderErroEnvio(res, e)
   }
 })
 

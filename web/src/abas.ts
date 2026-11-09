@@ -8,8 +8,8 @@ const todos = () => true
 export const ABAS: {
   para:
     | '/agenda'
-    | '/agenda-2'
     | '/confirmacoes'
+    | '/mensagens'
     | '/pacientes'
     | '/protetico'
     | '/financeiro'
@@ -18,7 +18,6 @@ export const ABAS: {
     | '/painel'
     | '/usuarios'
     | '/configuracoes'
-    | '/importacao'
   rotulo: string
   descricao: string
   icone: NomeIcone
@@ -32,17 +31,17 @@ export const ABAS: {
     visivel: todos,
   },
   {
-    para: '/agenda-2',
-    rotulo: 'Agenda 2',
-    descricao: 'A agenda com os filtros no topo e a grade na largura toda.',
-    icone: 'agenda',
-    visivel: todos,
-  },
-  {
     para: '/confirmacoes',
     rotulo: 'Confirmações',
     descricao: 'Confirme as consultas por e-mail ou à mão.',
     icone: 'confirmacoes',
+    visivel: (p) => pode(p, 'agenda.editar'),
+  },
+  {
+    para: '/mensagens',
+    rotulo: 'Mensagens',
+    descricao: 'Texto, confirmação ou plano para assinar, por e-mail ou WhatsApp.',
+    icone: 'conversa',
     visivel: (p) => pode(p, 'agenda.editar'),
   },
   {
@@ -101,12 +100,5 @@ export const ABAS: {
     descricao: 'Dados da clínica, procedimentos, anamnese, modelos e e-mail.',
     icone: 'configuracoes',
     visivel: (p) => pode(p, 'configuracao.editar'),
-  },
-  {
-    para: '/importacao',
-    rotulo: 'Importar dados',
-    descricao: 'Traga pacientes, agenda e prontuário do sistema antigo.',
-    icone: 'importacao',
-    visivel: (p) => pode(p, 'dados.importar'),
   },
 ]

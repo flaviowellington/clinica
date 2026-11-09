@@ -23,7 +23,6 @@ import {
   type DadosClinica,
   type DocumentoPadrao,
   type Laboratorio,
-  type Medicamento,
   type ModeloAnamnese,
 } from '../../../shared/configuracoes'
 import { CampoSelect } from '../componentes/CampoSelect'
@@ -32,9 +31,10 @@ import { CampoEspecialidade } from './Profissionais'
 import { Situacao } from './Pacientes'
 import { CampoEmail } from '../componentes/CampoMascara'
 import { ETAPAS, type Etapa } from '../../../shared/protetico'
+import { Importacao } from './Importacao'
 
 // Ordem: a clínica; o que é cadastrado antes (especialidades → procedimentos → laboratórios);
-// o atendimento (anamnese → documentos → medicamentos da receita); a comunicação.
+// o atendimento (anamnese → documentos); a comunicação.
 export const ABAS = [
   { id: 'clinica', rotulo: 'Clínica' },
   { id: 'horarios', rotulo: 'Horários de atendimento' },
@@ -43,8 +43,8 @@ export const ABAS = [
   { id: 'laboratorios', rotulo: 'Laboratórios' },
   { id: 'anamnese', rotulo: 'Anamnese' },
   { id: 'documentos', rotulo: 'Modelos de documento' },
-  { id: 'medicamentos', rotulo: 'Medicamentos' },
   { id: 'mensagens', rotulo: 'E-mail e mensagens' },
+  { id: 'importacao', rotulo: 'Importar dados' },
 ] as const
 
 /** Lista longa rola dentro do cartão, não a página (cabeçalho e abas ficam à vista). */
@@ -72,9 +72,9 @@ export function Configuracoes() {
       {aba === 'laboratorios' && <Laboratorios />}
       {aba === 'anamnese' && <ModelosAnamnese />}
       {aba === 'documentos' && <ModelosDocumento />}
-      {aba === 'medicamentos' && <Medicamentos />}
       {aba === 'especialidades' && <Especialidades />}
       {aba === 'mensagens' && <Mensagens />}
+      {aba === 'importacao' && <Importacao />}
     </div>
   )
 }
@@ -465,7 +465,7 @@ function Laboratorios() {
     (ordens.data ?? []).filter((o) => normalizar(o.laboratorio) === normalizar(nome))
 
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-[18rem_1fr]">
+    <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[18rem_1fr]">
       <Secao
         titulo="Laboratórios"
         acao={
@@ -1213,208 +1213,6 @@ function ModelosFixos() {
         <Rodape ocupado={salvar.isPending} texto="Salvar modelos" />
       </form>
     </Secao>
-  )
-}
-
-// ── Medicamentos ────────────────────────────────────────────────────────────
-interface UsoMedicamento {
-  total: number
-  documentos: {
-    id: number
-    titulo: string
-    criadoEm: string
-    paciente: { id: number; nome: string }
-  }[]
-  modelos: string[]
-}
-const buscarUso = async (nome: string) =>
-  (await api.get<UsoMedicamento>('/configuracoes/medicamentos/uso', { params: { nome } })).data
-const consultaUso = (nome: string) => ({
-  queryKey: ['uso-medicamento', nome],
-  queryFn: () => buscarUso(nome),
-})
-
-function Medicamentos() {
-  const c = useQuery(consultaConfig('medicamentos'))
-  return c.data ? <ListaMedicamentos inicial={c.data} /> : <Carregando />
-}
-
-function ListaMedicamentos({ inicial }: { inicial: Medicamento[] }) {
-  const qc = useQueryClient()
-  const [lista, setLista] = useState(inicial)
-  const [nome, setNome] = useState('')
-  const [posologia, setPosologia] = useState('')
-  const [busca, setBusca] = useState('')
-  const [usoDe, setUsoDe] = useState<string | null>(null)
-  const salvar = useSalvar('medicamentos', 'Medicamentos salvos')
-  const gravar = (nova: Medicamento[]) => {
-    setLista(nova)
-    salvar.mutate(nova)
-  }
-  const visiveis = lista
-    .map((m, i) => ({ ...m, i }))
-    .filter((m) => normalizar(`${m.nome} ${m.posologia}`).includes(normalizar(busca)))
-
-  const remover = async (m: Medicamento, i: number) => {
-    const uso = await qc.fetchQuery(consultaUso(m.nome)).catch(() => null)
-    const onde = uso && uso.total + uso.modelos.length
-    const texto = onde
-      ? `"${m.nome}" aparece em ${uso.total} documento(s) de pacientes${uso.modelos.length ? ` e em ${uso.modelos.length} documento(s) padrão` : ''}. Remover da lista? O que já foi emitido não muda.`
-      : `Remover "${m.nome}" da lista?`
-    if (await confirmar(texto, { botao: 'Remover' })) gravar(lista.filter((_, k) => k !== i))
-  }
-
-  return (
-    <>
-      <Secao
-        titulo="Medicamentos"
-        descricao="Aparecem na receita, para inserir com a posologia padrão."
-        colado
-        className="max-w-4xl"
-      >
-        <form
-          className="flex flex-wrap items-end gap-3 border-b border-borda bg-superficie-2 px-4 py-4"
-          onSubmit={(e) => {
-            e.preventDefault()
-            gravar([...lista, { nome: nome.trim(), posologia: posologia.trim() }])
-            setNome('')
-            setPosologia('')
-          }}
-        >
-          <label className="min-w-48 flex-1">
-            <span className="rotulo">Medicamento *</span>
-            <input
-              className="campo"
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              placeholder="Ex.: Amoxicilina 500 mg"
-              required
-            />
-          </label>
-          <label className="min-w-60 flex-[2]">
-            <span className="rotulo">Posologia padrão</span>
-            <input
-              className="campo"
-              value={posologia}
-              onChange={(e) => setPosologia(e.target.value)}
-              placeholder="Ex.: 1 cápsula de 8 em 8 horas por 7 dias"
-            />
-          </label>
-          <button className="botao" disabled={salvar.isPending}>
-            <Icone nome="mais" className="h-4 w-4" />
-            Adicionar
-          </button>
-        </form>
-        {lista.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-borda px-4 py-3">
-            <CampoBusca valor={busca} aoMudar={setBusca} rotulo="Buscar medicamento" />
-            <span className="text-sm font-bold text-suave">
-              {lista.length} {lista.length === 1 ? 'medicamento' : 'medicamentos'}
-            </span>
-          </div>
-        )}
-        {!visiveis.length ? (
-          <Vazio
-            icone={busca ? 'busca' : 'documento'}
-            titulo={busca ? 'Nenhum medicamento encontrado' : 'Nenhum medicamento cadastrado'}
-          />
-        ) : (
-          <ul className="max-h-[calc(100dvh-29rem)] min-h-40 divide-y divide-borda overflow-y-auto">
-            {visiveis.map((m) => (
-              <li
-                key={m.i}
-                className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 hover:bg-primaria-clara"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block font-bold text-titulo">{m.nome}</span>
-                  <span className="text-suave">{m.posologia || 'Sem posologia padrão'}</span>
-                </span>
-                <button className="botao-fantasma botao-pequeno" onClick={() => setUsoDe(m.nome)}>
-                  <Icone nome="busca" className="h-4 w-4" />
-                  Onde é usado
-                </button>
-                <button
-                  className="botao-fantasma botao-icone text-perigo hover:bg-perigo/10"
-                  aria-label={`Remover ${m.nome}`}
-                  title="Remover"
-                  onClick={() => remover(m, m.i)}
-                >
-                  <Icone nome="lixeira" className="h-4 w-4" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Secao>
-      <Dialogo
-        aberto={!!usoDe}
-        aoFechar={() => setUsoDe(null)}
-        titulo={`Onde ${usoDe ?? ''} é usado`}
-      >
-        {usoDe && <UsoDoMedicamento nome={usoDe} />}
-      </Dialogo>
-    </>
-  )
-}
-
-function UsoDoMedicamento({ nome }: { nome: string }) {
-  const uso = useQuery(consultaUso(nome))
-  if (uso.isPending) return <p className="text-suave">Buscando…</p>
-  if (uso.isError) return <p className="text-perigo">{mensagemDeErro(uso.error)}</p>
-  const { total, documentos, modelos } = uso.data
-  if (!total && !modelos.length)
-    return (
-      <Vazio
-        icone="busca"
-        titulo="Não é usado em nenhum lugar"
-        texto="Nenhuma receita, documento ou modelo menciona este medicamento."
-      />
-    )
-  return (
-    <div className="space-y-4">
-      {modelos.length > 0 && (
-        <div>
-          <p className="rotulo">Documentos padrão</p>
-          <div className="flex flex-wrap gap-1">
-            {modelos.map((m) => (
-              <span key={m} className="etiqueta etiqueta-primaria">
-                {m}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      {total > 0 && (
-        <div>
-          <p className="rotulo">
-            Documentos de pacientes <span className="etiqueta ml-1">{total}</span>
-          </p>
-          <ul className="divide-y divide-borda rounded-xl border border-borda">
-            {documentos.map((d) => (
-              <li key={d.id} className="flex items-center gap-3 px-3 py-2">
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-bold">{d.paciente.nome}</span>
-                  <span className="text-xs text-suave">
-                    {d.titulo} · {dataBR(d.criadoEm)}
-                  </span>
-                </span>
-                <Link
-                  to="/documento/$id"
-                  params={{ id: String(d.id) }}
-                  className="botao-fantasma botao-pequeno"
-                >
-                  <Icone nome="externo" className="h-4 w-4" />
-                  Abrir
-                </Link>
-              </li>
-            ))}
-          </ul>
-          {total > documentos.length && (
-            <p className="ajuda">Mostrando os {documentos.length} mais recentes.</p>
-          )}
-        </div>
-      )}
-    </div>
   )
 }
 

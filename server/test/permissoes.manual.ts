@@ -71,8 +71,8 @@ const MATRIZ: [modulo: string, metodo: string, caminho: string, quem: string][] 
   ['Usuários', 'POST', '/api/usuarios', 'A'],
   ['Configurações', 'GET', '/api/configuracoes/email/estado', 'A'],
   ['Importar dados', 'GET', '/api/importacao', 'A'],
-  ['Lixeira', 'GET', '/api/lixeira/pacientes', 'A'],
-  ['Lixeira', 'POST', '/api/lixeira/pacientes/999999/restaurar', 'A'],
+  ['Lixeira', 'GET', '/api/lixeira', 'A'],
+  ['Lixeira', 'POST', '/api/lixeira/paciente/999999/restaurar', 'A'],
   ['Profissionais', 'GET', '/api/profissionais', 'RFPA'],
   ['Profissionais', 'POST', '/api/profissionais', 'A'],
 ]

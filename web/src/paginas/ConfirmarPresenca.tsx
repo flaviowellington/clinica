@@ -1,4 +1,5 @@
 // Página pública: o paciente abre o link do e-mail e confirma a consulta. Sem login.
+import { useEffect } from 'react'
 import { useParams } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api, dataBR, mensagemDeErro } from '../api'
@@ -23,6 +24,11 @@ export function ConfirmarPresenca() {
     mutationFn: async () => (await api.post(`/publico/confirmacao/${token}`)).data,
   })
   const d = dados.data
+  const umClique = new URLSearchParams(location.search).has('confirmar')
+  const { mutate, isIdle } = confirmar
+  useEffect(() => {
+    if (umClique && d && !d.confirmado && isIdle) mutate()
+  }, [umClique, d, isIdle, mutate])
   return (
     <main className="grid min-h-screen place-items-center p-4">
       <div className="cartao w-full max-w-md space-y-4 p-6 text-center">

@@ -158,6 +158,11 @@ export const ProfissionalDto = z.object({
   ),
 })
 
+/** E-mail do usuário, obrigatório e em minúsculas: é por ele que se recupera a senha. */
+const emailUsuario = emailObrigatorio('Informe o e-mail do usuário.').transform((v) =>
+  v.toLowerCase(),
+)
+
 export const UsuarioNovoDto = z.object({
   /** Dados do profissional a criar junto (o nome é o do usuário). */
   profissional: ProfissionalDto.omit({ nome: true }).optional(),
@@ -167,6 +172,7 @@ export const UsuarioNovoDto = z.object({
     z.string({ error: LOGIN_INVALIDO }).regex(/^[a-z0-9._-]{3,40}$/, LOGIN_INVALIDO),
   ),
   senha: senha(),
+  email: emailUsuario,
   perfis,
   pessoaId: idOpcional,
 })
@@ -179,6 +185,7 @@ export const UsuarioEdicaoDto = z.preprocess(
   },
   z.object({
     nome: textoObrigatorio('Informe o nome.', 150),
+    email: emailUsuario,
     perfis,
     ativo: z.boolean().catch(true),
     pessoaId: idOpcional,
@@ -186,6 +193,17 @@ export const UsuarioEdicaoDto = z.preprocess(
 )
 
 export const SenhaDto = z.object({ senha: senha() })
+
+// Esqueci a senha: pede o código pelo e-mail e depois troca a senha com ele.
+const emailLogin = emailObrigatorio('Informe o e-mail cadastrado.').transform((v) =>
+  v.toLowerCase(),
+)
+export const PedirCodigoDto = z.object({ email: emailLogin })
+export const RedefinirSenhaDto = z.object({
+  email: emailLogin,
+  codigo: qualquerTexto.transform((v) => v.replace(/\D/g, '')),
+  senha: senha(),
+})
 
 export const MinhaSenhaDto = z.object({
   atual: qualquerTexto,
@@ -276,6 +294,12 @@ export const DesmarcarDto = z.object({ motivo: texto(500) })
 
 export const EnviarConfirmacaoDto = z.object({
   canal: z.enum(['EMAIL', 'WHATSAPP', 'SMS']).catch('EMAIL'),
+})
+
+export const MensagemLivreDto = z.object({
+  canal: z.enum(['EMAIL', 'WHATSAPP']).catch('EMAIL'),
+  assunto: texto(200),
+  texto: textoObrigatorio('Escreva a mensagem.', 4000),
 })
 
 // ── Configurações ───────────────────────────────────────────────────────────

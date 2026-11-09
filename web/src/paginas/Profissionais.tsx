@@ -368,19 +368,19 @@ export function Profissionais() {
           </p>
           <p className="truncate text-xs text-suave">{p.cro ?? 'Sem CRO'}</p>
         </div>
+        {p.ativo ? (
+          <span className="etiqueta etiqueta-sucesso shrink-0">Ativo</span>
+        ) : (
+          <span className="etiqueta shrink-0 border border-dashed border-suave/50">
+            <Icone nome="pausa" className="h-3 w-3" />
+            Inativo
+          </span>
+        )}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4">
+      <div className="flex flex-wrap items-center gap-2 px-4">
         <span className={`etiqueta ${p.especialidade && p.ativo ? 'etiqueta-primaria' : ''}`}>
           {p.especialidade ?? 'Sem especialidade'}
         </span>
-        {p.ativo ? (
-          <span className="etiqueta etiqueta-sucesso">Ativo</span>
-        ) : (
-          <span className="etiqueta border border-dashed border-suave/50">
-            <Icone nome="pausa" className="h-3 w-3" />
-            Inativo · fora da agenda
-          </span>
-        )}
       </div>
       <dl className={`space-y-1.5 px-4 pb-1 text-suave ${p.ativo ? '' : 'opacity-70'}`}>
         <div className="flex items-center gap-2">

@@ -21,7 +21,6 @@ const CAMINHOS = {
   protetico: 'M4 5h4v14H4zM10 5h4v14h-4zM16 5h4v14h-4z',
   confirmacoes: 'M4 6h16v12H4zM4 7l8 6 8-6M15 17l2 2 4-4',
   painel: 'M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z',
-  importacao: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
   busca: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4',
   recolher: 'M4 4h16v16H4zM9 4v16M16 9l-3 3 3 3',
   expandir: 'M4 4h16v16H4zM9 4v16M13 9l3 3-3 3',

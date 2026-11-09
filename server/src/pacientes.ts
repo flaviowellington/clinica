@@ -65,12 +65,34 @@ rotasPacientes.get('/', exigir('paciente.ver'), async (req, res) => {
       OR: [{ nomeBusca: { contains: termo } }, { id: { in: porNumero } }],
     }),
   }
+  const skip = (pagina - 1) * porPagina
+  const ordem = String(req.query.ordem ?? '')
+
+  // Acessados recentemente: a ficha aberta por qualquer usuário, do acesso mais novo ao mais antigo.
+  if (ordem === 'recentes') {
+    const [total, grupos] = await Promise.all([
+      db.pessoa.count({ where: { ...where, acessos: { some: {} } } }),
+      db.logAcesso.groupBy({
+        by: ['pessoaId'],
+        where: { pessoa: where },
+        _max: { em: true },
+        orderBy: { _max: { em: 'desc' } },
+        skip,
+        take: porPagina,
+      }),
+    ])
+    const ids = grupos.map((g) => g.pessoaId)
+    const achados = await db.pessoa.findMany({ where: { id: { in: ids } } })
+    const itens = ids.map((id) => achados.find((p) => p.id === id)!)
+    return res.json({ total, porPagina, itens: itens.map(paraTela) })
+  }
+
   const [total, itens] = await Promise.all([
     db.pessoa.count({ where }),
     db.pessoa.findMany({
       where,
-      orderBy: { nomeBusca: 'asc' },
-      skip: (pagina - 1) * porPagina,
+      orderBy: { nomeBusca: ordem === 'za' ? 'desc' : 'asc' },
+      skip,
       take: porPagina,
     }),
   ])
@@ -163,25 +185,4 @@ rotasPacientes.delete('/:id', exigir('paciente.excluir'), async (req, res) => {
     data: { excluidoEm: new Date(), excluidoPorId: usuarioDe(res).id },
   })
   res.json({ mensagem: 'Paciente excluído com sucesso.' })
-})
-
-// R-050: lixeira, só para quem pode restaurar.
-export const rotasLixeira = Router()
-
-rotasLixeira.get('/pacientes', exigir('lixeira.restaurar'), async (_req, res) => {
-  const itens = await db.pessoa.findMany({
-    where: { tipo: 'PACIENTE', excluidoEm: { not: null } },
-    orderBy: { excluidoEm: 'desc' },
-    take: 200,
-  })
-  res.json(itens.map(paraTela))
-})
-
-rotasLixeira.post('/pacientes/:id/restaurar', exigir('lixeira.restaurar'), async (req, res) => {
-  const { count } = await db.pessoa.updateMany({
-    where: { id: Number(req.params.id) || 0, tipo: 'PACIENTE', excluidoEm: { not: null } },
-    data: { excluidoEm: null, excluidoPorId: null, alteradoPorId: usuarioDe(res).id },
-  })
-  if (!count) return res.status(404).json({ erro: 'Paciente não está na lixeira.' })
-  res.json({ mensagem: 'Paciente restaurado.' })
 })

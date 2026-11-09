@@ -113,7 +113,7 @@ export function ProfissionalPagina() {
           ))}
       </header>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
         <DadosBasicos key={p.id} p={p} podeEditar={podeEditar} aoSalvar={atualizar} />
         <AgendaTrabalho key={`agenda-${p.id}`} p={p} podeEditar={podeEditar} aoSalvar={atualizar} />
       </div>

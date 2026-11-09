@@ -170,7 +170,7 @@ export function Importacao() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold">Importar dados do sistema antigo</h1>
+        <h2 className="text-lg font-semibold">Importar dados do sistema antigo</h2>
         <p className="text-suave">
           No sistema antigo, use “Exportar dados” para baixar as planilhas (XLSX). Importe nesta
           ordem: <strong>1. profissionais</strong>, 2. pacientes, 3. agendamentos, 4. procedimentos

@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { Router, type Request } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
-import { enviar, ErroEnvio } from './mensagens'
+import { enviar, responderErroEnvio } from './mensagens'
 import { lerConfig } from './configuracoes'
 import { enderecoPublico } from './confirmacoes'
 import { comEtapasFixas, denteComFaces, type EtapaFicha } from '../../shared/prontuario'
@@ -12,6 +12,7 @@ import {
   AssinarAutorizacaoDto,
   AutorizacaoDto,
   AutorizacaoFichaDto,
+  EnviarConfirmacaoDto,
   JuntarAutorizacoesDto,
   idOpcional,
 } from '../../shared/dtos'
@@ -43,8 +44,9 @@ export interface ConteudoAutorizacao {
   }[]
 }
 
-const pessoaCurta = { select: { id: true, nome: true, email: true } } as const
+const pessoaCurta = { select: { id: true, nome: true, email: true, celular: true } } as const
 const link = (token: string) => `${enderecoPublico()}/autorizar/${token}`
+const linkPdf = (token: string) => `${enderecoPublico()}/api/publico/autorizacao/${token}/pdf`
 const mensagem = (primeiroNome: string, clinica: string, token: string) =>
   `Olá, ${primeiroNome}! A ${clinica} preparou o seu plano de tratamento. ` +
   `Leia e assine pelo celular: ${link(token)}`
@@ -76,6 +78,7 @@ rotasAutorizacoes.get('/', exigir('prontuario.ver'), async (req, res) => {
     lista.map(({ token, ...a }) => ({
       ...a,
       link: link(token),
+      pdf: linkPdf(token),
       mensagem: mensagem(a.paciente.nome.split(' ')[0], clinica.nome, token),
     })),
   )
@@ -333,26 +336,33 @@ rotasAutorizacoes.post('/:id/cancelar', exigir('prontuario.editar'), async (req,
   res.json({ ok: true })
 })
 
-/** Manda o link por e-mail. O WhatsApp abre no navegador da clínica, com o texto pronto. */
-rotasAutorizacoes.post('/:id/enviar', exigir('prontuario.editar'), async (req, res) => {
+/** Manda o link por e-mail ou WhatsApp (sem a API do WhatsApp: 501 com o link do WhatsApp Web). */
+rotasAutorizacoes.post('/:id/enviar', exigir('agenda.editar'), async (req, res) => {
   const a = await acharAutorizacao(req)
   if (!a) return res.status(404).json({ erro: 'Pedido não encontrado.' })
-  if (!a.paciente.email)
+  const canal = EnviarConfirmacaoDto.parse(req.body ?? {}).canal
+  const destino = canal === 'EMAIL' ? a.paciente.email : a.paciente.celular
+  if (canal === 'EMAIL' && !destino)
     return res.status(400).json({ erro: 'O paciente não tem e-mail no cadastro.' })
   const clinica = await lerConfig('clinica')
+  const nome = a.paciente.nome.split(' ')[0]
+  // Já assinado: manda a cópia em PDF.
+  const assinado = !!a.assinadoEm
   try {
     res.json(
       await enviar({
-        canal: 'EMAIL',
-        tipo: 'AUTORIZACAO',
-        destino: a.paciente.email,
-        assunto: `Seu plano de tratamento – ${clinica.nome}`,
-        texto: mensagem(a.paciente.nome.split(' ')[0], clinica.nome, a.token),
+        canal,
+        tipo: assinado ? 'AUTORIZACAO_ASSINADA' : 'AUTORIZACAO',
+        destino: destino ?? '',
+        assunto: `Seu plano de tratamento${assinado ? ' assinado' : ''} – ${clinica.nome}`,
+        texto: assinado
+          ? `Olá, ${nome}! Segue o seu plano de tratamento assinado (PDF): ${linkPdf(a.token)}`
+          : mensagem(nome, clinica.nome, a.token),
         usuarioId: usuarioDe(res).id,
       }),
     )
   } catch (e) {
-    res.status(e instanceof ErroEnvio ? e.status : 502).json({ erro: (e as Error).message })
+    responderErroEnvio(res, e)
   }
 })
 
@@ -388,7 +398,9 @@ rotasAutorizacaoPublica.get('/:token/pdf', async (req, res) => {
   if (!a) return res.status(404).json(LINK_INVALIDO)
   const nome = `plano-de-tratamento-${a.id}${a.assinadoEm ? '-assinado' : ''}.pdf`
   res.setHeader('Content-Type', 'application/pdf')
-  res.setHeader('Content-Disposition', `attachment; filename="${nome}"`)
+  // ?ver abre no navegador (a ficha); sem ele, baixa (o paciente).
+  const modo = 'ver' in req.query ? 'inline' : 'attachment'
+  res.setHeader('Content-Disposition', `${modo}; filename="${nome}"`)
   escreverPdf(res, {
     ...a,
     clinica: await lerConfig('clinica'),

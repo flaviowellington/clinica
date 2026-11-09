@@ -29,12 +29,14 @@ describe('usuários e permissões', () => {
     const novo = {
       nome: 'Recepção Nova',
       login: 'recepcao.nova',
+      email: 'Recepcao.Nova@example.com',
       senha: 'senha-forte-1',
       perfis: ['RECEPCAO'],
     }
     const r = await admin('POST', '/api/usuarios', novo)
     expect(r.status).toBe(201)
     expect(r.corpo).not.toHaveProperty('senhaHash')
+    expect(r.corpo.email).toBe('recepcao.nova@example.com')
     expect(
       (await cliente()('POST', '/api/entrar', { login: 'recepcao.nova', senha: 'senha-forte-1' }))
         .status,
@@ -43,6 +45,12 @@ describe('usuários e permissões', () => {
     expect(
       (await admin('POST', '/api/usuarios', { ...novo, login: 'outro', senha: '123' })).status,
     ).toBe(400)
+    // E-mail é obrigatório e não se repete entre usuários.
+    const semEmail = await admin('POST', '/api/usuarios', { ...novo, login: 'outro3', email: '' })
+    expect(semEmail.corpo.erros).toHaveProperty('email')
+    const emailRepetido = await admin('POST', '/api/usuarios', { ...novo, login: 'outro4' })
+    expect(emailRepetido.status).toBe(409)
+    expect(emailRepetido.corpo.erros).toHaveProperty('email')
     expect(
       (await admin('POST', '/api/usuarios', { ...novo, login: 'outro2', perfis: [] })).status,
     ).toBe(400)
@@ -51,7 +59,12 @@ describe('usuários e permissões', () => {
   it('usuário com perfil Profissional cria o profissional junto, ou liga a um que já existe', async () => {
     const admin = await entrarComo('ADMINISTRADOR')
     const base = { senha: 'senha-forte-1', perfis: ['PROFISSIONAL'] }
-    const sem = await admin('POST', '/api/usuarios', { ...base, nome: 'Dr. Sem', login: 'dr.sem' })
+    const sem = await admin('POST', '/api/usuarios', {
+      ...base,
+      nome: 'Dr. Sem',
+      login: 'dr.sem',
+      email: 'dr.sem@example.com',
+    })
     expect(sem.status).toBe(400)
     expect(sem.corpo.erros).toHaveProperty('pessoaId')
 
@@ -59,6 +72,7 @@ describe('usuários e permissões', () => {
       ...base,
       nome: 'Dra. Nova',
       login: 'dra.nova',
+      email: 'dra.nova@example.com',
       profissional: { cro: 'CRO-XX 999', especialidade: 'Ortodontia', corAgenda: '#123456' },
     })
     expect(r.status).toBe(201)
@@ -71,6 +85,7 @@ describe('usuários e permissões', () => {
       ...base,
       nome: 'Dra. Teste',
       login: 'dra.teste',
+      email: 'dra.teste@example.com',
       pessoaId: existente.id,
     })
     expect(ligado.corpo.pessoa.id).toBe(existente.id)
@@ -86,6 +101,7 @@ describe('usuários e permissões', () => {
     const r = await admin('POST', '/api/usuarios', {
       nome: 'Fulana',
       login: 'fulana',
+      email: 'fulana@example.com',
       senha: 'senha-forte-1',
       perfis: ['FINANCEIRO'],
     })
@@ -97,12 +113,14 @@ describe('usuários e permissões', () => {
     const eu = admin.usuario
     const proprio = await admin('PUT', `/api/usuarios/${eu.id}`, {
       nome: eu.nome,
+      email: 'admin@example.com',
       perfis: ['ADMINISTRADOR'],
       ativo: false,
     })
     expect(proprio.status).toBe(409)
     const semAdmin = await admin('PUT', `/api/usuarios/${eu.id}`, {
       nome: eu.nome,
+      email: 'admin@example.com',
       perfis: ['RECEPCAO'],
       ativo: true,
     })
@@ -114,6 +132,7 @@ describe('usuários e permissões', () => {
     const r = await admin('POST', '/api/usuarios', {
       nome: 'Beltrano',
       login: 'beltrano',
+      email: 'beltrano@example.com',
       senha: 'senha-forte-1',
       perfis: ['PROFISSIONAL'],
       profissional: {},
@@ -241,29 +260,6 @@ describe('configurações', () => {
     const recepcao = await entrarComo('RECEPCAO')
     expect((await recepcao('GET', url)).status).toBe(200)
     expect((await recepcao('PUT', url, [])).status).toBe(403)
-  })
-
-  it('medicamento: mostra em que documentos e modelos ele aparece', async () => {
-    const admin = await entrarComo('ADMINISTRADOR')
-    const paciente = await pacienteCom(admin)
-    const url = `/api/pacientes/${paciente.id}/documentos`
-    await admin('POST', url, { modelo: 'receita', texto: '1. AMOXICILINA 500 mg\n   8/8 h' })
-    const excluido = await admin('POST', url, { modelo: 'receita', texto: 'Amoxicilina 500 mg' })
-    await admin('DELETE', `/api/prontuario/documentos/${excluido.corpo.id}`)
-    await admin('POST', url, { modelo: 'receita', texto: 'Dipirona 1 g' })
-    await admin('PUT', '/api/configuracoes/documentosPadrao', [
-      { nome: 'Pós-extração', texto: 'Tomar amoxicilina 500 mg.' },
-    ])
-    const r = await admin('GET', '/api/configuracoes/medicamentos/uso?nome=Amoxicilina%20500%20mg')
-    expect(r.status).toBe(200)
-    expect(r.corpo.total).toBe(1)
-    expect(r.corpo.documentos).toMatchObject([{ titulo: 'Receita', paciente: { id: paciente.id } }])
-    expect(r.corpo.modelos).toEqual(['Pós-extração'])
-    expect((await admin('GET', '/api/configuracoes/medicamentos/uso')).status).toBe(400)
-    const recepcao = await entrarComo('RECEPCAO')
-    expect(
-      (await recepcao('GET', '/api/configuracoes/medicamentos/uso?nome=Dipirona')).status,
-    ).toBe(403)
   })
 
   it('tabela de procedimentos: cria, edita preço e inativa', async () => {
@@ -473,7 +469,7 @@ describe('confirmação de consultas', () => {
     expect((await publico('POST', `/api/publico/confirmacao/${c.id}.falso`)).status).toBe(404)
   })
 
-  it('sem e-mail não envia; WhatsApp e SMS ainda estão em espera', async () => {
+  it('sem e-mail nem celular não envia; SMS ainda está em espera', async () => {
     const api = await entrarComo('RECEPCAO')
     const c = await consulta(api, null)
     expect((await api('POST', `/api/confirmacoes/${c.id}/enviar`, { canal: 'EMAIL' })).status).toBe(
@@ -481,7 +477,7 @@ describe('confirmação de consultas', () => {
     )
     expect(
       (await api('POST', `/api/confirmacoes/${c.id}/enviar`, { canal: 'WHATSAPP' })).status,
-    ).toBe(501)
+    ).toBe(400) // sem celular
     expect((await api('POST', `/api/confirmacoes/${c.id}/enviar`, { canal: 'SMS' })).status).toBe(
       501,
     )

@@ -301,8 +301,16 @@ for (const { login, ...p } of profissionais) {
   ).id
 }
 
-// ── Usuários: um por perfil, e um com dois perfis (a permissão soma) ────────
-const usuarios: { login: string; nome: string; perfis: Perfil[]; pessoaId?: number }[] = [
+// ── Usuários: um por perfil, um com dois perfis (a permissão soma) e um inativo ──
+// Todos com e-mail fictício login@example.com (é para onde iria o código de "esqueci a senha").
+type UsuarioSeed = {
+  login: string
+  nome: string
+  perfis: Perfil[]
+  pessoaId?: number
+  ativo?: boolean
+}
+const usuarios: UsuarioSeed[] = [
   { login: 'admin', nome: 'Administrador', perfis: ['ADMINISTRADOR'] },
   ...profissionais.map((p) => ({
     login: p.login,
@@ -314,13 +322,12 @@ const usuarios: { login: string; nome: string; perfis: Perfil[]; pessoaId?: numb
   { login: 'recepcao2', nome: 'Recepção Fictícia Dois', perfis: ['RECEPCAO'] },
   { login: 'financeiro', nome: 'Financeiro Fictício', perfis: ['FINANCEIRO'] },
   { login: 'gestor', nome: 'Gestor Fictício', perfis: ['ADMINISTRADOR', 'FINANCEIRO'] },
+  // Saiu da clínica: aparece na tela de Usuários, mas não entra.
+  { login: 'ex.recepcao', nome: 'Ex-Recepção Fictícia', perfis: ['RECEPCAO'], ativo: false },
 ]
-for (const u of usuarios) {
-  await db.usuario.upsert({
-    where: { login: u.login },
-    update: { nome: u.nome, perfis: u.perfis, pessoaId: u.pessoaId, senhaHash, ativo: true },
-    create: { ...u, senhaHash },
-  })
+for (const { ativo = true, ...u } of usuarios) {
+  const dados = { ...u, email: `${u.login}@example.com`, senhaHash, ativo }
+  await db.usuario.upsert({ where: { login: u.login }, update: dados, create: dados })
 }
 const adminId = (await db.usuario.findUniqueOrThrow({ where: { login: 'admin' } })).id
 
@@ -1166,38 +1173,10 @@ const configs: [string, object][] = [
       email: 'contato@example.com',
     },
   ],
-  [
-    'medicamentos',
-    [
-      { nome: 'Amoxicilina 500 mg', posologia: '1 cápsula de 8 em 8 horas por 7 dias' },
-      {
-        nome: 'Ibuprofeno 600 mg',
-        posologia: '1 comprimido de 8 em 8 horas por 3 dias, após as refeições',
-      },
-      { nome: 'Dipirona 500 mg', posologia: '1 comprimido de 6 em 6 horas, se houver dor' },
-      {
-        nome: 'Clorexidina 0,12%',
-        posologia: 'Bochechar 15 ml por 1 minuto, 2 vezes ao dia, por 7 dias',
-      },
-    ],
-  ],
 ]
 for (const [chave, valor] of configs)
   if (!(await db.configuracao.findUnique({ where: { chave } })))
     await db.configuracao.create({ data: { chave, valor, alteradoPorId: adminId } })
-
-// Usuário inativo (saiu da clínica): aparece na tela de Usuários, mas não entra.
-await db.usuario.upsert({
-  where: { login: 'ex.recepcao' },
-  update: {},
-  create: {
-    login: 'ex.recepcao',
-    nome: 'Ex-Recepção Fictícia',
-    perfis: ['RECEPCAO'],
-    senhaHash,
-    ativo: false,
-  },
-})
 
 // ── Prontuário completo de um paciente: anamnese, odontograma, ficha, documentos, fotos ──
 const completo = await db.pessoa.findFirstOrThrow({
@@ -1954,5 +1933,12 @@ if (!(await db.mensagem.count())) {
 }
 
 console.log('Usuários (todos com a senha SEED_SENHA do server/.env):')
-console.table(usuarios.map((u) => ({ login: u.login, perfis: u.perfis.join(' + ') })))
+console.table(
+  usuarios.map((u) => ({
+    login: u.login,
+    email: `${u.login}@example.com`,
+    perfis: u.perfis.join(' + '),
+    ativo: u.ativo ?? true,
+  })),
+)
 await db.$disconnect()

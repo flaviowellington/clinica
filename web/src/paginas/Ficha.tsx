@@ -17,7 +17,7 @@ import type { Pergunta } from '../../../shared/prontuario'
 import { Dialogo } from '../componentes/Dialogo'
 import { FormPaciente } from '../componentes/FormPaciente'
 import { NovoRetorno } from '../componentes/Retornos'
-import { Situacao, whatsapp } from './Pacientes'
+import { Situacao } from './Pacientes'
 import { Icone, type NomeIcone } from '../componentes/Icones'
 import { OrcamentosPaciente } from '../componentes/Orcamentos'
 import { FichasEspecialidade, Odontograma } from '../componentes/Clinico'
@@ -204,21 +204,16 @@ export function Ficha() {
             </p>
           </div>
           <div className="ml-auto flex flex-wrap gap-2">
-            {p.celular && (
-              <a className="botao" href={whatsapp(p.celular)} target="_blank" rel="noreferrer">
-                WhatsApp
-              </a>
-            )}
-            {p.email && (
-              <a
-                className="botao-leve botao-icone size-10"
-                href={`mailto:${p.email}`}
-                aria-label="Enviar e-mail"
-                title="Enviar e-mail"
-              >
-                <Icone nome="confirmacoes" />
-              </a>
-            )}
+            {/* Abre o módulo Mensagens já com este paciente (e-mail ou WhatsApp). */}
+            <Link
+              to="/mensagens"
+              search={{ paciente: p.id }}
+              className="botao-leve botao-icone size-11"
+              aria-label="Enviar mensagem"
+              title="Enviar mensagem"
+            >
+              <Icone nome="confirmacoes" />
+            </Link>
             {acoes}
           </div>
         </div>
@@ -244,7 +239,7 @@ export function Ficha() {
                   />
                   {g}
                 </p>
-                <ul className="flex gap-0.5 rounded-xl border border-borda bg-superficie-2 p-[3px]">
+                <ul className="flex flex-wrap gap-0.5 rounded-xl border border-borda bg-superficie-2 p-[3px]">
                   {itens.map((a) => (
                     <li key={a.id}>
                       <button
@@ -265,7 +260,6 @@ export function Ficha() {
 
       {/* key: trocar de seção volta a rolagem ao topo. */}
       <div key={aba} className="min-w-0 space-y-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-
         {!p.ativo && p.motivoInativacao && (
           <p className="cartao border-perigo/40">
             Inativo por: {MOTIVOS_INATIVACAO[p.motivoInativacao]}

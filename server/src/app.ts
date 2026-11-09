@@ -7,7 +7,8 @@ import { rateLimit } from 'express-rate-limit'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { abrirSessao, conferirSenha, COOKIE, exigirLogin, usuarioDe } from './auth'
-import { rotasLixeira, rotasPacientes } from './pacientes'
+import { rotasPacientes } from './pacientes'
+import { rotasLixeira } from './lixeira'
 import { rotasAgenda } from './agenda'
 import { rotasFinanceiro, rotasProfissionais, rotasRelatorios } from './gestao'
 import { rotasFinanceiroContas } from './financeiro'
@@ -15,11 +16,12 @@ import { rotasOrcamentos, rotasProcedimentos, rotasRetornos } from './tratamento
 import { rotasIntegracao } from './integracao'
 import { abrirEventos, avisarAoMudar } from './tempoReal'
 import { rotasFichaPaciente, rotasProntuario } from './prontuario'
-import { rotasEu, rotasUsuarios } from './usuarios'
+import { rotasEu, rotasRecuperarSenha, rotasUsuarios } from './usuarios'
 import { rotasConfiguracoes, rotasTabelaProcedimentos } from './configuracoes'
 import { rotasProtetico } from './protetico'
 import { rotasConfirmacoes, rotasPublicas } from './confirmacoes'
 import { rotasPainel } from './painel'
+import { rotasMensagens } from './mensagens'
 import { rotasImportacao } from './importacao'
 import { lerCorpo } from './dto'
 import { EntrarDto } from '../../shared/dtos'
@@ -50,6 +52,13 @@ export function criarApp() {
     },
   )
 
+  // Esqueci a senha: poucas tentativas por IP, para não adivinharem o código nem lotarem o e-mail.
+  app.use(
+    '/api/senha',
+    rateLimit({ windowMs: 15 * 60_000, limit: 10, skipSuccessfulRequests: true }),
+    rotasRecuperarSenha,
+  )
+
   app.post('/api/sair', (_req, res) => {
     res.clearCookie(COOKIE)
     res.json({ ok: true })
@@ -71,7 +80,7 @@ export function criarApp() {
   const pacientes = avisarAoMudar('pacientes')
   app.use('/api/pacientes', exigirLogin, pacientes, rotasPacientes, rotasFichaPaciente)
   app.use('/api/prontuario', exigirLogin, pacientes, rotasProntuario)
-  app.use('/api/lixeira', exigirLogin, pacientes, rotasLixeira)
+  app.use('/api/lixeira', exigirLogin, rotasLixeira)
   app.use('/api/agenda', exigirLogin, avisarAoMudar('agenda'), rotasAgenda)
   app.use('/api/profissionais', exigirLogin, avisarAoMudar('agenda'), rotasProfissionais)
   const financeiro = avisarAoMudar('financeiro')
@@ -92,6 +101,7 @@ export function criarApp() {
   app.use('/api/configuracoes', exigirLogin, avisarAoMudar('config'), rotasConfiguracoes)
   app.use('/api/protetico', exigirLogin, avisarAoMudar('protetico'), rotasProtetico)
   app.use('/api/confirmacoes', exigirLogin, avisarAoMudar('agenda'), rotasConfirmacoes)
+  app.use('/api/mensagens', exigirLogin, rotasMensagens)
   app.use('/api/painel', exigirLogin, rotasPainel)
   app.use('/api/importacao', exigirLogin, rotasImportacao)
   app.use('/api', (_req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }))

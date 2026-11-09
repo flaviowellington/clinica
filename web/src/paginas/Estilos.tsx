@@ -1,5 +1,4 @@
-// TEMPORÁRIO: vitrine dos componentes globais para comparar as paletas. Apagar junto com o
-// SeletorPaleta do main.tsx quando a paleta for escolhida.
+// Vitrine dos componentes globais (guia de estilo).
 import type { CSSProperties, ReactNode } from 'react'
 import { CampoSelect } from '../componentes/CampoSelect'
 
@@ -34,7 +33,7 @@ export function Estilos() {
       <header>
         <h1>Guia de estilo</h1>
         <p className="subtitulo">
-          Use o seletor no rodapé para trocar a paleta e o modo claro/escuro.
+          Componentes globais do sistema. O modo claro/escuro troca pelo menu da conta.
         </p>
       </header>
 

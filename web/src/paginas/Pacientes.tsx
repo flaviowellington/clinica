@@ -16,17 +16,20 @@ interface Resultado {
 }
 
 export function Pacientes() {
-  const { busca = '', pagina = 1, linhas = 10 } = useSearch({ from: '/logado/pacientes' })
+  const { busca = '', pagina = 1, linhas = 10, ordem } = useSearch({ from: '/logado/pacientes' })
   const navegar = useNavigate({ from: '/pacientes' })
   const { data: eu } = useSuspenseQuery(consultaEu)
   const [novo, setNovo] = useState(false)
   const rolagem = useRef<HTMLDivElement>(null)
 
   const lista = useQuery({
-    queryKey: ['pacientes', busca, pagina, linhas],
+    queryKey: ['pacientes', busca, pagina, linhas, ordem],
     queryFn: async () =>
-      (await api.get<Resultado>('/pacientes', { params: { busca, pagina, porPagina: linhas } }))
-        .data,
+      (
+        await api.get<Resultado>('/pacientes', {
+          params: { busca, pagina, porPagina: linhas, ordem: ordem ?? 'recentes' },
+        })
+      ).data,
     placeholderData: keepPreviousData,
   })
 
@@ -42,11 +45,15 @@ export function Pacientes() {
 
   const total = lista.data?.total ?? 0
   const paginas = Math.ceil(total / (lista.data?.porPagina ?? 10))
-  const ir = (s: { busca?: string; pagina?: number; linhas?: number }, replace = false) =>
+  const ir = (
+    s: { busca?: string; pagina?: number; linhas?: number; ordem?: string },
+    replace = false,
+  ) =>
     navegar({
       replace,
       search: {
         busca: (s.busca ?? busca) || undefined,
+        ordem: ((s.ordem ?? ordem) || undefined) as 'az' | 'za' | undefined,
         pagina: s.pagina && s.pagina > 1 ? s.pagina : undefined,
         linhas: (s.linhas ?? linhas) === 10 ? undefined : (s.linhas ?? linhas),
       },
@@ -120,6 +127,19 @@ export function Pacientes() {
                 onChange={(e) => ir({ linhas: Number(e.target.value) })}
                 vazio={false}
                 opcoes={[10, 25, 50]}
+              />
+            </label>
+            <label className="flex items-center gap-2">
+              Ordem
+              <CampoSelect
+                className="w-auto py-1"
+                value={ordem ?? ''}
+                onChange={(e) => ir({ ordem: e.target.value })}
+                vazio="Acessados recentemente"
+                opcoes={[
+                  ['az', 'Nome A–Z'],
+                  ['za', 'Nome Z–A'],
+                ]}
               />
             </label>
           </span>

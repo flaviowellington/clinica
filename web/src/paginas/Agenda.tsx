@@ -201,7 +201,7 @@ function Balao(props: { ancora: HTMLElement; aoFechar: () => void; children: Rea
   )
 }
 
-/** filtrosNoTopo: "Agenda 2", sem a lateral; filtros numa barra e a grade na largura toda. */
+/** filtrosNoTopo: a agenda do menu, sem a lateral; filtros numa barra e a grade na largura toda. Sem ele, a antiga (/agenda-2). */
 export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const { data: prof } = useSuspenseQuery(consultaProfissionais)
@@ -218,7 +218,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
       : prof.profissionais.filter((p) => p.id !== prof.meuId).map((p) => p.id),
   )
   const [busca, setBusca] = useState<string | null>(null) // null = caixa de busca fechada
-  const [janela, setJanela] = useState<'data' | 'profissionais' | 'retornos' | null>(null) // só na Agenda 2
+  const [janela, setJanela] = useState<'data' | 'profissionais' | 'retornos' | null>(null) // só com filtrosNoTopo
   const [novo, setNovo] = useState<Inicial | null>(null)
   const [menu, setMenu] = useState(false)
   const [retorno, setRetorno] = useState(false)

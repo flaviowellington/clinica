@@ -77,7 +77,7 @@ export function CampoBusca(props: {
  * o que foi buscado (R-001) e mostra o escolhido com "Trocar". Mesmo padrão em todas as telas.
  */
 export function BuscaPaciente(props: {
-  valor: Paciente | null
+  valor: Pick<Paciente, 'nome' | 'celular' | 'email'> | null
   aoEscolher: (p: Paciente | null) => void
   somenteAtivos?: boolean
   autoFocus?: boolean

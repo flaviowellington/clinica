@@ -48,6 +48,7 @@ import { CampoSelect } from './CampoSelect'
 import { confirmar } from './Confirmar'
 import { CampoSugestoes } from './CampoSugestoes'
 import { Passo } from './NovoAgendamento'
+import { Link } from '@tanstack/react-router'
 import { whatsapp } from '../paginas/Pacientes'
 import { CampoEspecialidade } from '../paginas/Profissionais'
 
@@ -941,7 +942,7 @@ function TabelaProcedimentos(props: {
   // Um cartão por lançamento: os dentes em destaque à esquerda, na cor da situação.
   // Serve tanto na coluna estreita ao lado do odontograma quanto na largura toda.
   return (
-    <ul className="-mx-1 space-y-2 overflow-auto px-1 pb-1">
+    <ul className="-mx-1 space-y-2 overflow-x-hidden overflow-y-auto px-1 pb-1">
       {props.grupos.map((g) => {
         const i = g[0]
         const cor = STATUS[i.status].cor
@@ -981,7 +982,7 @@ function TabelaProcedimentos(props: {
                 <Icone nome="dente" className="h-5 w-5 text-suave" />
               )}
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 break-words">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <p className="font-bold text-titulo">{i.nome}</p>
                 <Selo status={i.status} />
@@ -1753,6 +1754,10 @@ interface Pedido {
   assinadoEm: string | null
   assinanteNome: string | null
   link: string
+  /** PDF do documento (assinado, depois que o paciente assina). */
+  pdf: string
+  /** Com ficha: pedido de um planejamento. */
+  fichaId: number | null
   /** Texto pronto para mandar ao paciente, com o link. */
   mensagem: string
   /** O que o paciente lê (o que interessa aqui para reaproveitar ao enviar de novo). */
@@ -1883,43 +1888,33 @@ export function PlanoFichaClinica({ paciente }: { paciente: Paciente }) {
         )}
       </header>
 
-      <section className="cartao space-y-3">
-        <h3 className="text-base">
-          Ficha clínica{' '}
-          {!!naoEnviados.length && (
-            <span className="etiqueta ml-1">{agruparProcedimentos(naoEnviados).length}</span>
-          )}
-        </h3>
-        {procedimentos.isPending && <p className="text-suave">Carregando…</p>}
-        {procedimentos.data && !naoEnviados.length && (
-          <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <span className="grid size-12 place-items-center rounded-full bg-primaria-clara text-primaria">
-              <Icone nome="dente" className="h-6 w-6" />
-            </span>
-            <p className="font-bold text-titulo">Nenhum procedimento na ficha</p>
-            <p className="text-suave">
-              Os que foram enviados para assinar ficam nos pedidos abaixo.
-            </p>
-          </div>
-        )}
-        {!!naoEnviados.length && (
-          <TabelaProcedimentos
-            paciente={paciente}
-            grupos={agruparProcedimentos(naoEnviados)}
-            aoEditar={(itens) => setDialogo({ itens })}
-            comObservacoes
-            selecao={selecao}
-          />
-        )}
-      </section>
-
+      {/* Enquanto espera, fica no alto, com o mesmo visual da assinatura do planejamento. */}
       {!!pendentes.length && (
-        <section className="cartao overflow-hidden p-0">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-borda px-4 py-3">
-            <div>
-              <h3 className="text-base">
-                Aguardando assinatura{' '}
-                <span className="etiqueta etiqueta-aviso ml-1">{pendentes.length}</span>
+        <section
+          aria-labelledby="aguardando-avulsos"
+          className="cartao space-y-3 border-l-4"
+          style={{ borderLeftColor: APROVACAO.AGUARDANDO.cor }}
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <span
+              aria-hidden
+              className="grid size-11 shrink-0 place-items-center rounded-xl"
+              style={{
+                background: misturar(APROVACAO.AGUARDANDO.cor, 14),
+                color: APROVACAO.AGUARDANDO.cor,
+              }}
+            >
+              <Icone nome="celular" className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h3
+                id="aguardando-avulsos"
+                className="flex flex-wrap items-center gap-2 font-semibold"
+              >
+                Assinatura do paciente{' '}
+                <span className={APROVACAO.AGUARDANDO.classe}>
+                  Aguardando assinatura ({pendentes.length})
+                </span>
               </h3>
               <p className="text-xs text-suave">
                 Cada pedido tem o seu link. Para mandar um link só, marque os pedidos e junte.
@@ -1940,9 +1935,43 @@ export function PlanoFichaClinica({ paciente }: { paciente: Paciente }) {
               </button>
             )}
           </div>
-          <div className="divide-y divide-borda">{pendentes.map(cartao)}</div>
+          <div className="max-h-[60vh] divide-y divide-borda overflow-x-hidden overflow-y-auto rounded-xl border border-borda print:max-h-none print:overflow-visible">
+            {pendentes.map(cartao)}
+          </div>
         </section>
       )}
+
+      <section className="cartao space-y-3">
+        <h3 className="text-base">
+          Ficha clínica{' '}
+          {!!naoEnviados.length && (
+            <span className="etiqueta ml-1">{agruparProcedimentos(naoEnviados).length}</span>
+          )}
+        </h3>
+        {procedimentos.isPending && <p className="text-suave">Carregando…</p>}
+        {procedimentos.data && !naoEnviados.length && (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <span className="grid size-12 place-items-center rounded-full bg-primaria-clara text-primaria">
+              <Icone nome="dente" className="h-6 w-6" />
+            </span>
+            <p className="font-bold text-titulo">Nenhum procedimento na ficha</p>
+            <p className="text-suave">
+              Os que foram enviados para assinar ficam nos pedidos abaixo.
+            </p>
+          </div>
+        )}
+        {!!naoEnviados.length && (
+          <div className="max-h-[35vh] overflow-x-hidden overflow-y-auto print:max-h-none print:overflow-visible">
+            <TabelaProcedimentos
+              paciente={paciente}
+              grupos={agruparProcedimentos(naoEnviados)}
+              aoEditar={(itens) => setDialogo({ itens })}
+              comObservacoes
+              selecao={selecao}
+            />
+          </div>
+        )}
+      </section>
 
       <section className="cartao overflow-hidden p-0">
         <h3 className="border-b border-borda px-4 py-3 text-base">
@@ -1954,7 +1983,9 @@ export function PlanoFichaClinica({ paciente }: { paciente: Paciente }) {
         {pedidos.data && !assinados.length && (
           <p className="px-4 py-3 text-suave">Nenhum plano assinado ainda.</p>
         )}
-        <div className="divide-y divide-borda">{assinados.map(cartao)}</div>
+        <div className="max-h-[60vh] divide-y divide-borda overflow-x-hidden overflow-y-auto print:max-h-none print:overflow-visible">
+          {assinados.map(cartao)}
+        </div>
       </section>
 
       <Dialogo
@@ -2113,17 +2144,19 @@ function CartaoPedido(props: {
   )
 }
 
-/** Um pedido de assinatura: mandar o link (WhatsApp, e-mail, copiar) ou cancelar. */
+/**
+ * Um pedido de assinatura. Esperando: abrir, copiar o link, mandar pelo módulo Mensagens,
+ * WhatsApp rápido ou cancelar. Assinado: ver, abrir o PDF e mandar o PDF pelo Mensagens.
+ */
 function LinhaPedido(props: {
   pedido: Pedido
   paciente: Paciente
   podeEditar: boolean
   aoMudar: () => void
   marcar?: { marcado: boolean; alternar: () => void }
-  /** Sem os botões de envio (o painel de assinatura já mostra). */
-  semEnvio?: boolean
 }) {
   const a = props.pedido
+  const { celular } = props.paciente
   const cancelar = useMutation({
     mutationFn: async () => api.post(`/autorizacoes/${a.id}/cancelar`),
     onSuccess: () => {
@@ -2133,6 +2166,22 @@ function LinhaPedido(props: {
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
   const n = a.conteudo.itens.length
+  const cls = 'botao-leve botao-pequeno'
+  // Mensagens já abre com o paciente, o tipo de envio e este pedido escolhidos.
+  const mensagens = (
+    <Link
+      to="/mensagens"
+      search={{
+        paciente: props.paciente.id,
+        envio: a.assinadoEm ? 'pdf' : a.fichaId ? 'planejamento' : 'procedimentos',
+        pedido: a.id,
+      }}
+      className={cls}
+    >
+      <Icone nome="enviar" className="h-3.5 w-3.5" />
+      {a.assinadoEm ? 'Enviar PDF assinado' : 'Enviar mensagem'}
+    </Link>
+  )
   return (
     <div className="flex flex-wrap items-center gap-2">
       {props.marcar && (
@@ -2153,10 +2202,48 @@ function LinhaPedido(props: {
             : `criado em ${dataBR(a.criadoEm)}`}
         </span>
       </p>
-      {!a.assinadoEm && !props.semEnvio && <OpcoesEnvio pedido={a} paciente={props.paciente} />}
-      <a className="botao-leve botao-pequeno" href={a.link} target="_blank" rel="noreferrer">
+      <a className={cls} href={a.link} target="_blank" rel="noreferrer">
         {a.assinadoEm ? 'Ver documento' : 'Abrir'}
       </a>
+      {a.assinadoEm ? (
+        <>
+          <a className={cls} href={`${a.pdf}?ver`} target="_blank" rel="noreferrer">
+            <Icone nome="arquivo" className="h-3.5 w-3.5" />
+            Abrir PDF
+          </a>
+          {mensagens}
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className={cls}
+            onClick={() =>
+              navigator.clipboard.writeText(a.link).then(
+                () => avisar('Link copiado'),
+                () => avisar('Não foi possível copiar o link', true),
+              )
+            }
+          >
+            Copiar link
+          </button>
+          {mensagens}
+          {/* Envio rápido: o WhatsApp abre com a mensagem e o link prontos. */}
+          <a
+            className={`${cls} ${celular ? '' : 'pointer-events-none opacity-50'}`}
+            href={
+              celular ? `${whatsapp(celular)}?text=${encodeURIComponent(a.mensagem)}` : undefined
+            }
+            aria-disabled={!celular}
+            target="_blank"
+            rel="noreferrer"
+            title={celular ? `WhatsApp para ${celular}` : 'Paciente sem celular no cadastro'}
+          >
+            <Icone nome="conversa" className="h-3.5 w-3.5" />
+            WhatsApp
+          </a>
+        </>
+      )}
       {/* Assinado pelo paciente não se cancela. */}
       {props.podeEditar && !a.assinadoEm && (
         <button
@@ -2172,73 +2259,6 @@ function LinhaPedido(props: {
           Cancelar
         </button>
       )}
-    </div>
-  )
-}
-
-/** WhatsApp (mensagem pronta), e-mail (sai pelo sistema) e copiar o link de um pedido. */
-function OpcoesEnvio(props: { pedido: Pedido; paciente: Paciente; grande?: boolean }) {
-  const a = props.pedido
-  const { celular, email } = props.paciente
-  const enviarEmail = useMutation({
-    mutationFn: async () => api.post(`/autorizacoes/${a.id}/enviar`),
-    onSuccess: () => avisar(`E-mail enviado para ${email}`),
-    onError: (e) => avisar(mensagemDeErro(e), true),
-  })
-  const g = props.grande
-  const cls = g ? 'botao' : 'botao-leve botao-pequeno'
-  const botoes = (
-    <>
-      {celular ? (
-        <a
-          className={cls}
-          href={`${whatsapp(celular)}?text=${encodeURIComponent(a.mensagem)}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          {g && <Icone nome="conversa" className="h-4 w-4" />}
-          {g ? 'Enviar por WhatsApp' : 'WhatsApp'}
-        </a>
-      ) : (
-        <button type="button" className={cls} disabled title="Paciente sem celular no cadastro">
-          {g ? 'Enviar por WhatsApp' : 'WhatsApp'}
-        </button>
-      )}
-      <button
-        type="button"
-        className={cls}
-        disabled={!email || enviarEmail.isPending}
-        title={email ? `Enviar para ${email}` : 'Paciente sem e-mail no cadastro'}
-        onClick={() => enviarEmail.mutate()}
-      >
-        {g && <Icone nome="documento" className="h-4 w-4" />}
-        {enviarEmail.isPending ? 'Enviando…' : g ? 'Enviar por e-mail' : 'E-mail'}
-      </button>
-      <button
-        type="button"
-        className={g ? 'botao-leve' : 'botao-leve botao-pequeno'}
-        onClick={() =>
-          navigator.clipboard.writeText(a.link).then(
-            () => avisar('Link copiado'),
-            () => avisar('Não foi possível copiar o link', true),
-          )
-        }
-      >
-        Copiar link
-      </button>
-    </>
-  )
-  if (!g) return botoes
-  return (
-    <div className="space-y-1.5">
-      <div className="flex flex-wrap gap-2">{botoes}</div>
-      <p className="text-xs text-suave">
-        {celular
-          ? `O WhatsApp abre com a mensagem e o link prontos para ${celular}`
-          : 'Sem celular no cadastro'}
-        {'; '}
-        {email ? `o e-mail sai pelo sistema para ${email}` : 'sem e-mail no cadastro'}.
-      </p>
     </div>
   )
 }
@@ -2768,7 +2788,6 @@ function FichaDetalhe({
   }
   const [dialogo, setDialogo] = useState<{ grupo?: ItemFicha[] } | null>(null)
   const [enviando, setEnviando] = useState(false)
-  const [criado, setCriado] = useState<number | null>(null)
   const atualizar = () => qc.invalidateQueries({ queryKey: chaveFichas(paciente.id) })
   const trocar = (nova: Ficha) =>
     qc.setQueryData<Ficha[]>(chaveFichas(paciente.id), (l) =>
@@ -2828,9 +2847,6 @@ function FichaDetalhe({
   const atual = etapas.findIndex((e) => !e.executado)
   const ap = APROVACAO[f.aprovacao.situacao]
   const podeEnviar = ['NAO_ENVIADO', 'ALTERADO'].includes(f.aprovacao.situacao)
-  const pendente = pedidos.data?.find((a) => !a.assinadoEm)
-  // Pedido acabado de criar: o diálogo segue para "como enviar".
-  const criadoAgora = pedidos.data?.find((a) => a.id === criado)
 
   return (
     <div className="space-y-4">
@@ -2903,14 +2919,6 @@ function FichaDetalhe({
             </button>
           )}
         </div>
-        {pendente && (
-          <div className="space-y-2 rounded-xl bg-superficie-2 p-3">
-            <p className="text-sm font-bold text-titulo">
-              Pedido nº {pendente.id} esperando a assinatura. Mande o link ao paciente:
-            </p>
-            <OpcoesEnvio pedido={pendente} paciente={paciente} grande />
-          </div>
-        )}
         {!!pedidos.data?.length && (
           <div className="divide-y divide-borda rounded-xl border border-borda">
             {pedidos.data.map((a) => (
@@ -2920,7 +2928,6 @@ function FichaDetalhe({
                   paciente={paciente}
                   podeEditar={podeEditar}
                   aoMudar={depoisDoPedido}
-                  semEnvio
                 />
               </div>
             ))}
@@ -3215,36 +3222,11 @@ function FichaDetalhe({
             anterior={pedidos.data?.[0]}
             aoTerminar={(id) => {
               setEnviando(false)
-              if (id) {
-                setCriado(id)
-                depoisDoPedido()
-              }
+              // Sem diálogo de "como enviar": o pedido aparece em Aguardando, com os botões.
+              if (id) depoisDoPedido()
             }}
           />
         )}
-      </Dialogo>
-
-      <Dialogo
-        aberto={criado !== null}
-        aoFechar={() => setCriado(null)}
-        titulo="Pedido criado: como enviar ao paciente?"
-      >
-        <div className="space-y-4">
-          <p className="alerta-info">
-            O paciente abre o link no celular, lê o planejamento e assina. A tela atualiza sozinha
-            quando ele assinar.
-          </p>
-          {criadoAgora ? (
-            <OpcoesEnvio pedido={criadoAgora} paciente={paciente} grande />
-          ) : (
-            <p className="text-sm text-suave">Preparando o link…</p>
-          )}
-          <div className="flex justify-end border-t border-borda pt-4">
-            <button type="button" className="botao-leve" onClick={() => setCriado(null)}>
-              Concluir
-            </button>
-          </div>
-        </div>
       </Dialogo>
     </div>
   )
@@ -3394,7 +3376,7 @@ function EnviarPlanejamento(props: {
         })
       ).data,
     onSuccess: (a) => {
-      avisar('Pedido criado')
+      avisar('Pedido criado: envie o link ao paciente')
       props.aoTerminar(a.id)
     },
     onError: (e) => avisar(mensagemDeErro(e), true),

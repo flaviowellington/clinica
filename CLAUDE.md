@@ -16,5 +16,6 @@ A especificação completa está em `docs/re-clinicorp/`, um estudo do Clinicorp
 - Não use o nome, a logo, os ícones nem os textos do Clinicorp. Reproduza o comportamento, não a marca nem o código.
 - Dados de saúde (LGPD): nunca use dados reais de pacientes em desenvolvimento ou testes; use dados fictícios. Registre quem abriu cada ficha. Prontuário nunca é apagado de verdade.
 - Escreva o teste de `parity.md` antes de implementar cada regra.
+- Toda tela nova ou alterada segue o padrão de celular de `web/RESPONSIVIDADE.md` (seção 2) e passa na conferência do fim dele.
 - Prefira soluções simples: um único aplicativo web e um banco relacional. Sem microsserviços.
 - O que a especificação marca como não testado (pagamentos, caixa, mensagens, assinatura digital) deve ser projetado de forma simples; pergunte ao responsável quando houver dúvida de negócio.

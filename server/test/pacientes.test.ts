@@ -114,6 +114,29 @@ describe('PT-04 busca por nome; "%" busca pelo sobrenome', () => {
   })
 })
 
+describe('ordem da lista de pacientes', () => {
+  it('A–Z, Z–A e acessados recentemente por qualquer usuário', async () => {
+    const recepcao = await entrarComo('RECEPCAO')
+    const dentista = await entrarComo('PROFISSIONAL')
+    const ids: Record<string, number> = {}
+    for (const nome of ['Bruna Lima', 'Ana Silva', 'Carlos Dias'])
+      ids[nome] = (await recepcao('POST', '/api/pacientes', { nome, nascimento: '1980-05-05' })).corpo.id
+    const nomes = async (ordem: string) =>
+      (await recepcao('GET', `/api/pacientes?ordem=${ordem}`)).corpo.itens.map(
+        (p: { nome: string }) => p.nome,
+      )
+
+    expect(await nomes('az')).toEqual(['Ana Silva', 'Bruna Lima', 'Carlos Dias'])
+    expect(await nomes('za')).toEqual(['Carlos Dias', 'Bruna Lima', 'Ana Silva'])
+
+    await recepcao('GET', `/api/pacientes/${ids['Carlos Dias']}`)
+    await dentista('GET', `/api/pacientes/${ids['Ana Silva']}`)
+    // Só aparecem os já abertos, do mais recente para o mais antigo, por quem quer que seja.
+    expect(await nomes('recentes')).toEqual(['Ana Silva', 'Carlos Dias'])
+    expect((await recepcao('GET', '/api/pacientes?ordem=recentes')).corpo.total).toBe(2)
+  })
+})
+
 describe('busca de paciente por telefone ou CPF', () => {
   async function preparar() {
     const api = await entrarComo('RECEPCAO')
@@ -156,17 +179,17 @@ describe('PT-57 excluir paciente é exclusão lógica', () => {
     expect((await api('GET', `/api/pacientes/${p.id}`)).status).toBe(404)
     expect(await db.pessoa.count()).toBe(1)
 
-    const lixeira = await api('GET', '/api/lixeira/pacientes')
+    const lixeira = await api('GET', '/api/lixeira')
     expect(lixeira.corpo.map((x: { id: number }) => x.id)).toEqual([p.id])
 
-    await api('POST', `/api/lixeira/pacientes/${p.id}/restaurar`)
+    await api('POST', `/api/lixeira/paciente/${p.id}/restaurar`)
     expect((await api('GET', `/api/pacientes/${p.id}`)).status).toBe(200)
   })
   it('Recepção não exclui e não vê a lixeira', async () => {
     const api = await entrarComo('RECEPCAO')
     const { corpo: p } = await api('POST', '/api/pacientes', PACIENTE)
     expect((await api('DELETE', `/api/pacientes/${p.id}`)).status).toBe(403)
-    expect((await api('GET', '/api/lixeira/pacientes')).status).toBe(403)
+    expect((await api('GET', '/api/lixeira')).status).toBe(403)
   })
 })
 

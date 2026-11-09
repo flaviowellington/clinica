@@ -9,12 +9,14 @@ import { Icone } from '../componentes/Icones'
 import { Situacao } from './Pacientes'
 import { CamposProfissional } from './Profissionais'
 import { CampoBusca } from '../componentes/BuscaPaciente'
+import { CampoEmail } from '../componentes/CampoMascara'
 import { normalizar } from '../../../shared/regras'
 
 interface Usuario {
   id: number
   login: string
   nome: string
+  email: string | null
   perfis: Perfil[]
   ativo: boolean
   criadoEm: string
@@ -240,9 +242,11 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
       onSubmit={(e) => {
         e.preventDefault()
         const f = Object.fromEntries(new FormData(e.currentTarget))
-        const { cro, especialidade, celular, email, corAgenda, ...resto } = f
+        // "emailUsuario" no form: "email" é o do profissional criado junto.
+        const { cro, especialidade, celular, email, corAgenda, emailUsuario, ...resto } = f
         salvar.mutate({
           ...resto,
+          email: emailUsuario,
           perfis,
           pessoaId: Number(f.pessoaId) || null,
           ativo: u ? f.ativo === 'on' : true,
@@ -272,6 +276,19 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
               autoFocus
             />
             {erro('nome')}
+          </div>
+          <div>
+            <label className="rotulo" htmlFor="u-email">
+              E-mail *
+            </label>
+            <CampoEmail
+              id="u-email"
+              name="emailUsuario"
+              required
+              defaultValue={u?.email ?? ''}
+              erro={erros.email}
+            />
+            <span className="ajuda">Para onde vai o código quando a pessoa esquecer a senha.</span>
           </div>
           {!u && (
             <div className="grid gap-4 sm:grid-cols-2">
