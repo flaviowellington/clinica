@@ -16,7 +16,12 @@ interface Resultado {
 }
 
 export function Pacientes() {
-  const { busca = '', pagina = 1, linhas = 10, ordem } = useSearch({ from: '/logado/pacientes' })
+  const {
+    busca = '',
+    pagina = 1,
+    linhas = 10,
+    ordem = 'recentes',
+  } = useSearch({ from: '/logado/pacientes' })
   const navegar = useNavigate({ from: '/pacientes' })
   const { data: eu } = useSuspenseQuery(consultaEu)
   const [novo, setNovo] = useState(false)
@@ -27,7 +32,7 @@ export function Pacientes() {
     queryFn: async () =>
       (
         await api.get<Resultado>('/pacientes', {
-          params: { busca, pagina, porPagina: linhas, ordem: ordem ?? 'recentes' },
+          params: { busca, pagina, porPagina: linhas, ordem },
         })
       ).data,
     placeholderData: keepPreviousData,
@@ -48,16 +53,18 @@ export function Pacientes() {
   const ir = (
     s: { busca?: string; pagina?: number; linhas?: number; ordem?: string },
     replace = false,
-  ) =>
-    navegar({
+  ) => {
+    const o = s.ordem ?? ordem
+    return navegar({
       replace,
       search: {
         busca: (s.busca ?? busca) || undefined,
-        ordem: ((s.ordem ?? ordem) || undefined) as 'az' | 'za' | undefined,
         pagina: s.pagina && s.pagina > 1 ? s.pagina : undefined,
         linhas: (s.linhas ?? linhas) === 10 ? undefined : (s.linhas ?? linhas),
+        ordem: o === 'az' || o === 'za' ? o : undefined,
       },
     })
+  }
 
   // Busca em tempo real: espera a pessoa parar de digitar um instante e atualiza a lista.
   const [termo, setTermo] = useState(busca)
@@ -130,16 +137,17 @@ export function Pacientes() {
               />
             </label>
             <label className="flex items-center gap-2">
-              Ordem
+              Ordenar por
               <CampoSelect
                 className="w-auto py-1"
-                value={ordem ?? ''}
+                value={ordem}
                 onChange={(e) => ir({ ordem: e.target.value })}
-                vazio="Acessados recentemente"
-                opcoes={[
-                  ['az', 'Nome A–Z'],
-                  ['za', 'Nome Z–A'],
-                ]}
+                vazio={false}
+                opcoes={{
+                  recentes: 'Acessados recentemente',
+                  az: 'Nome (A–Z)',
+                  za: 'Nome (Z–A)',
+                }}
               />
             </label>
           </span>

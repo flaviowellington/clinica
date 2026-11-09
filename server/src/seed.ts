@@ -22,8 +22,8 @@ import type {
 } from './generated/prisma/client'
 
 if (process.env.NODE_ENV === 'production') throw new Error('O seed não roda em produção.')
-const senha = process.env.SEED_SENHA
-if (!senha) throw new Error('Defina SEED_SENHA em server/.env')
+const senha = process.env.SEED_SENHA_ADMIN
+if (!senha) throw new Error('Defina SEED_SENHA_ADMIN em server/.env')
 const senhaHash = await gerarHash(senha)
 
 const data = (iso: string) => new Date(`${iso}T00:00:00Z`)
@@ -1932,7 +1932,7 @@ if (!(await db.mensagem.count())) {
   console.log('Confirmações e e-mails fictícios criados.')
 }
 
-console.log('Usuários (todos com a senha SEED_SENHA do server/.env):')
+console.log('Usuários (todos com a senha SEED_SENHA_ADMIN do server/.env):')
 console.table(
   usuarios.map((u) => ({
     login: u.login,

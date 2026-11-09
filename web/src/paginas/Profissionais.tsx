@@ -339,7 +339,7 @@ export function Profissionais() {
       key={p.id}
       to="/profissionais/$id"
       params={{ id: String(p.id) }}
-      className={`cartao flex flex-col gap-4 overflow-hidden p-0 pb-4 transition ${p.ativo ? 'hover:border-primaria/40 hover:shadow-md' : 'border-2 border-dashed bg-superficie-2 hover:border-suave'}`}
+      className={`cartao group flex cursor-pointer flex-col gap-4 overflow-hidden p-0 transition duration-150 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primaria focus-visible:outline-none active:translate-y-0 ${p.ativo ? 'hover:border-primaria/50 hover:shadow-lg' : 'border-2 border-dashed bg-superficie-2 hover:border-suave hover:shadow-md'}`}
     >
       {/* Faixa na cor da agenda; listrada e sem cor no inativo. */}
       <div
@@ -400,6 +400,10 @@ export function Profissionais() {
           </dd>
         </div>
       </dl>
+      <span className="mt-auto flex items-center justify-end gap-1 border-t border-borda px-4 py-2.5 text-sm font-bold text-primaria group-hover:bg-primaria-clara">
+        Abrir ficha
+        <Icone nome="direita" className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+      </span>
     </Link>
   )
 

@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
-import { api, consultaEu, dataBR, isoLocal, mensagemDeErro } from '../api'
+import { api, consultaEu, consultaProfissionais, dataBR, isoLocal, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import { reais } from '../../../shared/financeiro'
@@ -51,7 +51,13 @@ export function OrcamentosAbertos() {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const podeAprovar = pode(eu.perfis, 'orcamento.aprovar') && pode(eu.perfis, 'financeiro.receber')
   const p = useIntervalo(true) // orçamento aberto não tem prazo: começa vendo todos
-  const [ocultos, setOcultos] = useState<number[]>([])
+  const { data: prof } = useSuspenseQuery(consultaProfissionais)
+  // Como na Agenda: o profissional começa vendo só os orçamentos dele.
+  const [ocultos, setOcultos] = useState<number[]>(() =>
+    pode(eu.perfis, 'confirmacoes.todas') || !prof.meuId
+      ? []
+      : prof.profissionais.filter((x) => x.id !== prof.meuId).map((x) => x.id),
+  )
   const [tempo, setTempo] = useState<Tempo>('todos')
   const [busca, setBusca] = useState('')
   const [escolhido, setEscolhido] = useState<number | null>(null)

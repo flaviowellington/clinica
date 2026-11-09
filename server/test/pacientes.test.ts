@@ -114,29 +114,6 @@ describe('PT-04 busca por nome; "%" busca pelo sobrenome', () => {
   })
 })
 
-describe('ordem da lista de pacientes', () => {
-  it('A–Z, Z–A e acessados recentemente por qualquer usuário', async () => {
-    const recepcao = await entrarComo('RECEPCAO')
-    const dentista = await entrarComo('PROFISSIONAL')
-    const ids: Record<string, number> = {}
-    for (const nome of ['Bruna Lima', 'Ana Silva', 'Carlos Dias'])
-      ids[nome] = (await recepcao('POST', '/api/pacientes', { nome, nascimento: '1980-05-05' })).corpo.id
-    const nomes = async (ordem: string) =>
-      (await recepcao('GET', `/api/pacientes?ordem=${ordem}`)).corpo.itens.map(
-        (p: { nome: string }) => p.nome,
-      )
-
-    expect(await nomes('az')).toEqual(['Ana Silva', 'Bruna Lima', 'Carlos Dias'])
-    expect(await nomes('za')).toEqual(['Carlos Dias', 'Bruna Lima', 'Ana Silva'])
-
-    await recepcao('GET', `/api/pacientes/${ids['Carlos Dias']}`)
-    await dentista('GET', `/api/pacientes/${ids['Ana Silva']}`)
-    // Só aparecem os já abertos, do mais recente para o mais antigo, por quem quer que seja.
-    expect(await nomes('recentes')).toEqual(['Ana Silva', 'Carlos Dias'])
-    expect((await recepcao('GET', '/api/pacientes?ordem=recentes')).corpo.total).toBe(2)
-  })
-})
-
 describe('busca de paciente por telefone ou CPF', () => {
   async function preparar() {
     const api = await entrarComo('RECEPCAO')
@@ -238,5 +215,26 @@ describe('PT-71 inativar exige motivo', () => {
     expect(
       (await api('POST', `/api/pacientes/${p.id}/inativar`, { motivo: 'FALECIMENTO' })).status,
     ).toBe(200)
+  })
+})
+
+describe('ordem da lista de pacientes', () => {
+  it('padrão: acessados recentemente (por qualquer usuário) no topo; o resto em ordem alfabética', async () => {
+    const api = await entrarComo('RECEPCAO')
+    const ids: Record<string, number> = {}
+    for (const nome of ['Ana', 'Bruno', 'Carla', 'Davi'])
+      ids[nome] = (await api('POST', '/api/pacientes', { nome, nascimento: '1980-05-05' })).corpo.id
+    await api('GET', `/api/pacientes/${ids.Carla}`)
+    await api('GET', `/api/pacientes/${ids.Bruno}`)
+    // Acesso de outro usuário também conta: vale para todos.
+    await (await entrarComo('RECEPCAO'))('GET', `/api/pacientes/${ids.Davi}`)
+
+    const nomes = async (q: string) =>
+      (await api('GET', `/api/pacientes?${q}`)).corpo.itens.map((p: { nome: string }) => p.nome)
+    expect(await nomes('')).toEqual(['Davi', 'Bruno', 'Carla', 'Ana'])
+    expect(await nomes('porPagina=10&pagina=1&ordem=recentes')).toEqual(['Davi', 'Bruno', 'Carla', 'Ana'])
+    expect(await nomes('ordem=az')).toEqual(['Ana', 'Bruno', 'Carla', 'Davi'])
+    expect(await nomes('ordem=za')).toEqual(['Davi', 'Carla', 'Bruno', 'Ana'])
+    expect(await nomes('busca=a&ordem=recentes')).toEqual(['Davi', 'Carla', 'Ana'])
   })
 })

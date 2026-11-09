@@ -65,38 +65,37 @@ rotasPacientes.get('/', exigir('paciente.ver'), async (req, res) => {
       OR: [{ nomeBusca: { contains: termo } }, { id: { in: porNumero } }],
     }),
   }
+  const ordem = String(req.query.ordem ?? 'recentes')
   const skip = (pagina - 1) * porPagina
-  const ordem = String(req.query.ordem ?? '')
+  const total = await db.pessoa.count({ where })
 
-  // Acessados recentemente: a ficha aberta por qualquer usuário, do acesso mais novo ao mais antigo.
-  if (ordem === 'recentes') {
-    const [total, grupos] = await Promise.all([
-      db.pessoa.count({ where: { ...where, acessos: { some: {} } } }),
-      db.logAcesso.groupBy({
-        by: ['pessoaId'],
-        where: { pessoa: where },
-        _max: { em: true },
-        orderBy: { _max: { em: 'desc' } },
-        skip,
-        take: porPagina,
-      }),
-    ])
-    const ids = grupos.map((g) => g.pessoaId)
-    const achados = await db.pessoa.findMany({ where: { id: { in: ids } } })
-    const itens = ids.map((id) => achados.find((p) => p.id === id)!)
+  if (ordem === 'az' || ordem === 'za') {
+    const itens = await db.pessoa.findMany({
+      where,
+      orderBy: { nomeBusca: ordem === 'az' ? 'asc' : 'desc' },
+      skip,
+      take: porPagina,
+    })
     return res.json({ total, porPagina, itens: itens.map(paraTela) })
   }
 
-  const [total, itens] = await Promise.all([
-    db.pessoa.count({ where }),
-    db.pessoa.findMany({
-      where,
-      orderBy: { nomeBusca: ordem === 'za' ? 'desc' : 'asc' },
-      skip,
-      take: porPagina,
-    }),
-  ])
-  res.json({ total, porPagina, itens: itens.map(paraTela) })
+  // Padrão: fichas abertas por último (por qualquer usuário, pelo log de acesso) vêm primeiro; o resto em ordem alfabética.
+  const idsDaPagina = (
+    await db.$queryRaw<{ id: number }[]>`
+      SELECT p.id FROM "Pessoa" p
+      LEFT JOIN (
+        SELECT "pessoaId", max(em) AS ultimo FROM "LogAcesso"
+        GROUP BY "pessoaId"
+      ) l ON l."pessoaId" = p.id
+      WHERE p.tipo = 'PACIENTE' AND p."excluidoEm" IS NULL
+        AND (${termo} = '' OR p."nomeBusca" LIKE ${`%${termo}%`} OR p.id = ANY(${porNumero}::int[]))
+      ORDER BY l.ultimo DESC NULLS LAST, p."nomeBusca"
+      LIMIT ${porPagina} OFFSET ${skip}`
+  ).map((r) => r.id)
+  const porId = new Map(
+    (await db.pessoa.findMany({ where: { id: { in: idsDaPagina } } })).map((p) => [p.id, p]),
+  )
+  res.json({ total, porPagina, itens: idsDaPagina.map((id) => paraTela(porId.get(id)!)) })
 })
 
 rotasPacientes.post('/', exigir('paciente.editar'), async (req, res) => {

@@ -22,7 +22,7 @@ const secoes = (page: Page) =>
 async function abrirFicha(page: Page, login: string) {
   await page.goto('/entrar')
   await page.getByLabel('Usuário').fill(login)
-  await page.getByLabel('Senha').fill(env.SEED_SENHA)
+  await page.getByLabel('Senha').fill(env.SEED_SENHA_ADMIN)
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('navigation').getByRole('link', { name: 'Pacientes' }).click()
   await page.getByRole('link', { name: 'Ana Fictícia Oliveira' }).click()

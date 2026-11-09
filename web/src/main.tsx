@@ -625,6 +625,7 @@ const pacientes = createRoute({
     s: Record<string, unknown>,
   ): { busca?: string; pagina?: number; linhas?: number; ordem?: 'az' | 'za' } => ({
     busca: typeof s.busca === 'string' && s.busca ? s.busca : undefined,
+    // Sem ordem na URL = acessados recentemente.
     ordem: s.ordem === 'az' || s.ordem === 'za' ? s.ordem : undefined,
     pagina: Number(s.pagina) > 1 ? Number(s.pagina) : undefined,
     linhas: [25, 50].includes(Number(s.linhas)) ? Number(s.linhas) : undefined,
