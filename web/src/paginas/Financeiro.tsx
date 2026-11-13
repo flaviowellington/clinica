@@ -26,7 +26,9 @@ export const ABAS = [
   { id: 'abertos', rotulo: 'Orçamentos abertos', acao: 'orcamento.ver' },
   { id: 'controle', rotulo: 'Controle Financeiro', acao: 'financeiro.ver' },
   { id: 'graficos', rotulo: 'Gráficos', acao: 'financeiro.ver' },
-  { id: 'graficos2', rotulo: 'Gráficos 2', acao: 'financeiro.ver' },
+  // Gráficos 2 (a versão antiga, livre: adicionar, favoritar, remover): desligada.
+  // Para voltar, descomente esta linha e a da renderização abaixo.
+  // { id: 'graficos2', rotulo: 'Gráficos 2', acao: 'financeiro.ver' },
 ] as const satisfies readonly { id: string; rotulo: string; acao: Acao }[]
 type Aba = (typeof ABAS)[number]['id']
 
@@ -46,8 +48,8 @@ export function Financeiro() {
       </div>
       {aba === 'abertos' && <OrcamentosAbertos />}
       {aba === 'controle' && <ControleFinanceiro />}
-      {aba === 'graficos' && <Graficos />}
-      {aba === 'graficos2' && <Graficos fixo />}
+      {aba === 'graficos' && <Graficos fixo />}
+      {/* {aba === 'graficos2' && <Graficos />} */}
     </div>
   )
 }
@@ -55,20 +57,14 @@ export function Financeiro() {
 // ── Indicadores ─────────────────────────────────────────────────────────────
 type Orc = Analise['orcamentos'][number]
 
-function totais(os: Orc[], entradas: Analise['entradas']) {
-  const faturamento = os.reduce((s, o) => s + o.totalCentavos, 0)
-  const custo = os.reduce((s, o) => s + o.custoCentavos, 0)
+/** Orçamento só é aprovado já pago (parcelado, quem financia é o banco): aprovado = faturado. */
+function totais(os: Orc[]) {
   return {
     qtd: os.length,
-    faturamento,
-    custo,
-    lucro: faturamento - custo,
-    entrou: entradas.reduce((s, e) => s + e.valorCentavos, 0),
-    aReceber: os.reduce((s, o) => s + Math.max(0, o.totalCentavos - o.recebidoCentavos), 0),
+    faturamento: os.reduce((s, o) => s + o.totalCentavos, 0),
     procedimentos: os.reduce((s, o) => s + o.itens.length, 0),
   }
 }
-const pct = (parte: number, todo: number) => (todo ? Math.round((parte / todo) * 100) : 0)
 
 /** Variação contra o período anterior: seta + número, não só cor. */
 function Variacao({ atual, antes }: { atual: number; antes: number | undefined }) {
@@ -140,20 +136,17 @@ function ControleFinanceiro() {
   const profs = useQuery(consultaProfissionais)
 
   const visivel = (p: { id: number }) => !ocultos.includes(p.id)
-  const filtrar = (a: Analise) => ({
-    os: a.orcamentos.filter((o) => visivel(o.profissional)),
-    entradas: a.entradas.filter((e) => visivel(e.profissional)),
-  })
+  const filtrar = (a: Analise) => a.orcamentos.filter((o) => visivel(o.profissional))
   const agora = filtrar(atual.data ?? { orcamentos: [], entradas: [] })
-  const t = totais(agora.os, agora.entradas)
+  const t = totais(agora)
   const porProf = faturamentoPorProfissional(atual.data)
   const anterior = !tudo && antes.data ? filtrar(antes.data) : null
-  const ta = anterior ? totais(anterior.os, anterior.entradas) : undefined
+  const ta = anterior ? totais(anterior) : undefined
 
   const corDe = (id: number) =>
     profs.data?.profissionais.find((p) => p.id === id)?.corAgenda ?? COR_PADRAO
   const termo = normalizar(busca.trim())
-  const lista = agora.os.filter(
+  const lista = agora.filter(
     (o) =>
       !termo ||
       normalizar(o.paciente.nome).includes(termo) ||
@@ -172,13 +165,14 @@ function ControleFinanceiro() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-4 lg:h-[calc(100dvh-6.5rem)] print:h-auto">
-      <header className="shrink-0">
-        <h1 className="titulo">Controle Financeiro</h1>
-        <p className="subtitulo">Orçamentos aprovados: o que faturou, o que entrou e o lucro.</p>
-      </header>
-
-      <div className="relative min-h-0 flex-1 space-y-4 lg:-mr-2 lg:overflow-y-auto lg:pr-2 print:overflow-visible">
-        {/* Filtros (modelo de Orçamentos abertos). */}
+      <header className="shrink-0 space-y-4">
+        <div>
+          <h1 className="titulo">Controle Financeiro</h1>
+          <p className="subtitulo">
+            Orçamentos aprovados (já pagos) no período: o faturamento da clínica.
+          </p>
+        </div>
+        {/* Filtros (modelo de Orçamentos abertos): ficam fixos, só o conteúdo rola. */}
         <div className="cartao flex flex-wrap items-center gap-2 py-2">
           <PeriodoSuspenso p={p} />
           <ProfissionaisSuspenso
@@ -187,83 +181,25 @@ function ControleFinanceiro() {
             valor={(id) => reais(porProf.get(id) ?? 0)}
           />
         </div>
+      </header>
 
+      <div className="relative min-h-0 flex-1 space-y-4 lg:-mr-2 lg:overflow-y-auto lg:pr-2 print:overflow-visible">
         <div className="min-w-0 space-y-4">
           {atual.isError && <p className="alerta-perigo">{mensagemDeErro(atual.error)}</p>}
 
-          <section
-            aria-label="Indicadores"
-            className={`grid grid-cols-2 gap-3 xl:grid-cols-4 ${carregando}`}
-          >
-            <div className="col-span-2 xl:col-span-1">
-              <Indicador rotulo="Faturamento" valor={reais(t.faturamento)}>
-                <Variacao atual={t.faturamento} antes={ta?.faturamento} />
-              </Indicador>
-            </div>
-            <Indicador rotulo="Entrou no caixa" valor={reais(t.entrou)} cor="text-sucesso">
-              <Variacao atual={t.entrou} antes={ta?.entrou} />
+          <section aria-label="Indicadores" className={`grid gap-3 sm:grid-cols-2 ${carregando}`}>
+            <Indicador rotulo="Faturamento" valor={reais(t.faturamento)} cor="text-sucesso">
+              <Variacao atual={t.faturamento} antes={ta?.faturamento} />
             </Indicador>
-            <Indicador
-              rotulo="Lucro"
-              valor={reais(t.lucro)}
-              cor={t.lucro < 0 ? 'text-perigo' : 'text-titulo'}
-            >
-              <Variacao atual={t.lucro} antes={ta?.lucro} />
+            <Indicador rotulo="Aprovados" valor={String(t.qtd)}>
+              <p className="text-xs text-suave">
+                Ticket médio{' '}
+                <strong className="text-texto">
+                  {reais(t.qtd ? Math.round(t.faturamento / t.qtd) : 0)}
+                </strong>{' '}
+                · {t.procedimentos} {t.procedimentos === 1 ? 'procedimento' : 'procedimentos'}
+              </p>
             </Indicador>
-            <div className="col-span-2 xl:col-span-1">
-              <Indicador rotulo="Aprovados" valor={String(t.qtd)}>
-                <p className="text-xs text-suave">
-                  Ticket médio{' '}
-                  <strong className="text-texto">
-                    {reais(t.qtd ? Math.round(t.faturamento / t.qtd) : 0)}
-                  </strong>{' '}
-                  · {t.procedimentos} {t.procedimentos === 1 ? 'procedimento' : 'procedimentos'}
-                </p>
-              </Indicador>
-            </div>
-          </section>
-
-          <section className={`cartao space-y-3 ${carregando}`} aria-labelledby="titulo-comp">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 id="titulo-comp" className="text-base">
-                Para onde foi o faturamento
-              </h2>
-              <span className="text-sm text-suave">
-                Recebido <strong className="text-texto">{pct(t.entrou, t.faturamento)}%</strong> do
-                que foi aprovado
-              </span>
-            </div>
-            {/* ponytail: com prejuízo (custo > faturamento) a barra fica toda em custo. */}
-            <div
-              role="img"
-              aria-label={`Do faturamento de ${reais(t.faturamento)}: custo ${reais(t.custo)} (${pct(t.custo, t.faturamento)}%), lucro ${reais(t.lucro)} (${pct(t.lucro, t.faturamento)}%).`}
-              className="flex h-3.5 gap-[3px] overflow-hidden rounded-full bg-superficie-2"
-            >
-              <span
-                className="bg-secundaria"
-                style={{ width: `${Math.min(100, pct(t.custo, t.faturamento))}%` }}
-              />
-              <span
-                className="bg-primaria"
-                style={{ width: `${Math.max(0, pct(t.lucro, t.faturamento))}%` }}
-              />
-            </div>
-            <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-              <span className="flex items-center gap-1.5">
-                <span aria-hidden="true" className="size-2.5 rounded-sm bg-secundaria" />
-                Custo <strong>{reais(t.custo)}</strong>
-                <span className="text-suave">{pct(t.custo, t.faturamento)}%</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span aria-hidden="true" className="size-2.5 rounded-sm bg-primaria" />
-                Lucro <strong>{reais(t.lucro)}</strong>
-                <span className="text-suave">{pct(t.lucro, t.faturamento)}%</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span aria-hidden="true" className="size-2.5 rounded-sm border-2 border-sucesso" />A
-                receber <strong>{reais(t.aReceber)}</strong>
-              </span>
-            </div>
           </section>
 
           <section className="cartao overflow-hidden p-0" aria-labelledby="titulo-lista">
@@ -293,7 +229,7 @@ function ControleFinanceiro() {
               <table className="w-full min-w-[40rem] text-left">
                 <thead>
                   <tr className="bg-superficie-2 text-xs tracking-wide text-suave uppercase">
-                    {['Paciente', 'Procedimentos', 'Faturamento', 'Custo', 'Lucro'].map((c, i) => (
+                    {['Paciente', 'Procedimentos', 'Faturamento'].map((c, i) => (
                       <th
                         key={c}
                         scope="col"
@@ -309,7 +245,7 @@ function ControleFinanceiro() {
                     <tr>
                       <th
                         scope="rowgroup"
-                        colSpan={5}
+                        colSpan={3}
                         className="border-t border-borda px-4 pt-3.5 pb-1.5 text-left text-sm"
                       >
                         <span className="font-extrabold text-titulo">
@@ -322,57 +258,40 @@ function ControleFinanceiro() {
                         </span>
                       </th>
                     </tr>
-                    {g.os.map((o) => {
-                      const lucro = o.totalCentavos - o.custoCentavos
-                      return (
-                        <tr key={o.id} className="hover:bg-primaria-clara">
-                          <td className="px-4 py-2.5 align-top">
-                            <span className="flex gap-2.5">
-                              <span
-                                aria-hidden="true"
-                                className="w-1 shrink-0 self-stretch rounded"
-                                style={{ background: corDe(o.profissional.id) }}
-                              />
-                              <span>
-                                <LinkPaciente o={o} />
-                                <span className="block text-xs text-suave">
-                                  {o.profissional.nome} · nº {o.id}
-                                </span>
+                    {g.os.map((o) => (
+                      <tr key={o.id} className="hover:bg-primaria-clara">
+                        <td className="px-4 py-2.5 align-top">
+                          <span className="flex gap-2.5">
+                            <span
+                              aria-hidden="true"
+                              className="w-1 shrink-0 self-stretch rounded"
+                              style={{ background: corDe(o.profissional.id) }}
+                            />
+                            <span>
+                              <LinkPaciente o={o} />
+                              <span className="block text-xs text-suave">
+                                {o.profissional.nome} · nº {o.id}
                               </span>
                             </span>
-                          </td>
-                          <td className="px-4 py-2.5 align-top">
-                            <span className="flex flex-wrap gap-1">
-                              {o.itens.map((i, k) => (
-                                <span
-                                  key={k}
-                                  className="rounded-lg bg-superficie-2 px-2 py-0.5 text-sm"
-                                >
-                                  {i.nome}
-                                </span>
-                              ))}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 text-right align-top font-extrabold whitespace-nowrap tabular-nums">
-                            {reais(o.totalCentavos)}
-                          </td>
-                          <td className="px-4 py-2.5 text-right align-top whitespace-nowrap text-suave tabular-nums">
-                            {reais(o.custoCentavos)}
-                          </td>
-                          <td
-                            className={`px-4 py-2.5 text-right align-top whitespace-nowrap ${lucro < 0 ? 'text-perigo' : 'text-sucesso'}`}
-                          >
-                            <span className="block font-extrabold tabular-nums">
-                              {reais(lucro)}
-                            </span>
-                            <span className="text-xs font-bold">
-                              {lucro < 0 ? 'prejuízo · ' : ''}
-                              {pct(lucro, o.totalCentavos)}%
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 align-top">
+                          <span className="flex flex-wrap gap-1">
+                            {o.itens.map((i, k) => (
+                              <span
+                                key={k}
+                                className="rounded-lg bg-superficie-2 px-2 py-0.5 text-sm"
+                              >
+                                {i.nome}
+                              </span>
+                            ))}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-right align-top font-extrabold whitespace-nowrap tabular-nums">
+                          {reais(o.totalCentavos)}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 ))}
                 {lista.length > 0 && (
@@ -383,12 +302,6 @@ function ControleFinanceiro() {
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">
                         {reais(soma(lista, (o) => o.totalCentavos))}
-                      </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">
-                        {reais(soma(lista, (o) => o.custoCentavos))}
-                      </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap text-sucesso tabular-nums">
-                        {reais(soma(lista, (o) => o.totalCentavos - o.custoCentavos))}
                       </td>
                     </tr>
                   </tfoot>
@@ -407,40 +320,30 @@ function ControleFinanceiro() {
                         {reais(soma(g.os, (o) => o.totalCentavos))}
                       </span>
                     </h3>
-                    {g.os.map((o) => {
-                      const lucro = o.totalCentavos - o.custoCentavos
-                      return (
-                        <div
-                          key={o.id}
-                          className="flex gap-2.5 rounded-2xl border border-borda bg-superficie p-3"
-                        >
-                          <span
-                            aria-hidden="true"
-                            className="w-1 shrink-0 rounded"
-                            style={{ background: corDe(o.profissional.id) }}
-                          />
-                          <div className="min-w-0 flex-1 space-y-0.5">
-                            <div className="flex justify-between gap-2">
-                              <LinkPaciente o={o} />
-                              <strong className="whitespace-nowrap tabular-nums">
-                                {reais(o.totalCentavos)}
-                              </strong>
-                            </div>
-                            <p className="truncate text-sm text-suave">
-                              {o.itens.map((i) => i.nome).join(', ')}
-                            </p>
-                            <p className="flex justify-between gap-2 text-xs text-suave">
-                              <span>{o.profissional.nome}</span>
-                              <span
-                                className={`font-extrabold ${lucro < 0 ? 'text-perigo' : 'text-sucesso'}`}
-                              >
-                                Lucro {reais(lucro)} · {pct(lucro, o.totalCentavos)}%
-                              </span>
-                            </p>
+                    {g.os.map((o) => (
+                      <div
+                        key={o.id}
+                        className="flex gap-2.5 rounded-2xl border border-borda bg-superficie p-3"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="w-1 shrink-0 rounded"
+                          style={{ background: corDe(o.profissional.id) }}
+                        />
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="flex justify-between gap-2">
+                            <LinkPaciente o={o} />
+                            <strong className="whitespace-nowrap tabular-nums">
+                              {reais(o.totalCentavos)}
+                            </strong>
                           </div>
+                          <p className="truncate text-sm text-suave">
+                            {o.itens.map((i) => i.nome).join(', ')}
+                          </p>
+                          <p className="text-xs text-suave">{o.profissional.nome}</p>
                         </div>
-                      )
-                    })}
+                      </div>
+                    ))}
                   </section>
                 ))}
               </div>

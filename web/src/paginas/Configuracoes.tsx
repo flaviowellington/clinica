@@ -240,7 +240,6 @@ interface Procedimento {
   nome: string
   especialidade: string | null
   valorCentavos: number
-  custoCentavos: number
   ativo: boolean
 }
 
@@ -289,7 +288,6 @@ function Procedimentos() {
                 <tr>
                   <th className={TH}>Procedimento</th>
                   <th className={TH}>Especialidade</th>
-                  <th className={`${TH} text-right`}>Custo</th>
                   <th className={`${TH} text-right`}>Valor</th>
                   <th className={TH}>Situação</th>
                   <th className={TH}>
@@ -307,9 +305,6 @@ function Procedimentos() {
                       {p.nome}
                     </td>
                     <td className="px-4 py-2.5">{p.especialidade ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right text-suave tabular-nums">
-                      {reais(p.custoCentavos)}
-                    </td>
                     <td className="px-4 py-2.5 text-right font-bold tabular-nums">
                       {reais(p.valorCentavos)}
                     </td>
@@ -358,7 +353,6 @@ export function FormProcedimento(props: {
   const qc = useQueryClient()
   const p = props.procedimento
   const [valor, setValor] = useState(p?.valorCentavos ?? 0)
-  const [custo, setCusto] = useState(p?.custoCentavos ?? 0)
   const salvar = useMutation({
     mutationFn: async (d: Record<string, unknown>) =>
       p
@@ -382,7 +376,6 @@ export function FormProcedimento(props: {
         salvar.mutate({
           ...f,
           valorCentavos: valor,
-          custoCentavos: custo,
           ativo: p ? f.ativo === 'on' : true,
         })
       }}
@@ -397,19 +390,9 @@ export function FormProcedimento(props: {
           autoFocus
         />
       </label>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <CampoReais id="proc-custo" rotulo="Custo *" valor={custo} aoMudar={setCusto} />
-          <span className="ajuda">Material, laboratório: o que a clínica gasta.</span>
-        </div>
-        <div>
-          <CampoReais id="proc-valor" rotulo="Valor final *" valor={valor} aoMudar={setValor} />
-          <span className="ajuda">
-            {valor > 0
-              ? `Lucro: ${reais(valor - custo)} (${Math.round(((valor - custo) / valor) * 100)}%)`
-              : 'Preço cobrado do paciente.'}
-          </span>
-        </div>
+      <div className="sm:max-w-xs">
+        <CampoReais id="proc-valor" rotulo="Valor final *" valor={valor} aoMudar={setValor} />
+        <span className="ajuda">Preço cobrado do paciente.</span>
       </div>
       <div>
         <label className="rotulo" id="p-esp-rotulo">

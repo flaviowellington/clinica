@@ -242,7 +242,7 @@ rotasProfissionais.delete('/:id/foto', exigir('profissional.editar'), async (req
 export const rotasFinanceiro = Router()
 
 const zerados = () =>
-  ({ VENDA: 0, CANCELAMENTO: 0, ENTRADA: 0, SAIDA: 0 }) as Record<TipoLancamento, number>
+  ({ VENDA: 0, CANCELAMENTO: 0, ENTRADA: 0 }) as Record<TipoLancamento, number>
 
 rotasFinanceiro.get('/lancamentos', exigir('financeiro.ver'), async (req, res) => {
   const data = periodo(req)

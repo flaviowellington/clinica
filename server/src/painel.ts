@@ -17,15 +17,29 @@ function somarPor<T>(itens: T[], chave: (i: T) => string, valor: (i: T) => numbe
   for (const i of itens) m.set(chave(i), (m.get(chave(i)) ?? 0) + valor(i))
   return [...m].map(([rotulo, v]) => ({ rotulo, valor: v })).sort((a, b) => b.valor - a.valor)
 }
-const totalOrc = (o: { descontoCentavos: number; itens: { valorCentavos: number }[] }) =>
+type OrcValor = { descontoCentavos: number; itens: { valorCentavos: number }[] }
+const totalOrc = (o: OrcValor) =>
   o.itens.reduce((t, i) => t + i.valorCentavos, 0) - o.descontoCentavos
-const custoOrc = (o: { itens: { custoCentavos: number }[] }) =>
-  o.itens.reduce((t, i) => t + i.custoCentavos, 0)
+/** Os itens com o desconto do orçamento dividido na proporção do valor (como nos Gráficos). */
+function itensLiquidos<I extends { valorCentavos: number }>(o: {
+  descontoCentavos: number
+  itens: I[]
+}) {
+  const bruto = o.itens.reduce((t, i) => t + i.valorCentavos, 0)
+  const fator = bruto ? totalOrc(o) / bruto : 0
+  return o.itens.map((i) => ({ ...i, liquido: Math.round(i.valorCentavos * fator) }))
+}
+/** Janela larga em UTC; o dia da aprovação sai do fuso da clínica (como no Financeiro). */
+const janelaLarga = (data: Data) => ({
+  gte: new Date(data.gte.getTime() - DIA_MS),
+  lt: new Date(data.lte.getTime() + 2 * DIA_MS),
+})
+const noPeriodo = (iso: string, data: Data) => iso >= isoDe(data.gte) && iso <= isoDe(data.lte)
 
 /** Os números dos cartões: calculados também no período anterior, para comparar. */
 async function resumo(data: Data) {
   const instantes = { gte: data.gte, lt: new Date(data.lte.getTime() + DIA_MS) }
-  const [consultas, desmarcadas, lancamentos, criados, aprovados, novos] = await Promise.all([
+  const [consultas, desmarcadas, entradas, criados, aprovadosUtc, novos] = await Promise.all([
     db.agendamento.findMany({
       where: { tipo: 'CONSULTA', excluidoEm: null, desmarcadoEm: null, data },
       include: {
@@ -36,10 +50,14 @@ async function resumo(data: Data) {
     db.agendamento.count({
       where: { tipo: 'CONSULTA', excluidoEm: null, desmarcadoEm: { not: null }, data },
     }),
-    db.lancamento.findMany({ where: { excluidoEm: null, data } }),
+    db.lancamento.findMany({ where: { excluidoEm: null, data, tipo: 'ENTRADA' } }),
     db.orcamento.count({ where: { criadoEm: instantes, excluidoEm: null } }),
     db.orcamento.findMany({
-      where: { aprovadoEm: instantes, status: { in: ['APROVADO', 'CANCELADO'] } },
+      where: {
+        aprovadoEm: janelaLarga(data),
+        excluidoEm: null,
+        status: { in: ['APROVADO', 'CANCELADO'] },
+      },
       include: {
         profissional: { select: { nome: true } },
         itens: { include: { procedimento: { select: { especialidade: true } } } },
@@ -61,12 +79,13 @@ async function resumo(data: Data) {
   }
   const disponiveis = [...diasPorProf.values()].reduce((s, d) => s + d.size, 0) * HORARIOS.length
 
-  const soma = (tipo: string) =>
-    lancamentos.filter((l) => l.tipo === tipo).reduce((s, l) => s + l.valorCentavos, 0)
-  const recebido = soma('ENTRADA')
-  const despesas = soma('SAIDA')
-  const valorAprovado = aprovados.reduce((s, o) => s + totalOrc(o), 0)
-  const custoAprovado = aprovados.reduce((s, o) => s + custoOrc(o), 0)
+  const aprovados = aprovadosUtc
+    .map((o) => ({ ...o, dia: hojeNaClinica(o.aprovadoEm!) }))
+    .filter((o) => noPeriodo(o.dia, data))
+  // Orçamento só se aprova pago: o faturamento são os aprovados que seguem aprovados
+  // (cancelado sai, como no Financeiro).
+  const faturados = aprovados.filter((o) => o.status === 'APROVADO')
+  const faturamento = faturados.reduce((s, o) => s + totalOrc(o), 0)
   const atendidas = consultas.filter((c) => c.status === 'ATENDIDO').length
   const faltas = consultas.filter((c) => c.status === 'FALTOU').length
   const atendidos = new Set(
@@ -84,28 +103,22 @@ async function resumo(data: Data) {
       ocupacao: disponiveis ? usados / disponiveis : 0,
     },
     financeiro: {
-      vendido: soma('VENDA'),
-      cancelado: soma('CANCELAMENTO'),
-      recebido,
-      despesas,
-      resultado: recebido - despesas,
-      recibos: lancamentos.filter((l) => l.tipo === 'ENTRADA').length,
-      /** Recebido ÷ pacientes atendidos. */
-      porPaciente: atendidos ? recebido / atendidos : 0,
+      faturamento,
+      /** Orçamentos que entram no faturamento. */
+      faturados: faturados.length,
+      ticketMedio: faturados.length ? faturamento / faturados.length : 0,
+      /** Faturamento ÷ pacientes atendidos. */
+      porPaciente: atendidos ? faturamento / atendidos : 0,
     },
     orcamentos: {
       criados,
       aprovados: aprovados.length,
       conversao: criados ? aprovados.length / criados : 0,
-      valorAprovado,
-      custoAprovado,
-      margem: valorAprovado ? (valorAprovado - custoAprovado) / valorAprovado : 0,
-      ticketMedio: aprovados.length ? valorAprovado / aprovados.length : 0,
     },
     pacientesNovos: novos.length,
     atendidos,
     // Detalhe do período (só o atual vai para a tela).
-    _det: { consultas, lancamentos, aprovados, novos },
+    _det: { consultas, entradas, faturados, novos },
   }
 }
 
@@ -145,7 +158,8 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
   const ini12 = isoDe(new Date(Date.UTC(+fim.slice(0, 4), +fim.slice(5, 7) - 12, 1)))
   const fim12 = isoDe(new Date(Date.UTC(+fim.slice(0, 4), +fim.slice(5, 7), 0)))
 
-  const [atual, anterior, atrasadas, criadosCoorte, lanc12, retornosVencidos] = await Promise.all([
+  const doze = { gte: dia(ini12), lte: dia(fim12) }
+  const [atual, anterior, atrasadas, criadosCoorte, orcs12, retornosVencidos] = await Promise.all([
     resumo(data),
     ant ? resumo(ant) : null,
     db.contaFinanceira.findMany({
@@ -159,15 +173,19 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
       },
       select: { status: true, itens: { select: { executadoEm: true } } },
     }),
-    db.lancamento.findMany({
-      where: { excluidoEm: null, data: { gte: dia(ini12), lte: dia(fim12) } },
-      select: { data: true, tipo: true, valorCentavos: true },
+    db.orcamento.findMany({
+      where: { status: 'APROVADO', excluidoEm: null, aprovadoEm: janelaLarga(doze) },
+      select: {
+        aprovadoEm: true,
+        descontoCentavos: true,
+        itens: { select: { valorCentavos: true } },
+      },
     }),
     db.alertaRetorno.count({
       where: { excluidoEm: null, concluidoEm: null, data: { lt: dia(hoje) } },
     }),
   ])
-  const { consultas, lancamentos, aprovados, novos } = atual._det
+  const { consultas, entradas, faturados, novos } = atual._det
   const tirar = (r: Awaited<ReturnType<typeof resumo>>) => {
     const { _det, ...resto } = r
     void _det
@@ -180,32 +198,25 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
   const faltasSemana = Array<number>(7).fill(0)
   for (const c of consultas) if (c.status === 'FALTOU') faltasSemana[c.data.getUTCDay()]++
 
-  // Movimento por dia: a tela agrupa por dia, semana ou mês.
-  const porDia = new Map<string, { entrada: number; saida: number; venda: number }>()
-  for (const l of lancamentos) {
-    const k = isoDe(l.data)
-    const g = porDia.get(k) ?? { entrada: 0, saida: 0, venda: 0 }
-    if (l.tipo === 'ENTRADA') g.entrada += l.valorCentavos
-    if (l.tipo === 'SAIDA') g.saida += l.valorCentavos
-    if (l.tipo === 'VENDA') g.venda += l.valorCentavos
-    porDia.set(k, g)
-  }
+  // Faturamento por dia (da aprovação): a tela agrupa por dia, semana ou mês.
+  const porDia = new Map<string, number>()
+  for (const o of faturados) porDia.set(o.dia, (porDia.get(o.dia) ?? 0) + totalOrc(o))
 
   // Últimos 12 meses.
   const meses = Array.from({ length: 12 }, (_, i) =>
     isoDe(new Date(Date.UTC(+ini12.slice(0, 4), +ini12.slice(5, 7) - 1 + i, 1))).slice(0, 7),
   )
-  const tendencia = meses.map((mes) => {
-    const doMes = lanc12.filter((l) => isoDe(l.data).startsWith(mes))
-    const s = (t: string) =>
-      doMes.filter((l) => l.tipo === t).reduce((x, l) => x + l.valorCentavos, 0)
-    return { mes, recebido: s('ENTRADA'), despesas: s('SAIDA'), vendido: s('VENDA') }
-  })
+  const porMes = new Map<string, number>()
+  for (const o of orcs12) {
+    const mes = hojeNaClinica(o.aprovadoEm!).slice(0, 7)
+    porMes.set(mes, (porMes.get(mes) ?? 0) + totalOrc(o))
+  }
+  const tendencia = meses.map((mes) => ({ mes, faturamento: porMes.get(mes) ?? 0 }))
 
-  // Profissionais: agenda e vendas lado a lado.
-  const profs = new Map<string, { consultas: number; faltas: number; vendido: number }>()
+  // Profissionais: agenda e faturamento lado a lado.
+  const profs = new Map<string, { consultas: number; faltas: number; faturamento: number }>()
   const prof = (nome: string) => {
-    const g = profs.get(nome) ?? { consultas: 0, faltas: 0, vendido: 0 }
+    const g = profs.get(nome) ?? { consultas: 0, faltas: 0, faturamento: 0 }
     profs.set(nome, g)
     return g
   }
@@ -214,7 +225,7 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
     g.consultas++
     if (c.status === 'FALTOU') g.faltas++
   }
-  for (const o of aprovados) prof(o.profissional.nome).vendido += totalOrc(o)
+  for (const o of faturados) prof(o.profissional.nome).faturamento += totalOrc(o)
 
   // Funil: os orçamentos criados no período e até onde chegaram.
   const aprov = criadosCoorte.filter((o) => o.status === 'APROVADO')
@@ -255,17 +266,18 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
       porCategoria: somarPor(consultas, (c) => c.categoria || 'Sem categoria'),
       porProfissional: [...profs]
         .map(([nome, g]) => ({ nome, ...g }))
-        .sort((a, b) => b.vendido - a.vendido || b.consultas - a.consultas),
+        .sort((a, b) => b.faturamento - a.faturamento || b.consultas - a.consultas),
     },
     financeiro: {
       ...atual.financeiro,
+      // Forma de pagamento só existe no pagamento (que acontece na aprovação).
       porForma: somarPor(
-        lancamentos.filter((l) => l.tipo === 'ENTRADA'),
+        entradas,
         (l) => l.forma ?? 'Não informada',
         (l) => l.valorCentavos,
       ),
       porDia: [...porDia]
-        .map(([d, g]) => ({ data: d, ...g }))
+        .map(([d, valor]) => ({ data: d, valor }))
         .sort((a, b) => (a.data < b.data ? -1 : 1)),
       tendencia,
     },
@@ -292,14 +304,14 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
         { rotulo: 'Concluídos', valor: concluidos.length },
       ],
       porEspecialidade: somarPor(
-        aprovados.flatMap((o) => o.itens),
+        faturados.flatMap(itensLiquidos),
         (i) => i.procedimento.especialidade ?? 'Sem especialidade',
-        (i) => i.valorCentavos,
+        (i) => i.liquido,
       ),
       porProcedimento: somarPor(
-        aprovados.flatMap((o) => o.itens),
+        faturados.flatMap(itensLiquidos),
         (i) => i.nome,
-        (i) => i.valorCentavos,
+        (i) => i.liquido,
       ),
     },
     pacientes: {

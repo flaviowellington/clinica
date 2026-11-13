@@ -1,4 +1,4 @@
-import { useId, useState, type InputHTMLAttributes } from 'react'
+import { useEffect, useId, useState, type InputHTMLAttributes } from 'react'
 import { normalizar } from '../../../shared/regras'
 
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'list'> & {
@@ -26,6 +26,11 @@ export function CampoSugestoes({ value, onChange, sugestoes, className = '', ...
   // Já escrito igual à única sugestão: não há o que mostrar.
   const mostrar = aberta && achadas.length > 0 && !(achadas.length === 1 && achadas[0] === value)
 
+  // A destacada pelas setas fica sempre à vista na lista rolável.
+  useEffect(() => {
+    if (mostrar) document.getElementById(`${id}-${ativa}`)?.scrollIntoView({ block: 'nearest' })
+  }, [mostrar, ativa, id])
+
   const escolher = (s: string) => {
     onChange(s)
     setAberta(false)
@@ -40,6 +45,7 @@ export function CampoSugestoes({ value, onChange, sugestoes, className = '', ...
         aria-expanded={mostrar}
         aria-controls={`${id}-lista`}
         aria-autocomplete="list"
+        aria-activedescendant={mostrar ? `${id}-${ativa}` : undefined}
         autoComplete="off"
         value={value}
         onChange={(e) => {
@@ -88,6 +94,7 @@ export function CampoSugestoes({ value, onChange, sugestoes, className = '', ...
           {achadas.map((s, i) => (
             <li
               key={s}
+              id={`${id}-${i}`}
               role="option"
               aria-selected={i === ativa}
               onClick={() => escolher(s)}

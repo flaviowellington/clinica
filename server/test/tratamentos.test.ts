@@ -367,37 +367,25 @@ describe('PT-10 a PT-19 orçamento', () => {
   })
 })
 
-describe('contas a pagar e a receber', () => {
-  it('a pagar exige conta do plano de contas (R-054); baixar vira saída', async () => {
+describe('contas a receber', () => {
+  it('não existe conta a pagar: o tipo vira a receber e baixar vira entrada', async () => {
     const api = await entrarComo('FINANCEIRO')
-    const sem = await api('POST', '/api/financeiro/contas', {
-      tipo: 'PAGAR',
-      descricao: 'Aluguel',
-      valorCentavos: 250000,
-      vencimento: '2026-11-05',
-    })
-    expect(sem.corpo.erros.categoria).toBeTruthy()
     const { corpo: c } = await api('POST', '/api/financeiro/contas', {
       tipo: 'PAGAR',
       descricao: 'Aluguel',
       valorCentavos: 250000,
       vencimento: '2026-11-05',
-      categoria: 'Aluguel e condomínio',
     })
+    expect(c[0]).toMatchObject({ tipo: 'RECEBER', categoria: 'Receita de tratamentos' })
     const pago = await api('POST', `/api/financeiro/contas/${c[0].id}/baixar`, {
       data: '2026-11-05',
       forma: 'Pix',
     })
-    expect(pago.corpo.status).toBe('PAGA')
     const l = await db.lancamento.findFirstOrThrow({ where: { id: pago.corpo.lancamentoId } })
-    expect([l.tipo, l.valorCentavos, l.categoria]).toEqual([
-      'SAIDA',
-      250000,
-      'Aluguel e condomínio',
-    ])
+    expect(l.tipo).toBe('ENTRADA')
   })
 
-  it('lista por tipo, status e forma; parcela a receber baixada vira entrada', async () => {
+  it('lista por status e forma; parcela a receber baixada vira entrada', async () => {
     const api = await entrarComo('FINANCEIRO')
     const { corpo: criadas } = await api('POST', '/api/financeiro/contas', {
       tipo: 'RECEBER',
@@ -440,12 +428,6 @@ describe('PT-52 fluxo de caixa, extrato e conciliação', () => {
       valorCentavos: 5000,
       descricao: 'Parcela',
     })
-    await api('POST', '/api/financeiro/lancamentos', {
-      data: '2026-10-20',
-      tipo: 'SAIDA',
-      valorCentavos: 2000,
-      descricao: 'Material',
-    })
     await api('POST', '/api/financeiro/contas', {
       tipo: 'RECEBER',
       descricao: 'Parcela 2',
@@ -455,27 +437,11 @@ describe('PT-52 fluxo de caixa, extrato e conciliação', () => {
     const f = await api('GET', '/api/financeiro/fluxo?de=2026-10-20&ate=2026-10-21')
     expect(f.corpo.saldoAnterior).toBe(10000)
     expect(f.corpo.dias).toEqual([
-      {
-        data: '2026-10-20',
-        entradas: 5000,
-        saidas: 2000,
-        entradasPrevistas: 0,
-        saidasPrevistas: 0,
-        saldo: 3000,
-        acumulado: 13000,
-      },
-      {
-        data: '2026-10-21',
-        entradas: 0,
-        saidas: 0,
-        entradasPrevistas: 7000,
-        saidasPrevistas: 0,
-        saldo: 7000,
-        acumulado: 20000,
-      },
+      { data: '2026-10-20', entradas: 5000, entradasPrevistas: 0, saldo: 5000, acumulado: 15000 },
+      { data: '2026-10-21', entradas: 0, entradasPrevistas: 7000, saldo: 7000, acumulado: 22000 },
     ])
     const e = await api('GET', '/api/financeiro/extrato?de=2026-10-20&ate=2026-10-21')
-    expect(e.corpo.itens.map((i: { saldo: number }) => i.saldo)).toEqual([15000, 13000])
+    expect(e.corpo.itens.map((i: { saldo: number }) => i.saldo)).toEqual([15000])
   })
 
   it('conciliação marca lançamentos de uma conta bancária e compara saldo', async () => {
@@ -504,29 +470,6 @@ describe('PT-52 fluxo de caixa, extrato e conciliação', () => {
 })
 
 describe('relatórios que dependem dessas partes', () => {
-  it('DRE soma por grupo do plano de contas (R-043)', async () => {
-    const api = await entrarComo('ADMINISTRADOR')
-    for (const [tipo, valor, categoria] of [
-      ['ENTRADA', 100000, 'Receita de tratamentos'],
-      ['SAIDA', 5000, 'Taxas de cartão e boleto'],
-      ['SAIDA', 20000, 'Material odontológico'],
-      ['SAIDA', 30000, 'Aluguel e condomínio'],
-    ] as const)
-      await api('POST', '/api/financeiro/lancamentos', {
-        data: '2026-10-20',
-        tipo,
-        valorCentavos: valor,
-        descricao: categoria,
-        categoria,
-      })
-    const r = await api('GET', '/api/relatorios/financeiro-dre?de=2026-10-01&ate=2026-10-31')
-    const linha = (nome: string) => r.corpo.linhas.find((l: string[]) => l[0] === nome)?.[1]
-    expect(linha('Receita operacional bruta')).toBe('1.000,00')
-    expect(linha('(=) Receita líquida')).toBe('950,00')
-    expect(linha('(=) Lucro bruto')).toBe('750,00')
-    expect(linha('(=) Resultado do período')).toBe('450,00')
-  })
-
   it('tratamentos em aberto e procedimentos executados', async () => {
     const api = await entrarComo('ADMINISTRADOR')
     const b = await base(api)
@@ -552,38 +495,29 @@ describe('relatórios que dependem dessas partes', () => {
   })
 })
 
-describe('custo do procedimento e análise do financeiro', () => {
-  it('cadastro de procedimento exige o custo', async () => {
+describe('procedimento sem custo e análise do financeiro', () => {
+  it('cadastro de procedimento não tem custo', async () => {
     const api = await entrarComo('ADMINISTRADOR')
-    const sem = await api('POST', '/api/procedimentos', { nome: 'Faceta', valorCentavos: 90000 })
-    expect(sem.status).toBe(400)
     const com = await api('POST', '/api/procedimentos', {
       nome: 'Faceta',
       valorCentavos: 90000,
       custoCentavos: 35000,
     })
     expect(com.status).toBe(201)
-    expect(com.corpo).toMatchObject({ valorCentavos: 90000, custoCentavos: 35000 })
+    expect(com.corpo.valorCentavos).toBe(90000)
+    expect(com.corpo).not.toHaveProperty('custoCentavos')
   })
 
-  it('item copia o custo da tabela, aceita custo e valor final editados, e a análise soma', async () => {
+  it('item aceita valor final editado, e a análise soma o faturamento', async () => {
     const api = await entrarComo('ADMINISTRADOR')
     const { dentista, paciente, resina, limpeza } = await base(api)
-    await db.procedimento.update({ where: { id: resina.id }, data: { custoCentavos: 8000 } })
-    await db.procedimento.update({ where: { id: limpeza.id }, data: { custoCentavos: 2000 } })
     const { corpo: o } = await api('POST', '/api/orcamentos', {
       pacienteId: paciente.id,
       profissionalId: dentista.id,
-      itens: [
-        { procedimentoId: resina.id },
-        { procedimentoId: limpeza.id, custoCentavos: 2500, valorCentavos: 12000 },
-      ],
+      itens: [{ procedimentoId: resina.id }, { procedimentoId: limpeza.id, valorCentavos: 12000 }],
       descontoCentavos: 2000,
     })
-    expect(o.itens).toMatchObject([
-      { custoCentavos: 8000, valorCentavos: 30000 },
-      { custoCentavos: 2500, valorCentavos: 12000 },
-    ])
+    expect(o.itens).toMatchObject([{ valorCentavos: 30000 }, { valorCentavos: 12000 }])
     await api('POST', `/api/orcamentos/${o.id}/aprovar`)
     const { corpo: aprovado } = await api('GET', `/api/orcamentos?pacienteId=${paciente.id}`)
     await api('POST', `/api/financeiro/contas/${aprovado[0].contas[0].id}/baixar`, {
@@ -597,7 +531,6 @@ describe('custo do procedimento e análise do financeiro', () => {
       {
         id: o.id,
         totalCentavos: 40000,
-        custoCentavos: 10500,
         recebidoCentavos: 40000,
         profissional: { id: dentista.id },
       },

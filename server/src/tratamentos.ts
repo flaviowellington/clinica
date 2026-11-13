@@ -102,7 +102,6 @@ rotasProcedimentos.get('/', exigir('orcamento.ver'), async (req, res) => {
         nome: true,
         especialidade: true,
         valorCentavos: true,
-        custoCentavos: true,
         ativo: true,
       },
       orderBy: { nomeBusca: 'asc' },
@@ -158,7 +157,6 @@ async function lerOrcamento(b: z.output<typeof OrcamentoDto>) {
       dente: i.dente,
       faces: i.dente ? normalizarFaces(i.faces) || null : null,
       valorCentavos: i.valorCentavos ?? p?.valorCentavos ?? 0,
-      custoCentavos: i.custoCentavos ?? p?.custoCentavos ?? 0,
       observacao: i.observacao,
       observacaoPaciente: i.observacaoPaciente,
     }

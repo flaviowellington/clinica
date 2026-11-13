@@ -240,7 +240,6 @@ enum TipoLancamento {
   VENDA
   CANCELAMENTO
   ENTRADA
-  SAIDA
 }
 
 /// Movimento da conta corrente da clínica (S-009). Valor sempre positivo, em centavos.
@@ -311,8 +310,6 @@ model Procedimento {
   nomeBusca     String
   especialidade String?
   valorCentavos Int
-  /// Quanto o procedimento custa para a clínica (material, laboratório). Base do lucro.
-  custoCentavos Int                   @default(0)
   ativo         Boolean               @default(true)
   itens         ItemOrcamento[]
   clinicos      ProcedimentoClinico[]
@@ -369,8 +366,6 @@ model ItemOrcamento {
   faces              String?
   /// Valor final cobrado do paciente.
   valorCentavos      Int
-  /// Custo do item, copiado da tabela e editável no orçamento.
-  custoCentavos      Int          @default(0)
   executadoEm        DateTime?
   executadoPorId     Int?
   /// Interna, e a que aparece no documento que o paciente assina.
@@ -381,7 +376,6 @@ model ItemOrcamento {
 }
 
 enum TipoContaFinanceira {
-  PAGAR
   RECEBER
 }
 
@@ -391,7 +385,7 @@ enum StatusContaFinanceira {
   CANCELADA
 }
 
-/// Conta a pagar ou a receber (uma parcela). Ao baixar, vira lançamento na conta corrente.
+/// Conta a receber (uma parcela). Ao baixar, vira lançamento na conta corrente.
 model ContaFinanceira {
   id            Int                   @id @default(autoincrement())
   tipo          TipoContaFinanceira
@@ -400,7 +394,7 @@ model ContaFinanceira {
   vencimento    DateTime              @db.Date
   forma         String?
   categoria     String?
-  /// Fornecedor (a pagar) ou observação livre, como banco e número do cheque.
+  /// Observação livre, como banco e número do cheque.
   detalhes      String?
   pacienteId    Int?
   paciente      Pessoa?               @relation(fields: [pacienteId], references: [id])

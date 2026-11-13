@@ -1,5 +1,5 @@
 // Dashboard Analítico (R-088): cartões com os indicadores do período (comparados com o período
-// anterior) e gráficos de caixa, vendas, agenda e pacientes. Os gráficos são os do Financeiro.
+// anterior) e gráficos de faturamento, agenda e pacientes. Os gráficos são os do Financeiro.
 import { useMemo, useState, type ReactNode } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api, dataBR, mensagemDeErro, somarDias } from '../api'
@@ -22,22 +22,17 @@ interface Resumo {
     comparecimento: number
     ocupacao: number
   }
+  /** Faturamento = orçamentos aprovados (só se aprovam pagos), como no Financeiro. */
   financeiro: {
-    vendido: number
-    recebido: number
-    despesas: number
-    resultado: number
-    recibos: number
+    faturamento: number
+    faturados: number
+    ticketMedio: number
     porPaciente: number
   }
   orcamentos: {
     criados: number
     aprovados: number
     conversao: number
-    valorAprovado: number
-    custoAprovado: number
-    margem: number
-    ticketMedio: number
   }
   pacientesNovos: number
   atendidos: number
@@ -47,12 +42,12 @@ interface DadosPainel extends Resumo {
   consultas: Resumo['consultas'] & {
     status: Item[]
     porCategoria: Item[]
-    porProfissional: { nome: string; consultas: number; faltas: number; vendido: number }[]
+    porProfissional: { nome: string; consultas: number; faltas: number; faturamento: number }[]
   }
   financeiro: Resumo['financeiro'] & {
     porForma: Item[]
-    porDia: { data: string; entrada: number; saida: number; venda: number }[]
-    tendencia: { mes: string; recebido: number; despesas: number; vendido: number }[]
+    porDia: { data: string; valor: number }[]
+    tendencia: { mes: string; faturamento: number }[]
   }
   inadimplencia: { valor: number; parcelas: number; pacientes: number; porAtraso: Item[] }
   orcamentos: Resumo['orcamentos'] & {
@@ -93,7 +88,7 @@ const serie = (eixo: string, rotulo: string, itens: Item[], emReais: boolean, n 
   ],
 })
 
-/** Entradas e saídas no eixo do tempo: por dia (até 31 dias), semana (até ~4 meses) ou mês. */
+/** Faturamento no eixo do tempo: por dia (até 31 dias), semana (até ~4 meses) ou mês. */
 function fluxo(porDia: DadosPainel['financeiro']['porDia'], de: string, ate: string): Dados {
   const vazio = { eixo: 'Data', categorias: [], series: [] }
   if (!porDia.length) return vazio
@@ -108,14 +103,11 @@ function fluxo(porDia: DadosPainel['financeiro']['porDia'], de: string, ate: str
     const d = new Date(`${iso}T12:00:00`).getDay()
     return somarDias(iso, -((d + 6) % 7))
   }
-  const soma = new Map<string, { e: number; s: number }>()
-  for (let d = ini; d <= fim; d = somarDias(d, 1))
-    soma.set(chave(d), soma.get(chave(d)) ?? { e: 0, s: 0 })
+  const soma = new Map<string, number>()
+  for (let d = ini; d <= fim; d = somarDias(d, 1)) soma.set(chave(d), 0)
   for (const x of porDia) {
-    const g = soma.get(chave(x.data))
-    if (!g) continue
-    g.e += x.entrada
-    g.s += x.saida
+    const k = chave(x.data)
+    if (soma.has(k)) soma.set(k, soma.get(k)! + x.valor)
   }
   const ks = [...soma.keys()]
   return {
@@ -123,16 +115,10 @@ function fluxo(porDia: DadosPainel['financeiro']['porDia'], de: string, ate: str
     categorias: ks.map((k) => (grupo === 'mes' ? mesCurto(k) : dataBR(k).slice(0, 5))),
     series: [
       {
-        rotulo: 'Entradas',
+        rotulo: 'Faturamento',
         cor: 'var(--serie-3)',
         reais: true,
-        valores: ks.map((k) => soma.get(k)!.e),
-      },
-      {
-        rotulo: 'Saídas',
-        cor: 'var(--serie-8)',
-        reais: true,
-        valores: ks.map((k) => soma.get(k)!.s),
+        valores: ks.map((k) => soma.get(k)!),
       },
     ],
   }
@@ -165,30 +151,18 @@ export function Painel() {
         categorias: t.map((x) => mesCurto(x.mes)),
         series: [
           {
-            rotulo: 'Recebido',
+            rotulo: 'Faturamento',
             cor: 'var(--serie-3)',
             reais: true,
-            valores: t.map((x) => x.recebido),
-          },
-          {
-            rotulo: 'Vendido',
-            cor: 'var(--serie-1)',
-            reais: true,
-            valores: t.map((x) => x.vendido),
-          },
-          {
-            rotulo: 'Despesas',
-            cor: 'var(--serie-8)',
-            reais: true,
-            valores: t.map((x) => x.despesas),
+            valores: t.map((x) => x.faturamento),
           },
         ],
       } satisfies Dados,
       status: serie('Situação', 'Consultas', d.consultas.status, false),
       atraso: serie('Atraso', 'Em atraso', d.inadimplencia.porAtraso, true),
-      forma: serie('Forma', 'Recebido', d.financeiro.porForma, true),
-      especialidade: serie('Especialidade', 'Vendido', d.orcamentos.porEspecialidade, true),
-      procedimento: serie('Procedimento', 'Vendido', d.orcamentos.porProcedimento, true, 8),
+      forma: serie('Forma', 'Faturamento', d.financeiro.porForma, true),
+      especialidade: serie('Especialidade', 'Faturamento', d.orcamentos.porEspecialidade, true),
+      procedimento: serie('Procedimento', 'Faturamento', d.orcamentos.porProcedimento, true, 8),
       origem: serie('Como conheceu', 'Pacientes novos', d.pacientes.origem, false),
       idade: serie('Faixa de idade', 'Pacientes', d.pacientes.faixaEtaria, false),
       categoria: serie('Categoria', 'Consultas', d.consultas.porCategoria, false, 10),
@@ -251,42 +225,18 @@ export function Painel() {
         {d && graficos && (
           <div className={`flex flex-col gap-4 ${r.isFetching ? 'opacity-60' : ''}`}>
             {/* ---------- Cartões principais ---------- */}
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <Cartao
-                rotulo="Recebido"
-                valor={reais(d.financeiro.recebido)}
-                variacao={
-                  a && <Variacao atual={d.financeiro.recebido} antes={a.financeiro.recebido} />
-                }
-                nota={`${d.financeiro.recibos} recebimento(s)`}
-                tendencia={d.financeiro.tendencia.map((x) => x.recebido)}
-                cor="var(--serie-3)"
-              />
-              <Cartao
-                rotulo="Resultado do caixa"
-                valor={reais(d.financeiro.resultado)}
-                tom={d.financeiro.resultado < 0 ? 'perigo' : undefined}
-                variacao={
-                  a && <Variacao atual={d.financeiro.resultado} antes={a.financeiro.resultado} />
-                }
-                nota={`Recebido − despesas (${reais(d.financeiro.despesas)})`}
-                tendencia={d.financeiro.tendencia.map((x) => x.recebido - x.despesas)}
-                cor="var(--serie-7)"
-              />
-              <Cartao
-                rotulo="Vendido"
-                valor={reais(d.orcamentos.valorAprovado)}
+                rotulo="Faturamento"
+                valor={reais(d.financeiro.faturamento)}
                 variacao={
                   a && (
-                    <Variacao
-                      atual={d.orcamentos.valorAprovado}
-                      antes={a.orcamentos.valorAprovado}
-                    />
+                    <Variacao atual={d.financeiro.faturamento} antes={a.financeiro.faturamento} />
                   )
                 }
-                nota={`Ticket médio ${reais(d.orcamentos.ticketMedio)} · ${d.orcamentos.aprovados} orçamento(s)`}
-                tendencia={d.financeiro.tendencia.map((x) => x.vendido)}
-                cor="var(--serie-1)"
+                nota={`Ticket médio ${reais(d.financeiro.ticketMedio)} · ${d.financeiro.faturados} orçamento(s)`}
+                tendencia={d.financeiro.tendencia.map((x) => x.faturamento)}
+                cor="var(--serie-3)"
               />
               <Cartao
                 rotulo="Inadimplência hoje"
@@ -333,14 +283,6 @@ export function Painel() {
                 nota={`${d.consultas.total} consulta(s) nos dias atendidos`}
                 meta={0.8}
               />
-              <Medidor
-                rotulo="Margem bruta das vendas"
-                v={d.orcamentos.margem}
-                variacao={
-                  a && <Variacao atual={d.orcamentos.margem} antes={a.orcamentos.margem} pontos />
-                }
-                nota={`Custo ${reais(d.orcamentos.custoAprovado)}`}
-              />
             </div>
 
             {/* ---------- Cartões menores ---------- */}
@@ -356,7 +298,7 @@ export function Painel() {
                 variacao={a && <Variacao atual={d.atendidos} antes={a.atendidos} />}
               />
               <Mini
-                rotulo="Recebido por paciente"
+                rotulo="Faturamento por paciente"
                 valor={reais(Math.round(d.financeiro.porPaciente))}
                 variacao={
                   a && (
@@ -457,8 +399,8 @@ const grafico = (tipo: Tipo, dados: Dados) => (
 function montarBlocos(d: DadosPainel, g: Record<string, Dados>): Record<IdBloco, Bloco> {
   return {
     fluxo: {
-      titulo: 'Entradas e saídas',
-      dica: 'Saídas acima das entradas por vários períodos seguidos pedem atenção ao caixa.',
+      titulo: 'Faturamento no tempo',
+      dica: 'Faturamento em queda por vários períodos seguidos pede atenção ao caixa.',
       corpo: grafico('colunas', g.fluxo),
     },
     tendencia: {
@@ -484,7 +426,7 @@ function montarBlocos(d: DadosPainel, g: Record<string, Dados>): Record<IdBloco,
     },
     profissionais: {
       titulo: 'Desempenho por profissional',
-      dica: 'Consultas, faltas e vendas (orçamentos aprovados) de cada profissional.',
+      dica: 'Consultas, faltas e faturamento (orçamentos aprovados) de cada profissional.',
       largo: true,
       corpo: <TabelaProfissionais linhas={d.consultas.porProfissional} />,
     },
@@ -494,17 +436,17 @@ function montarBlocos(d: DadosPainel, g: Record<string, Dados>): Record<IdBloco,
       corpo: grafico('colunas', g.atraso),
     },
     forma: {
-      titulo: 'Recebido por forma de pagamento',
+      titulo: 'Faturamento por forma de pagamento',
       dica: 'Ajuda a negociar taxas de cartão e prever o dinheiro em caixa.',
       corpo: grafico('rosca', g.forma),
     },
     especialidade: {
-      titulo: 'Vendas por especialidade',
+      titulo: 'Faturamento por especialidade',
       dica: 'Quais especialidades sustentam o faturamento.',
       corpo: grafico('pizza', g.especialidade),
     },
     procedimento: {
-      titulo: 'Procedimentos mais vendidos',
+      titulo: 'Procedimentos que mais faturam',
       dica: 'Os 8 procedimentos que mais faturaram em orçamentos aprovados.',
       corpo: grafico('barras', g.procedimento),
     },
@@ -830,7 +772,7 @@ function MapaCalor({ m }: { m: number[][] }) {
 
 function TabelaProfissionais({ linhas }: { linhas: DadosPainel['consultas']['porProfissional'] }) {
   if (!linhas.length) return <p className="py-16 text-center text-suave">Nada no período.</p>
-  const maxV = Math.max(1, ...linhas.map((l) => l.vendido))
+  const maxV = Math.max(1, ...linhas.map((l) => l.faturamento))
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[560px] text-left text-sm">
@@ -839,7 +781,7 @@ function TabelaProfissionais({ linhas }: { linhas: DadosPainel['consultas']['por
             <th className="border-b border-borda px-3 py-2">Profissional</th>
             <th className="border-b border-borda px-3 py-2 text-right">Consultas</th>
             <th className="border-b border-borda px-3 py-2 text-right">Faltas</th>
-            <th className="w-2/5 border-b border-borda px-3 py-2">Vendido</th>
+            <th className="w-2/5 border-b border-borda px-3 py-2">Faturamento</th>
           </tr>
         </thead>
         <tbody>
@@ -863,16 +805,16 @@ function TabelaProfissionais({ linhas }: { linhas: DadosPainel['consultas']['por
                       <div
                         className="h-full rounded-full"
                         style={{
-                          width: `${(l.vendido / maxV) * 100}%`,
+                          width: `${(l.faturamento / maxV) * 100}%`,
                           background: 'var(--serie-1)',
                         }}
                       />
                     </div>
                     <span
                       className="w-24 shrink-0 text-right font-bold tabular-nums"
-                      title={reais(l.vendido)}
+                      title={reais(l.faturamento)}
                     >
-                      R$ {milReais(l.vendido)}
+                      R$ {milReais(l.faturamento)}
                     </span>
                   </div>
                 </td>

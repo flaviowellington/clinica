@@ -7,6 +7,7 @@ import { pode } from '../../../shared/permissoes'
 import { Dialogo } from './Dialogo'
 import { FormPaciente } from './FormPaciente'
 import { Icone } from './Icones'
+import { navegarLista } from './navegarLista'
 
 /** O que foi buscado vira o campo certo do cadastro: CPF, celular ou nome. */
 function sugestaoDeCadastro(termo: string): Partial<Paciente> {
@@ -140,6 +141,7 @@ export function BuscaPaciente(props: {
         // Lista sobreposta (não empurra o resto da tela); fecha quando o foco sai da busca.
         <div
           className="relative"
+          onKeyDown={navegarLista}
           onFocus={() => setListaAberta(true)}
           onBlur={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget as Node)) setListaAberta(false)

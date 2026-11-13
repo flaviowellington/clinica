@@ -10,10 +10,10 @@ test('Início, Profissionais, Financeiro, e Relatórios', async ({ page }) => {
   await page.getByRole('button', { name: 'Entrar' }).click()
 
   // Início com os cartões.
-  await expect(page.getByRole('heading', { name: /Olá/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /^(Bom dia|Boa tarde|Boa noite)/ })).toBeVisible()
   const main = page.getByRole('main')
   for (const c of ['Agenda', 'Pacientes', 'Financeiro', 'Profissionais', 'Relatórios'])
-    await expect(main.getByRole('link', { name: new RegExp(`^${c}(?! \\d)`) })).toBeVisible()
+    await expect(main.getByRole('link', { name: new RegExp(`^(\\d+ )?${c}( |$)`) })).toBeVisible()
   await page.screenshot({ path: 'test-results/inicio.png', fullPage: true })
 
   // Profissionais: cadastrar um novo.
@@ -28,30 +28,26 @@ test('Início, Profissionais, Financeiro, e Relatórios', async ({ page }) => {
   await expect(page.getByText('Dr. Ponta a Ponta')).toBeVisible()
   await page.screenshot({ path: 'test-results/profissionais.png', fullPage: true })
 
-  // Procedimento novo exige o custo; valor digitado da direita para a esquerda (R-055).
+  // Procedimento novo sem custo; valor digitado da direita para a esquerda (R-055).
   await page.getByRole('navigation').getByRole('link', { name: 'Configurações' }).click()
   await page.getByRole('tab', { name: 'Procedimentos e preços' }).click()
   await page.getByRole('button', { name: 'Novo procedimento' }).click()
   await page.getByLabel('Nome *').fill('Faceta de teste')
-  const custo = page.getByLabel('Custo *')
-  await custo.click()
-  await custo.press('End')
-  await custo.pressSequentially('15000')
-  await expect(custo).toHaveValue(/150,00/)
+  await expect(page.getByLabel(/Custo/)).toHaveCount(0)
   const valor = page.getByLabel('Valor final *')
   await valor.click()
   await valor.press('End')
   await valor.pressSequentially('60000')
-  await expect(page.getByText(/Lucro: R\$\s450,00 \(75%\)/)).toBeVisible()
+  await expect(valor).toHaveValue(/600,00/)
   await page.getByRole('button', { name: 'Salvar' }).click()
   await expect(page.getByText('Procedimento salvo')).toBeVisible()
 
-  // Financeiro: Controle Financeiro com faturamento, entrada e lucro; e os gráficos editáveis.
+  // Financeiro: Controle Financeiro com faturamento e entrada, sem lucro; e os gráficos editáveis.
   await page.getByRole('navigation').getByRole('link', { name: 'Financeiro' }).click()
   await page.getByRole('tab', { name: 'Controle Financeiro' }).click()
   await expect(page.getByRole('heading', { name: 'Controle Financeiro' })).toBeVisible()
   await expect(page.getByText('Faturamento', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('Lucro', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Lucro', { exact: true })).toHaveCount(0)
   await page.screenshot({ path: 'test-results/controle-financeiro.png', fullPage: true })
   await page.getByRole('tab', { name: 'Gráficos' }).click()
   await page.getByRole('button', { name: 'Restaurar padrão' }).click()

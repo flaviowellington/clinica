@@ -24,6 +24,7 @@ import { CampoData } from '../componentes/CampoData'
 import { CampoReais } from '../componentes/CampoReais'
 import { Icone } from '../componentes/Icones'
 import { CampoSelect } from '../componentes/CampoSelect'
+import { navegarLista } from '../componentes/navegarLista'
 import { confirmar } from '../componentes/Confirmar'
 
 interface Trabalho {
@@ -115,6 +116,7 @@ function Escolha(props: {
   return (
     <div
       className="relative"
+      onKeyDown={navegarLista}
       onFocus={() => setAberta(true)}
       onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setAberta(false)}
     >

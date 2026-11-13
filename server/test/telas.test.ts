@@ -268,18 +268,16 @@ describe('configurações', () => {
       nome: 'Clareamento',
       especialidade: 'Dentística',
       valorCentavos: 80000,
-      custoCentavos: 20000,
     })
     expect(r.status).toBe(201)
     await admin('PUT', `/api/procedimentos/${r.corpo.id}`, {
       nome: 'Clareamento',
       valorCentavos: 90000,
-      custoCentavos: 22000,
       ativo: false,
     })
     expect((await admin('GET', '/api/procedimentos')).corpo).toEqual([])
     expect((await admin('GET', '/api/procedimentos?todos=1')).corpo).toMatchObject([
-      { valorCentavos: 90000, custoCentavos: 22000, ativo: false },
+      { valorCentavos: 90000, ativo: false },
     ])
     expect((await admin('POST', '/api/procedimentos', { nome: '', valorCentavos: 1 })).status).toBe(
       400,
@@ -522,7 +520,9 @@ describe('PT-88 painel', () => {
     const r = await admin('GET', '/api/painel?de=2026-10-01&ate=2026-10-31')
     expect(r.status).toBe(200)
     expect(r.corpo.consultas).toMatchObject({ total: 2, faltas: 1 })
-    expect(r.corpo.financeiro).toMatchObject({ recebido: 10000 })
+    // Entrada solta (sem orçamento) não é faturamento: só aparece na forma de pagamento.
+    expect(r.corpo.financeiro).toMatchObject({ faturamento: 0, faturados: 0 })
+    expect(r.corpo.financeiro.porForma).toContainEqual({ rotulo: 'Não informada', valor: 10000 })
     expect(r.corpo.consultas.comparecimento).toBe(0.5)
     expect(r.corpo.mapaCalor[2][9]).toBe(1) // terça (20/10/2026) às 9h
     expect(r.corpo.mapaCalor[2][10]).toBe(1)
@@ -538,7 +538,7 @@ describe('PT-88 painel', () => {
       'GET',
       '/api/painel?de=2026-10-01&ate=2026-10-31&anteriorDe=2026-09-01&anteriorAte=2026-09-30',
     )
-    expect(comAnterior.corpo.anterior.financeiro.recebido).toBe(0)
+    expect(comAnterior.corpo.anterior.financeiro.faturamento).toBe(0)
 
     // Inadimplência por tempo de atraso.
     const vencida = new Date(Date.now() - 45 * 86_400_000).toISOString().slice(0, 10)
@@ -555,6 +555,59 @@ describe('PT-88 painel', () => {
       (await (await entrarComo('RECEPCAO'))('GET', '/api/painel?de=2026-10-01&ate=2026-10-31'))
         .status,
     ).toBe(403)
+  })
+
+  it('faturamento = orçamentos aprovados (com desconto), igual ao Controle Financeiro', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const prof = await dentista()
+    const pac = await pacienteCom(admin)
+    const proc = await db.procedimento.create({
+      data: {
+        nome: 'Faceta fictícia',
+        nomeBusca: 'faceta ficticia',
+        especialidade: 'Estética',
+        valorCentavos: 20000,
+      },
+    })
+    const aprovado = async (descontoCentavos: number) => {
+      const o = await admin('POST', '/api/orcamentos', {
+        pacienteId: pac.id,
+        profissionalId: prof.id,
+        itens: [{ procedimentoId: proc.id }, { procedimentoId: proc.id }],
+        descontoCentavos,
+      })
+      await admin('POST', `/api/orcamentos/${o.corpo.id}/aprovar`, { pagamento: { forma: 'Pix' } })
+      return o.corpo.id as number
+    }
+    await aprovado(4000) // 40.000 − 4.000 = 36.000
+    const cancelado = await aprovado(0)
+    await admin('POST', `/api/orcamentos/${cancelado}/cancelar`, { ciente: true })
+
+    const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
+    const q = `de=${hoje}&ate=${hoje}`
+    const p = (await admin('GET', `/api/painel?${q}`)).corpo
+    const a = (await admin('GET', `/api/financeiro/analise?${q}`)).corpo
+    const controle = a.orcamentos.reduce(
+      (s: number, o: { totalCentavos: number }) => s + o.totalCentavos,
+      0,
+    )
+    const soma = (xs: { valor: number }[]) => xs.reduce((s, x) => s + x.valor, 0)
+
+    expect(p.financeiro.faturamento).toBe(controle)
+    expect(p.financeiro.faturados).toBe(a.orcamentos.length)
+    // Cancelado sai do faturamento; especialidade e procedimento já vêm com o desconto.
+    expect(p.orcamentos.porEspecialidade).toContainEqual({ rotulo: 'Estética', valor: 36000 })
+    expect(soma(p.orcamentos.porEspecialidade)).toBe(p.financeiro.faturamento)
+    expect(soma(p.orcamentos.porProcedimento)).toBe(p.financeiro.faturamento)
+    expect(soma(p.financeiro.porDia)).toBe(p.financeiro.faturamento)
+    expect(p.financeiro.tendencia.at(-1).faturamento).toBeGreaterThanOrEqual(
+      p.financeiro.faturamento,
+    )
+    expect(
+      p.consultas.porProfissional.find((x: { nome: string }) => x.nome === prof.nome),
+    ).toMatchObject({
+      faturamento: 36000,
+    })
   })
 })
 

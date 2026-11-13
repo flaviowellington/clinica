@@ -542,7 +542,7 @@ rotasFichaPaciente.get('/:id/financeiro', exigir('financeiro.paciente'), async (
     }),
   ])
   // Saldo: o que pagou menos o que comprou (negativo = deve).
-  const sinal = { ENTRADA: 1, CANCELAMENTO: 1, VENDA: -1, SAIDA: -1 } as const
+  const sinal = { ENTRADA: 1, CANCELAMENTO: 1, VENDA: -1 } as const
   res.json({
     contas: contas.map((c) => ({
       ...c,

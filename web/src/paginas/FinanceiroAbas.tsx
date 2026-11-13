@@ -14,7 +14,7 @@ import { Icone } from '../componentes/Icones'
 import { normalizar } from '../../../shared/regras'
 import { COR_PADRAO } from './Profissionais'
 
-// ── Análise (orçamentos aprovados e o que entrou) ───────────────────────────
+// ── Análise: orçamentos aprovados (o faturamento) e os pagamentos ───────────
 export interface OrcamentoAnalise {
   id: number
   aprovadoEm: string
@@ -22,12 +22,10 @@ export interface OrcamentoAnalise {
   profissional: { id: number; nome: string }
   descontoCentavos: number
   totalCentavos: number
-  custoCentavos: number
   recebidoCentavos: number
   itens: {
     nome: string
     valorCentavos: number
-    custoCentavos: number
     especialidade: string | null
   }[]
 }
@@ -199,7 +197,6 @@ export function CartaoProfissionais(props: {
 
 // ── Barra de filtros com janelas suspensas (modelo de Orçamentos abertos) ──
 const ativo = (sim: boolean) => (sim ? 'border-primaria bg-primaria-clara text-titulo' : '')
-
 
 /** Botão que abre uma janela embaixo dele; clicar fora fecha. */
 export function Suspenso(props: {
@@ -380,7 +377,7 @@ export function ProfissionaisSuspenso(props: {
   )
 }
 
-/** Faturamento de cada profissional (para a barra do CartaoProfissionais). */
+/** Faturamento (orçamentos aprovados) de cada profissional, para a barra do CartaoProfissionais. */
 export function faturamentoPorProfissional(a: Analise | undefined) {
   const m = new Map<number, number>()
   for (const o of a?.orcamentos ?? [])

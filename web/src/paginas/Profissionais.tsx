@@ -8,6 +8,7 @@ import { Dialogo } from '../componentes/Dialogo'
 import { CampoCelular, CampoEmail } from '../componentes/CampoMascara'
 import { Icone } from '../componentes/Icones'
 import { CampoBusca } from '../componentes/BuscaPaciente'
+import { navegarLista } from '../componentes/navegarLista'
 import { normalizar } from '../../../shared/regras'
 
 export interface Profissional {
@@ -135,6 +136,7 @@ export function CampoEspecialidade({
     // Lista sobreposta; ao sair do campo, volta para a escolhida (ou limpa, se apagou o texto).
     <div
       className="relative"
+      onKeyDown={navegarLista}
       // contains(target): ignora o foco da janela "Nova especialidade", que sobe pelo portal.
       onFocus={(e) => e.currentTarget.contains(e.target) && setAberta(true)}
       onBlur={(e) => {

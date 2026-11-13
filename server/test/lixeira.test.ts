@@ -45,7 +45,7 @@ async function preparar(quem: number) {
     data: { ...base, ...excluido, categoria: 'FOTO', nome: 'foto.jpg', tipo: 'image/jpeg', tamanho: 1, dados: new Uint8Array([1]) },
   })
   await db.lancamento.create({
-    data: { ...base, ...excluido, data: new Date('2026-11-01'), tipo: 'SAIDA', valorCentavos: 500, descricao: 'Luz' },
+    data: { ...base, ...excluido, data: new Date('2026-11-01'), tipo: 'ENTRADA', valorCentavos: 500, descricao: 'Avulso' },
   })
   await db.alertaRetorno.create({
     data: { ...base, profissionalId: prof.id, data: new Date('2026-12-01'), excluidoEm: new Date() },

@@ -157,7 +157,7 @@ export function Relatorios() {
     setOrdem(
       ord?.col !== col ? { id, col, desc: false } : !ord.desc ? { id, col, desc: true } : null,
     )
-  const ordenavel = (c: string) => !atual?.semOrdenar && !NAO_ORDENA.includes(c)
+  const ordenavel = (c: string) => !NAO_ORDENA.includes(c)
   const carregando = r.isFetching ? 'opacity-60' : ''
 
   return (

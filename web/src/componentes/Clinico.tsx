@@ -96,12 +96,12 @@ const chaveProcedimentos = (id: number) => ['procedimentos', id]
  */
 const INTERVALO_ASSINATURA = 5000
 
-/** X vermelho; "caixa" limita ao pedaço da imagem (ex.: só a coroa). */
-function MarcaX(p: { caixa?: React.CSSProperties }) {
+/** X vermelho sobre a coroa ("caixa": a posição dela na imagem). */
+function MarcaX(p: { caixa: React.CSSProperties }) {
   return (
     <svg
       className="pointer-events-none absolute"
-      style={p.caixa ?? { inset: 0, width: '100%', height: '100%' }}
+      style={p.caixa}
       viewBox="0 0 10 10"
       preserveAspectRatio="none"
     >
@@ -398,9 +398,8 @@ export function Odontograma({ paciente }: { paciente: Paciente }) {
                 />
               )
             })}
-          {xNaCoroa && v !== 1 && <MarcaX caixa={posicao(d, coroa(d, v))} />}
+          {(xNaCoroa || marcarX) && v !== 1 && <MarcaX caixa={posicao(d, coroa(d, v))} />}
         </VistaDente>
-        {marcarX && v !== 1 && <MarcaX />}
       </div>
     )
   }

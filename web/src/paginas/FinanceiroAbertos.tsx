@@ -21,12 +21,10 @@ interface Aberto {
   profissional: { id: number; nome: string; corAgenda: string | null }
   descontoCentavos: number
   totalCentavos: number
-  custoCentavos: number
   itens: {
     nome: string
     dente: string | null
     valorCentavos: number
-    custoCentavos: number
     especialidade: string | null
   }[]
 }
@@ -283,12 +281,6 @@ export function OrcamentosAbertos() {
                   <span className="text-2xl font-extrabold text-titulo tabular-nums">
                     {reais(sel.totalCentavos)}
                   </span>
-                </p>
-                <p className="flex justify-between text-sm text-suave">
-                  <span>Lucro estimado</span>
-                  <strong className="text-sucesso tabular-nums">
-                    {reais(sel.totalCentavos - sel.custoCentavos)}
-                  </strong>
                 </p>
                 {sel.observacoes && (
                   <p className="mt-3 rounded-xl bg-superficie-2 px-3 py-2 text-sm">

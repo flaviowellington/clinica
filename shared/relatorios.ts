@@ -11,8 +11,6 @@ export interface Relatorio {
   filtros?: Filtro[]
   /** Não depende do período (mostra a situação de hoje ou o cadastro inteiro). */
   semPeriodo?: true
-  /** A ordem das linhas faz parte do relatório (ex.: DRE): a tela não deixa reordenar. */
-  semOrdenar?: true
 }
 
 /** O que a tela manda além do período; vazio = sem filtro. */
@@ -100,11 +98,8 @@ export const GRUPOS: { titulo: string; permissao: Acao; itens: Relatorio[] }[] =
     permissao: 'relatorio.financeiro',
     itens: [
       { id: 'financeiro-caixa', titulo: 'Caixa', pronto: true },
-      { id: 'financeiro-dre', titulo: 'DRE', pronto: true, semOrdenar: true },
       { id: 'financeiro-recibos', titulo: 'Recibos', pronto: true },
-      { id: 'financeiro-pagar', titulo: 'Contas a pagar', pronto: true },
       { id: 'financeiro-receber', titulo: 'Contas a receber', pronto: true },
-      { id: 'financeiro-categorias', titulo: 'Despesas por conta', pronto: true },
       { id: 'financeiro-lancamentos', titulo: 'Todos os lançamentos', pronto: true },
     ],
   },

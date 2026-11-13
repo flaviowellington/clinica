@@ -2,7 +2,7 @@
 import { db } from './db'
 import { hojeNaClinica } from '../../shared/regras'
 import { HORARIOS, type StatusAgenda } from '../../shared/agenda'
-import { TIPOS_LANCAMENTO, grupoDe } from '../../shared/financeiro'
+import { TIPOS_LANCAMENTO } from '../../shared/financeiro'
 import type { Filtros } from '../../shared/relatorios'
 
 type Linhas = (string | number)[][]
@@ -31,19 +31,6 @@ const instantes = (p: { gte: Date; lte: Date }) => ({
   gte: p.gte,
   lt: new Date(p.lte.getTime() + DIA_MS),
 })
-
-/** Agrupa e soma: devolve [chave, contagem, soma] ordenado pela soma. */
-function agrupar<T>(itens: T[], chave: (i: T) => string, valor: (i: T) => number = () => 0) {
-  const m = new Map<string, { n: number; soma: number }>()
-  for (const i of itens) {
-    const k = chave(i)
-    const g = m.get(k) ?? { n: 0, soma: 0 }
-    g.n++
-    g.soma += valor(i)
-    m.set(k, g)
-  }
-  return [...m].sort((a, b) => b[1].soma - a[1].soma || b[1].n - a[1].n || a[0].localeCompare(b[0]))
-}
 
 const consultas = (data: { gte: Date; lte: Date }, f: Filtros) =>
   db.agendamento.findMany({
@@ -169,27 +156,6 @@ export const GERADORES_EXTRA: Record<string, Gerador> = {
       ]),
     }
   },
-  'financeiro-pagar': async (data) => {
-    const l = await db.contaFinanceira.findMany({
-      where: { tipo: 'PAGAR', vencimento: data },
-      orderBy: { vencimento: 'asc' },
-    })
-    return {
-      colunas: ['Vencimento', 'Descrição', 'Fornecedor', 'Conta', 'Situação', 'Valor (R$)'],
-      linhas: l.map((c) => [
-        dataBR(c.vencimento),
-        c.descricao,
-        c.detalhes ?? '',
-        c.categoria ?? '',
-        c.status === 'PAGA'
-          ? `Paga em ${dataBR(c.pagoEm!)}`
-          : c.status === 'CANCELADA'
-            ? 'Cancelada'
-            : 'Em aberto',
-        reais(c.valorCentavos),
-      ]),
-    }
-  },
   'financeiro-receber': async (data) => {
     const l = await db.contaFinanceira.findMany({
       where: { tipo: 'RECEBER', vencimento: data },
@@ -229,17 +195,6 @@ export const GERADORES_EXTRA: Record<string, Gerador> = {
         x.criadoPor.nome,
         reais(x.valorCentavos),
       ]),
-    }
-  },
-  'financeiro-categorias': async (data) => {
-    const l = await db.lancamento.findMany({ where: { excluidoEm: null, data, tipo: 'SAIDA' } })
-    return {
-      colunas: ['Conta', 'Grupo', 'Saídas', 'Total (R$)'],
-      linhas: agrupar(
-        l,
-        (x) => x.categoria ?? 'Sem conta',
-        (x) => x.valorCentavos,
-      ).map(([k, g]) => [k, grupoDe(k) ?? 'Despesas operacionais', g.n, reais(g.soma)]),
     }
   },
   'tratamentos-procedimentos': async (data, f) => {

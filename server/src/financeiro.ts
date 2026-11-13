@@ -1,14 +1,8 @@
-// Contas a pagar e receber, fluxo de caixa, extrato, conciliação e os relatórios que dependem deles.
+// Contas a receber, fluxo de caixa, extrato, conciliação e os relatórios que dependem deles.
 import { Router, type Request } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
-import { pode } from '../../shared/permissoes'
-import {
-  CATEGORIAS,
-  CATEGORIA_PADRAO_ENTRADA,
-  PLANO_DE_CONTAS,
-  grupoDe,
-} from '../../shared/financeiro'
+import { CATEGORIAS, CATEGORIA_PADRAO_ENTRADA } from '../../shared/financeiro'
 import {
   STATUS_ORCAMENTO,
   dividirParcelas,
@@ -73,7 +67,7 @@ rotasFinanceiroContas.patch(
   },
 )
 
-// ── Contas a pagar e a receber ──────────────────────────────────────────────
+// ── Contas a receber ──────────────────────────────────────────────────────
 const comPaciente = { paciente: { select: { id: true, nome: true } } } as const
 type ContaComPaciente = Prisma.ContaFinanceiraGetPayload<{ include: typeof comPaciente }>
 const contaParaTela = (c: ContaComPaciente) => ({
@@ -83,7 +77,6 @@ const contaParaTela = (c: ContaComPaciente) => ({
 })
 
 rotasFinanceiroContas.get('/contas', exigir('financeiro.ver'), async (req, res) => {
-  const tipo = req.query.tipo === 'PAGAR' ? 'PAGAR' : 'RECEBER'
   const status = String(req.query.status ?? '')
   const formas = String(req.query.formas ?? '')
     .split(',')
@@ -91,7 +84,6 @@ rotasFinanceiroContas.get('/contas', exigir('financeiro.ver'), async (req, res) 
   const data = periodo(req)
   const lista = await db.contaFinanceira.findMany({
     where: {
-      tipo,
       ...((status === 'ABERTA' || status === 'PAGA' || status === 'CANCELADA') && { status }),
       ...(formas.length && { forma: { in: formas } }),
       ...(data && { vencimento: data }),
@@ -107,11 +99,9 @@ rotasFinanceiroContas.post('/contas', exigir('financeiro.editar'), async (req, r
   const b = lerCorpo(ContaFinanceiraDto, req.body, res)
   if (!b) return
   const { tipo, valorCentavos: valor, vencimento, descricao, forma, parcelas, pacienteId } = b
-  const categoria = b.categoria ?? (tipo === 'RECEBER' ? CATEGORIA_PADRAO_ENTRADA : null)
+  const categoria = b.categoria ?? CATEGORIA_PADRAO_ENTRADA
   const erros: Record<string, string> = {}
-  // R-054: a conta precisa estar no plano de contas.
-  if (!categoria) erros.categoria = 'Escolha a conta do plano de contas.'
-  else if (!CATEGORIAS.includes(categoria)) erros.categoria = 'Conta do plano de contas inválida.'
+  if (!CATEGORIAS.includes(categoria)) erros.categoria = 'Conta do plano de contas inválida.'
   if (pacienteId && !(await db.pessoa.findFirst({ where: { id: pacienteId, tipo: 'PACIENTE' } })))
     erros.pacienteId = 'Paciente não encontrado.'
   if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
@@ -141,17 +131,11 @@ rotasFinanceiroContas.post('/contas', exigir('financeiro.editar'), async (req, r
   res.status(201).json(criadas.map(contaParaTela))
 })
 
-/**
- * Baixa: registra o pagamento ou recebimento e lança na conta corrente.
- * Receber pode ser feito pela Recepção.
- */
-rotasFinanceiroContas.post('/contas/:id/baixar', async (req, res) => {
+/** Baixa: registra o recebimento e lança na conta corrente. Pode ser feito pela Recepção. */
+rotasFinanceiroContas.post('/contas/:id/baixar', exigir('financeiro.receber'), async (req, res) => {
   const c = await db.contaFinanceira.findUnique({ where: { id: id(req) } })
   if (!c) return res.status(404).json({ erro: 'Conta não encontrada.' })
   const u = usuarioDe(res)
-  const acao = c.tipo === 'RECEBER' ? 'financeiro.receber' : 'financeiro.editar'
-  if (!pode(u.perfis, acao))
-    return res.status(403).json({ erro: 'Você não tem permissão para esta ação.' })
   if (c.status !== 'ABERTA') return res.status(409).json({ erro: 'Esta conta não está em aberto.' })
   const b = lerCorpo(BaixarContaDto, req.body, res, null)
   if (!b) return
@@ -161,7 +145,7 @@ rotasFinanceiroContas.post('/contas/:id/baixar', async (req, res) => {
     const l = await tx.lancamento.create({
       data: {
         data: dia(data),
-        tipo: c.tipo === 'PAGAR' ? 'SAIDA' : 'ENTRADA',
+        tipo: 'ENTRADA',
         valorCentavos: c.valorCentavos,
         descricao: c.descricao,
         forma,
@@ -197,7 +181,7 @@ rotasFinanceiroContas.post(
   },
 )
 
-// ── Análise: orçamentos aprovados, custo, lucro e o que entrou ──────────────
+// ── Análise: orçamentos aprovados (faturamento) e o que entrou ─────────────
 /**
  * Orçamentos aprovados no período (data da aprovação na clínica) e as entradas recebidas
  * no período que vieram de orçamentos. ?profissionalId filtra os dois.
@@ -224,7 +208,6 @@ rotasFinanceiroContas.get('/analise', exigir('financeiro.ver'), async (req, res)
           select: {
             nome: true,
             valorCentavos: true,
-            custoCentavos: true,
             procedimento: { select: { especialidade: true } },
           },
         },
@@ -263,7 +246,6 @@ rotasFinanceiroContas.get('/analise', exigir('financeiro.ver'), async (req, res)
       profissional: o.profissional,
       descontoCentavos: o.descontoCentavos,
       totalCentavos: totalOrcamento(itens, o.descontoCentavos),
-      custoCentavos: itens.reduce((s, i) => s + i.custoCentavos, 0),
       recebidoCentavos: lancamentos.reduce((s, l) => s + l.valorCentavos, 0),
       itens: itens.map(({ procedimento, ...i }) => ({
         ...i,
@@ -309,7 +291,6 @@ rotasFinanceiroContas.get('/orcamentos-abertos', exigir('orcamento.ver'), async 
           nome: true,
           dente: true,
           valorCentavos: true,
-          custoCentavos: true,
           procedimento: { select: { especialidade: true } },
         },
       },
@@ -328,7 +309,6 @@ rotasFinanceiroContas.get('/orcamentos-abertos', exigir('orcamento.ver'), async 
         profissional: o.profissional,
         descontoCentavos: o.descontoCentavos,
         totalCentavos: totalOrcamento(o.itens, o.descontoCentavos),
-        custoCentavos: o.itens.reduce((s, i) => s + i.custoCentavos, 0),
         itens: o.itens.map(({ procedimento, ...i }) => ({
           ...i,
           especialidade: procedimento.especialidade,
@@ -338,20 +318,18 @@ rotasFinanceiroContas.get('/orcamentos-abertos', exigir('orcamento.ver'), async 
 })
 
 // ── Fluxo de caixa e extrato (R-052) ────────────────────────────────────────
-/** Entradas menos saídas realizadas antes da data. */
+/** Entradas realizadas antes da data. */
 async function saldoAntes(antes: Date, contaBancariaId?: number) {
-  const g = await db.lancamento.groupBy({
-    by: ['tipo'],
+  const g = await db.lancamento.aggregate({
     where: {
       excluidoEm: null,
       data: { lt: antes },
-      tipo: { in: ['ENTRADA', 'SAIDA'] },
+      tipo: 'ENTRADA',
       ...(contaBancariaId && { contaBancariaId }),
     },
     _sum: { valorCentavos: true },
   })
-  const soma = (t: string) => g.find((x) => x.tipo === t)?._sum.valorCentavos ?? 0
-  return soma('ENTRADA') - soma('SAIDA')
+  return g._sum.valorCentavos ?? 0
 }
 
 rotasFinanceiroContas.get('/fluxo', exigir('financeiro.ver'), async (req, res) => {
@@ -361,7 +339,7 @@ rotasFinanceiroContas.get('/fluxo', exigir('financeiro.ver'), async (req, res) =
     return res.status(400).json({ erro: 'Escolha um período de até 13 meses.' })
   const [lancs, previstas, saldoAnterior] = await Promise.all([
     db.lancamento.findMany({
-      where: { excluidoEm: null, data, tipo: { in: ['ENTRADA', 'SAIDA'] } },
+      where: { excluidoEm: null, data, tipo: 'ENTRADA' },
     }),
     db.contaFinanceira.findMany({ where: { status: 'ABERTA', vencimento: data } }),
     saldoAntes(data.gte),
@@ -370,32 +348,20 @@ rotasFinanceiroContas.get('/fluxo', exigir('financeiro.ver'), async (req, res) =
   const dias = []
   for (let t = data.gte.getTime(); t <= data.lte.getTime(); t += DIA_MS) {
     const d = isoDe(new Date(t))
-    const realizado = (tipo: string) =>
-      lancs
-        .filter((l) => l.tipo === tipo && isoDe(l.data) === d)
-        .reduce((s, l) => s + l.valorCentavos, 0)
-    const previsto = (tipo: string) =>
-      previstas
-        .filter((c) => c.tipo === tipo && isoDe(c.vencimento) === d)
-        .reduce((s, c) => s + c.valorCentavos, 0)
-    const linha = {
-      data: d,
-      entradas: realizado('ENTRADA'),
-      saidas: realizado('SAIDA'),
-      entradasPrevistas: previsto('RECEBER'),
-      saidasPrevistas: previsto('PAGAR'),
-      saldo: 0,
-      acumulado: 0,
-    }
-    linha.saldo = linha.entradas - linha.saidas + linha.entradasPrevistas - linha.saidasPrevistas
-    acumulado += linha.saldo
-    linha.acumulado = acumulado
-    dias.push(linha)
+    const entradas = lancs
+      .filter((l) => isoDe(l.data) === d)
+      .reduce((s, l) => s + l.valorCentavos, 0)
+    const entradasPrevistas = previstas
+      .filter((c) => isoDe(c.vencimento) === d)
+      .reduce((s, c) => s + c.valorCentavos, 0)
+    const saldo = entradas + entradasPrevistas
+    acumulado += saldo
+    dias.push({ data: d, entradas, entradasPrevistas, saldo, acumulado })
   }
   res.json({ saldoAnterior, dias })
 })
 
-/** Extrato: entradas e saídas realizadas em ordem, com o saldo depois de cada uma. */
+/** Extrato: entradas realizadas em ordem, com o saldo depois de cada uma. */
 rotasFinanceiroContas.get('/extrato', exigir('financeiro.ver'), async (req, res) => {
   const data = periodo(req)
   if (!data) return res.status(400).json({ erro: 'Período inválido.' })
@@ -409,7 +375,7 @@ rotasFinanceiroContas.get('/extrato', exigir('financeiro.ver'), async (req, res)
     where: {
       excluidoEm: null,
       data,
-      tipo: { in: ['ENTRADA', 'SAIDA'] },
+      tipo: 'ENTRADA',
       ...(contaBancariaId && { contaBancariaId }),
     },
     include: comPaciente,
@@ -417,7 +383,7 @@ rotasFinanceiroContas.get('/extrato', exigir('financeiro.ver'), async (req, res)
   })
   let saldo = saldoAnterior
   const itens = lista.map(({ excluidoPorId: _e, ...l }) => {
-    saldo += l.tipo === 'ENTRADA' ? l.valorCentavos : -l.valorCentavos
+    saldo += l.valorCentavos
     return { ...l, data: isoDe(l.data), saldo }
   })
   res.json({ saldoAnterior, saldoFinal: saldo, itens })
@@ -448,22 +414,25 @@ rotasFinanceiroContas.get('/conciliacao', exigir('financeiro.ver'), async (req, 
       where: {
         excluidoEm: null,
         data,
-        tipo: { in: ['ENTRADA', 'SAIDA'] },
+        tipo: 'ENTRADA',
         OR: [{ contaBancariaId: banco.id }, { contaBancariaId: null }],
       },
       include: comPaciente,
       orderBy: [{ data: 'asc' }, { id: 'asc' }],
     }),
-    db.lancamento.groupBy({
-      by: ['tipo'],
-      where: { excluidoEm: null, contaBancariaId: banco.id, data: { lte: data.lte } },
+    db.lancamento.aggregate({
+      where: {
+        excluidoEm: null,
+        tipo: 'ENTRADA',
+        contaBancariaId: banco.id,
+        data: { lte: data.lte },
+      },
       _sum: { valorCentavos: true },
     }),
   ])
-  const soma = (t: string) => conferidos.find((x) => x.tipo === t)?._sum.valorCentavos ?? 0
   res.json({
     banco,
-    saldoConciliado: banco.saldoInicialCentavos + soma('ENTRADA') - soma('SAIDA'),
+    saldoConciliado: banco.saldoInicialCentavos + (conferidos._sum.valorCentavos ?? 0),
     lancamentos: lista.map((l) => ({
       id: l.id,
       data: isoDe(l.data),
@@ -545,62 +514,17 @@ export const GERADORES_FINANCEIRO: Record<string, Gerador> = {
   },
   'financeiro-caixa': async (data) => {
     const l = await db.lancamento.findMany({
-      where: { excluidoEm: null, data, tipo: { in: ['ENTRADA', 'SAIDA'] } },
+      where: { excluidoEm: null, data, tipo: 'ENTRADA' },
       orderBy: { data: 'asc' },
     })
-    const m = new Map<string, { entradas: number; saidas: number }>()
+    const m = new Map<string, number>()
     for (const x of l) {
       const k = `${dataBR(x.data)}|${x.forma ?? 'Não informada'}`
-      const g = m.get(k) ?? { entradas: 0, saidas: 0 }
-      if (x.tipo === 'ENTRADA') g.entradas += x.valorCentavos
-      else g.saidas += x.valorCentavos
-      m.set(k, g)
+      m.set(k, (m.get(k) ?? 0) + x.valorCentavos)
     }
     return {
-      colunas: ['Dia', 'Forma', 'Entradas (R$)', 'Saídas (R$)', 'Saldo (R$)'],
-      linhas: [...m].map(([k, g]) => [
-        ...k.split('|'),
-        reais(g.entradas),
-        reais(g.saidas),
-        reais(g.entradas - g.saidas),
-      ]),
-    }
-  },
-  // R-043: DRE pelos grupos do plano de contas. Sem conta: entrada é receita, saída é despesa operacional.
-  // ponytail: sem IR/CSLL; incluir as alíquotas quando a clínica informar o regime tributário.
-  'financeiro-dre': async (data) => {
-    const l = await db.lancamento.findMany({
-      where: { excluidoEm: null, data, tipo: { in: ['ENTRADA', 'SAIDA'] } },
-    })
-    const g = Object.fromEntries(Object.keys(PLANO_DE_CONTAS).map((k) => [k, 0])) as Record<
-      keyof typeof PLANO_DE_CONTAS,
-      number
-    >
-    for (const x of l) {
-      const grupo =
-        grupoDe(x.categoria) ??
-        (x.tipo === 'ENTRADA' ? 'Receita operacional bruta' : 'Despesas operacionais')
-      g[grupo] += x.tipo === 'ENTRADA' ? x.valorCentavos : -x.valorCentavos
-    }
-    const receita = g['Receita operacional bruta']
-    const liquida = receita + g['Deduções']
-    const bruto = liquida + g['Custos']
-    const operacional = bruto + g['Despesas operacionais']
-    const resultado = operacional + g['Receitas não operacionais'] + g['Despesas não operacionais']
-    return {
-      colunas: ['Linha', 'Valor (R$)'],
-      linhas: [
-        ['Receita operacional bruta', reais(receita)],
-        ['(-) Deduções', reais(g['Deduções'])],
-        ['(=) Receita líquida', reais(liquida)],
-        ['(-) Custos', reais(g['Custos'])],
-        ['(=) Lucro bruto', reais(bruto)],
-        ['(-) Despesas operacionais', reais(g['Despesas operacionais'])],
-        ['(=) Resultado operacional', reais(operacional)],
-        ['(+) Receitas não operacionais', reais(g['Receitas não operacionais'])],
-        ['(-) Despesas não operacionais', reais(g['Despesas não operacionais'])],
-        ['(=) Resultado do período', reais(resultado)],
-      ],
+      colunas: ['Dia', 'Forma', 'Faturamento (R$)'],
+      linhas: [...m].map(([k, v]) => [...k.split('|'), reais(v)]),
     }
   },
   'financeiro-recibos': async (data) => {

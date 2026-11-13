@@ -608,64 +608,40 @@ if (!(await db.lancamento.count())) {
       },
     })
   }
-  await db.lancamento.create({
-    data: {
-      data: hoje,
-      tipo: 'SAIDA',
-      valorCentavos: 23990,
-      descricao: 'Material de consumo',
-      forma: 'Boleto',
-      criadoPorId: adminId,
-    },
-  })
   console.log('Conta corrente: lançamentos fictícios criados.')
 }
 
-// ── Tabela de procedimentos (valores e custos fictícios) ─────────────────────
-// [nome, especialidade, valor final, custo para a clínica]
-const TABELA: [string, string, number, number][] = [
-  ['Consulta de avaliação', 'Clínica geral', 15000, 1500],
-  ['Limpeza (profilaxia)', 'Periodontia', 18000, 3500],
-  ['Raspagem por quadrante', 'Periodontia', 22000, 4500],
-  ['Restauração em resina (1 face)', 'Dentística', 25000, 6000],
-  ['Restauração em resina (2 faces)', 'Dentística', 32000, 8000],
-  ['Clareamento em consultório', 'Dentística', 90000, 28000],
-  ['Tratamento de canal (unirradicular)', 'Endodontia', 85000, 18000],
-  ['Tratamento de canal (multirradicular)', 'Endodontia', 130000, 30000],
-  ['Extração simples', 'Cirurgia bucomaxilofacial', 25000, 5000],
-  ['Extração de siso', 'Cirurgia bucomaxilofacial', 60000, 14000],
-  ['Coroa de porcelana', 'Prótese', 180000, 75000],
-  ['Implante unitário', 'Implantodontia', 350000, 160000],
-  ['Aparelho ortodôntico fixo (instalação)', 'Ortodontia', 120000, 45000],
-  ['Manutenção ortodôntica mensal', 'Ortodontia', 25000, 4000],
-  ['Aplicação de flúor', 'Odontopediatria', 8000, 1200],
-  ['Selante por dente', 'Odontopediatria', 9000, 1800],
+// ── Tabela de procedimentos (valores fictícios) ──────────────────────────────
+// [nome, especialidade, valor final]
+const TABELA: [string, string, number][] = [
+  ['Consulta de avaliação', 'Clínica geral', 15000],
+  ['Limpeza (profilaxia)', 'Periodontia', 18000],
+  ['Raspagem por quadrante', 'Periodontia', 22000],
+  ['Restauração em resina (1 face)', 'Dentística', 25000],
+  ['Restauração em resina (2 faces)', 'Dentística', 32000],
+  ['Clareamento em consultório', 'Dentística', 90000],
+  ['Tratamento de canal (unirradicular)', 'Endodontia', 85000],
+  ['Tratamento de canal (multirradicular)', 'Endodontia', 130000],
+  ['Extração simples', 'Cirurgia bucomaxilofacial', 25000],
+  ['Extração de siso', 'Cirurgia bucomaxilofacial', 60000],
+  ['Coroa de porcelana', 'Prótese', 180000],
+  ['Implante unitário', 'Implantodontia', 350000],
+  ['Aparelho ortodôntico fixo (instalação)', 'Ortodontia', 120000],
+  ['Manutenção ortodôntica mensal', 'Ortodontia', 25000],
+  ['Aplicação de flúor', 'Odontopediatria', 8000],
+  ['Selante por dente', 'Odontopediatria', 9000],
 ]
 if (!(await db.procedimento.count())) {
   await db.procedimento.createMany({
-    data: TABELA.map(([nome, especialidade, valorCentavos, custoCentavos]) => ({
+    data: TABELA.map(([nome, especialidade, valorCentavos]) => ({
       nome,
       nomeBusca: normalizar(nome),
       especialidade,
       valorCentavos,
-      custoCentavos,
     })),
   })
   console.log('Tabela de procedimentos criada.')
 }
-// Bancos de antes do custo: preenche o custo da tabela e dos itens que ainda estão zerados.
-for (const [nome, , , custoCentavos] of TABELA) {
-  const { count } = await db.procedimento.updateMany({
-    where: { nome, custoCentavos: 0 },
-    data: { custoCentavos },
-  })
-  if (count)
-    await db.itemOrcamento.updateMany({
-      where: { procedimento: { nome }, custoCentavos: 0 },
-      data: { custoCentavos },
-    })
-}
-
 // ── Orçamentos, contas, retornos e conta bancária fictícios ─────────────────
 if (!(await db.orcamento.count())) {
   const pacs = await db.pessoa.findMany({
@@ -680,7 +656,6 @@ if (!(await db.orcamento.count())) {
     nome: p.nome,
     dente,
     valorCentavos: p.valorCentavos,
-    custoCentavos: p.custoCentavos,
   })
 
   // Em aberto.
@@ -779,26 +754,7 @@ if (!(await db.orcamento.count())) {
     },
   })
 
-  // Contas a pagar e um cheque a receber.
-  const pagar: [string, number, number, string, string][] = [
-    ['Aluguel', 450000, 5, 'Aluguel e condomínio', 'Imobiliária Fictícia'],
-    ['Material de consumo', 68000, -3, 'Material odontológico', 'Dental Fictícia'],
-    ['Laboratório: coroa', 42000, 12, 'Laboratório de prótese', 'Laboratório Fictício'],
-    ['Internet', 15000, 8, 'Água, luz, telefone e internet', 'Provedor Fictício'],
-  ]
-  for (const [descricao, valorCentavos, d, categoria, detalhes] of pagar)
-    await db.contaFinanceira.create({
-      data: {
-        tipo: 'PAGAR',
-        descricao,
-        valorCentavos,
-        vencimento: dias(d),
-        categoria,
-        detalhes,
-        forma: 'Boleto',
-        criadoPorId: adminId,
-      },
-    })
+  // Um cheque a receber.
   await db.contaFinanceira.create({
     data: {
       tipo: 'RECEBER',
@@ -857,7 +813,6 @@ if ((await db.orcamento.count({ where: { status: 'APROVADO' } })) < 10) {
       procedimentoId: p.id,
       nome: p.nome,
       valorCentavos: p.valorCentavos,
-      custoCentavos: p.custoCentavos,
     }))
     const subtotal = itens.reduce((s, i) => s + i.valorCentavos, 0)
     const descontoCentavos = sorte() < 0.3 ? Math.round((subtotal * um([5, 10, 15])) / 100) : 0
@@ -962,7 +917,6 @@ if ((await db.orcamento.count({ where: { status: 'APROVADO' } })) < 250) {
       nome: p.nome,
       dente: sorte() < 0.6 ? String(um([11, 12, 14, 16, 21, 24, 26, 36, 37, 46, 47])) : null,
       valorCentavos: p.valorCentavos,
-      custoCentavos: p.custoCentavos,
     }))
     const subtotal = itens.reduce((t, i) => t + i.valorCentavos, 0)
     const descontoCentavos = sorte() < 0.25 ? Math.round((subtotal * um([5, 10, 15])) / 100) : 0
@@ -1172,6 +1126,28 @@ const configs: [string, object][] = [
       telefone: '(11) 3000-0000',
       email: 'contato@example.com',
     },
+  ],
+  [
+    'laboratorios',
+    [
+      {
+        nome: 'Laboratório Fictício',
+        contato: '(11) 3000-1111',
+        trabalhos: [
+          { nome: 'Coroa em porcelana', valorCentavos: 30000 },
+          { nome: 'Placa de bruxismo', valorCentavos: 45000 },
+          { nome: 'Coroa metalocerâmica', valorCentavos: 60000 },
+        ],
+      },
+      {
+        nome: 'Laboratório Fictício Sul',
+        contato: '(11) 3000-2222',
+        trabalhos: [
+          { nome: 'Prótese parcial removível', valorCentavos: 37500 },
+          { nome: 'Faceta em resina', valorCentavos: 52500 },
+        ],
+      },
+    ],
   ],
 ]
 for (const [chave, valor] of configs)

@@ -1,4 +1,5 @@
-// Financeiro > Gráficos: análises dos orçamentos aprovados e do que entrou, cada uma editável
+// Financeiro > Gráficos: o faturamento (orçamentos aprovados, que só se aprovam pagos), cada
+// análise editável
 // (tipo, agrupamento e métricas) ou montada com SQL/Python; favoritável, reordenável e exportável.
 // SVG próprio, sem biblioteca de gráficos.
 import { useMemo, useState, type MouseEvent, type ReactNode } from 'react'
@@ -31,21 +32,19 @@ import {
 } from './FinanceiroAbas'
 
 // ── Configuração de um gráfico ──────────────────────────────────────────────
+// Orçamento só é aprovado já pago (no parcelado o banco paga a clínica): aprovado = faturado.
 const METRICAS = {
   faturamento: { rotulo: 'Faturamento', cor: 'var(--serie-1)', reais: true },
-  custo: { rotulo: 'Custo', cor: 'var(--serie-2)', reais: true },
-  lucro: { rotulo: 'Lucro', cor: 'var(--serie-3)', reais: true },
-  recebido: { rotulo: 'Recebido', cor: 'var(--serie-4)', reais: true },
-  quantidade: { rotulo: 'Quantidade', cor: 'var(--serie-1)', reais: false },
+  quantidade: { rotulo: 'Quantidade', cor: 'var(--serie-3)', reais: false },
 } as const
 type Metrica = keyof typeof METRICAS
 
-/** fonte: de onde sai o dado (orçamentos, entradas ou os dois). */
+/** fonte: de onde sai o dado (orçamentos aprovados; forma de pagamento só os pagamentos têm). */
 const GRUPOS = {
-  mes: { rotulo: 'Mês', fonte: 'ambas', tempo: true },
-  semana: { rotulo: 'Semana', fonte: 'ambas', tempo: true },
-  dia: { rotulo: 'Dia', fonte: 'ambas', tempo: true },
-  profissional: { rotulo: 'Profissional', fonte: 'ambas', tempo: false },
+  mes: { rotulo: 'Mês', fonte: 'orc', tempo: true },
+  semana: { rotulo: 'Semana', fonte: 'orc', tempo: true },
+  dia: { rotulo: 'Dia', fonte: 'orc', tempo: true },
+  profissional: { rotulo: 'Profissional', fonte: 'orc', tempo: false },
   procedimento: { rotulo: 'Procedimento', fonte: 'orc', tempo: false },
   especialidade: { rotulo: 'Especialidade', fonte: 'orc', tempo: false },
   forma: { rotulo: 'Forma de pagamento', fonte: 'entrada', tempo: false },
@@ -75,13 +74,8 @@ interface Config {
   codigo?: { linguagem: Linguagem; fonte: string; reais: boolean }
 }
 
-/** Métricas que fazem sentido no agrupamento (recebido não tem procedimento; forma só tem recebido). */
-const disponiveis = (g: Grupo): Metrica[] =>
-  GRUPOS[g].fonte === 'orc'
-    ? ['faturamento', 'custo', 'lucro', 'quantidade']
-    : GRUPOS[g].fonte === 'entrada'
-      ? ['recebido', 'quantidade']
-      : ['faturamento', 'custo', 'lucro', 'recebido', 'quantidade']
+/** Todas as métricas valem em todo agrupamento. */
+const disponiveis = (_g: Grupo): Metrica[] => ['faturamento', 'quantidade']
 
 /** Deixa a configuração coerente depois de qualquer mudança. */
 function ajustar(c: Config): Config {
@@ -92,18 +86,22 @@ function ajustar(c: Config): Config {
 }
 
 const PADRAO: Config[] = [
-  { id: 'a', tipo: 'colunas', grupo: 'dia', metricas: ['faturamento', 'custo', 'lucro'] },
-  { id: 'b', tipo: 'barras', grupo: 'profissional', metricas: ['lucro'] },
-  { id: 'c', tipo: 'rosca', grupo: 'forma', metricas: ['recebido'] },
+  { id: 'a', tipo: 'colunas', grupo: 'dia', metricas: ['faturamento'] },
+  { id: 'b', tipo: 'barras', grupo: 'profissional', metricas: ['faturamento'] },
+  { id: 'c', tipo: 'rosca', grupo: 'forma', metricas: ['faturamento'] },
   { id: 'd', tipo: 'colunas', grupo: 'faixa', metricas: ['quantidade'] },
   { id: 'e', tipo: 'pizza', grupo: 'especialidade', metricas: ['faturamento'] },
-  { id: 'f', tipo: 'area', grupo: 'dia', metricas: ['faturamento', 'recebido'] },
+  { id: 'f', tipo: 'barras', grupo: 'procedimento', metricas: ['faturamento'] },
 ]
-const CHAVE_LOCAL = 'financeiro-graficos-v2'
-const CHAVE_FAV = 'financeiro-graficos-favoritos'
-const CHAVE_FAV_SEMEADO = 'financeiro-graficos-favoritos-semeado'
+const CHAVE_LOCAL = 'financeiro-graficos-v3'
+const CHAVE_FAV = 'financeiro-graficos-favoritos-v2'
+const CHAVE_FAV_SEMEADO = 'financeiro-graficos-favoritos-semeado-v2'
 const valida = (c: Config) =>
-  !!c && c.tipo in TIPOS && c.grupo in GRUPOS && Array.isArray(c.metricas)
+  !!c &&
+  c.tipo in TIPOS &&
+  c.grupo in GRUPOS &&
+  Array.isArray(c.metricas) &&
+  c.metricas.every((m) => m in METRICAS)
 
 /** Favorito: gráfico guardado para adicionar de novo; noPadrao = entra no "Restaurar padrão". */
 interface Favorito {
@@ -129,7 +127,7 @@ function gravar(chave: string, v: unknown) {
 }
 const lerSalvo = () => ler<Config[]>(CHAVE_LOCAL, (c) => valida(c as Config), PADRAO).map(ajustar)
 /** "Gráficos 2": sempre as 6 análises padrão; só tipo, métricas e ordem mudam. */
-const CHAVE_FIXO = 'financeiro-graficos-fixo-v1'
+const CHAVE_FIXO = 'financeiro-graficos-fixo-v2'
 function lerFixo() {
   const cs = ler<Config[]>(CHAVE_FIXO, (c) => valida(c as Config), PADRAO)
   const ok =
@@ -200,7 +198,7 @@ export const milReais = (c: number) =>
 function agregar(a: Analise, c: Config, de: string, ate: string): Dados {
   const soma = new Map<string, Record<Metrica, number>>()
   const orcsPor = new Map<string, Set<number>>()
-  const zero = () => ({ faturamento: 0, custo: 0, lucro: 0, recebido: 0, quantidade: 0 })
+  const zero = () => ({ faturamento: 0, quantidade: 0 })
   const somar = (k: string, m: Partial<Record<Metrica, number>>) => {
     const v = soma.get(k) ?? zero()
     for (const [x, n] of Object.entries(m)) v[x as Metrica] += n
@@ -224,22 +222,14 @@ function agregar(a: Analise, c: Config, de: string, ate: string): Dados {
                 : c.grupo === 'faixa'
                   ? String(Math.floor(o.totalCentavos / passo))
                   : chaveTempo(c.grupo, o.aprovadoEm)
-        const fat = Math.round(i.valorCentavos * fator)
-        somar(k, { faturamento: fat, custo: i.custoCentavos, lucro: fat - i.custoCentavos })
+        somar(k, { faturamento: Math.round(i.valorCentavos * fator) })
         if (!orcsPor.has(k)) orcsPor.set(k, new Set())
         orcsPor.get(k)!.add(o.id)
       }
     }
   if (GRUPOS[c.grupo].fonte !== 'orc')
-    for (const e of a.entradas) {
-      const k =
-        c.grupo === 'profissional'
-          ? e.profissional.nome
-          : c.grupo === 'forma'
-            ? (e.forma ?? 'Não informada')
-            : chaveTempo(c.grupo, e.data)
-      somar(k, { recebido: e.valorCentavos, ...(c.grupo === 'forma' && { quantidade: 1 }) })
-    }
+    for (const e of a.entradas)
+      somar(e.forma ?? 'Não informada', { faturamento: e.valorCentavos, quantidade: 1 })
   // Quantidade = orçamentos distintos (ou entradas, por forma de pagamento).
   if (c.grupo !== 'forma') for (const [k, s] of orcsPor) soma.get(k)!.quantidade = s.size
 
@@ -1668,7 +1658,7 @@ function baixarCsv(partes: { titulo: string; dados: Dados }[], nome: string) {
 // ── Página ──────────────────────────────────────────────────────────────────
 type Janela = null | 'novo' | 'restaurar' | 'exportar' | Config
 
-/** fixo: "Gráficos 2", as 6 análises padrão sempre na tela (sem adicionar, favoritar ou remover). */
+/** fixo: "Gráficos" (a aba atual), as 6 análises padrão sempre na tela (sem adicionar, favoritar ou remover). */
 export function Graficos({ fixo = false }: { fixo?: boolean }) {
   const p = useIntervalo()
   const { intervalo, tudo, hoje, consulta, resumo } = p
@@ -1767,7 +1757,7 @@ export function Graficos({ fixo = false }: { fixo?: boolean }) {
     // No computador só a área dos gráficos rola; título e filtros ficam parados.
     <div className="mx-auto flex max-w-[1320px] flex-col gap-3 lg:h-[calc(100dvh-6.5rem)] print:h-auto">
       <header className="flex flex-wrap items-center gap-3.5">
-        <h1 className="titulo">{fixo ? 'Gráficos 2' : 'Gráficos'}</h1>
+        <h1 className="titulo">{fixo ? 'Gráficos' : 'Gráficos 2'}</h1>
         <span aria-hidden="true" className="h-6 w-px bg-borda" />
         <span className="text-base text-suave">
           {configs.length} {configs.length === 1 ? 'gráfico' : 'gráficos'}

@@ -22,10 +22,8 @@ export const VARIAVEIS: {
       ['paciente', 'TEXT', 'nome do paciente'],
       ['profissional_id', 'INTEGER', ''],
       ['profissional', 'TEXT', 'nome do profissional'],
-      ['total', 'REAL', 'valor final em R$, já com desconto'],
+      ['total', 'REAL', 'valor faturado em R$, já com desconto (aprovado = pago)'],
       ['desconto', 'REAL', 'desconto em R$'],
-      ['custo', 'REAL', 'custo em R$'],
-      ['recebido', 'REAL', 'quanto já foi pago, em R$'],
     ],
   },
   {
@@ -36,12 +34,11 @@ export const VARIAVEIS: {
       ['nome', 'TEXT', 'nome do procedimento'],
       ['especialidade', 'TEXT', 'pode ser vazio'],
       ['valor', 'REAL', 'preço em R$, antes do desconto do orçamento'],
-      ['custo', 'REAL', 'custo em R$'],
     ],
   },
   {
     nome: 'entradas',
-    descricao: 'Dinheiro que entrou no caixa no período',
+    descricao: 'Pagamentos recebidos no período, um por linha (para ver a forma de pagamento)',
     colunas: [
       ['id', 'INTEGER', ''],
       ['data', 'TEXT', 'data do recebimento (AAAA-MM-DD)'],
@@ -66,8 +63,6 @@ export function tabelasDe(a: Analise): Record<string, Tabela> {
       profissional: o.profissional.nome,
       total: r(o.totalCentavos),
       desconto: r(o.descontoCentavos),
-      custo: r(o.custoCentavos),
-      recebido: r(o.recebidoCentavos),
     })),
     itens: a.orcamentos.flatMap((o) =>
       o.itens.map((i) => ({
@@ -75,7 +70,6 @@ export function tabelasDe(a: Analise): Record<string, Tabela> {
         nome: i.nome,
         especialidade: i.especialidade,
         valor: r(i.valorCentavos),
-        custo: r(i.custoCentavos),
       })),
     ),
     entradas: a.entradas.map((e) => ({
@@ -98,8 +92,8 @@ export function tabelasDe(a: Analise): Record<string, Tabela> {
 export const MODELOS: Record<Linguagem, string> = {
   sql: `-- 1ª coluna = rótulo (eixo ou fatia); as outras = números, uma série cada.
 SELECT profissional,
-       SUM(total)        AS faturamento,
-       SUM(total - custo) AS lucro
+       SUM(total) AS faturamento,
+       COUNT(*)   AS orcamentos
 FROM orcamentos
 GROUP BY profissional
 ORDER BY faturamento DESC
@@ -111,7 +105,7 @@ ORDER BY faturamento DESC
         forma = e["forma"] or "Não informada"
         soma[forma] = soma.get(forma, 0) + e["valor"]
     return [
-        {"forma": forma, "recebido": valor}
+        {"forma": forma, "faturamento": valor}
         for forma, valor in sorted(soma.items(), key=lambda x: -x[1])
     ]
 `,

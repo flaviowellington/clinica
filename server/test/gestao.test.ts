@@ -208,12 +208,12 @@ describe('PT-55 (R-055) campo de valor e conta corrente', () => {
         descricao: 'Parcela 1',
         forma: 'Pix',
       },
-      { data: '2026-10-21', tipo: 'SAIDA', valorCentavos: 3000, descricao: 'Material' },
+      { data: '2026-10-21', tipo: 'ENTRADA', valorCentavos: 3000, descricao: 'Avulso' },
     ]) {
       expect((await api('POST', '/api/financeiro/lancamentos', l)).status).toBe(201)
     }
     const r = await api('GET', '/api/financeiro/lancamentos?de=2026-10-19&ate=2026-10-23')
-    expect(r.corpo.totais).toEqual({ VENDA: 50000, CANCELAMENTO: 0, ENTRADA: 20000, SAIDA: 3000 })
+    expect(r.corpo.totais).toEqual({ VENDA: 50000, CANCELAMENTO: 0, ENTRADA: 23000 })
     expect(r.corpo.quantidade).toBe(3)
     expect(r.corpo.dias.map((d: { data: string }) => d.data)).toEqual(['2026-10-21', '2026-10-20'])
     expect(
@@ -222,7 +222,7 @@ describe('PT-55 (R-055) campo de valor e conta corrente', () => {
     ).toBe(PACIENTE.nome)
     const so = await api(
       'GET',
-      '/api/financeiro/lancamentos?de=2026-10-19&ate=2026-10-23&tipo=SAIDA',
+      '/api/financeiro/lancamentos?de=2026-10-19&ate=2026-10-23&tipo=VENDA',
     )
     expect(so.corpo.quantidade).toBe(1)
     const busca = await api(
@@ -240,6 +240,14 @@ describe('PT-55 (R-055) campo de valor e conta corrente', () => {
       'tipo',
       'valorCentavos',
     ])
+    // O sistema não lança despesas: saída não é um tipo aceito.
+    const saida = await api('POST', '/api/financeiro/lancamentos', {
+      data: '2026-10-20',
+      tipo: 'SAIDA',
+      valorCentavos: 100,
+      descricao: 'Material',
+    })
+    expect(Object.keys(saida.corpo.erros)).toEqual(['tipo'])
     const { corpo: l } = await api('POST', '/api/financeiro/lancamentos', {
       data: '2026-10-20',
       tipo: 'ENTRADA',
