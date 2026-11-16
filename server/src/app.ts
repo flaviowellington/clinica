@@ -16,7 +16,7 @@ import { rotasOrcamentos, rotasProcedimentos, rotasRetornos } from './tratamento
 import { rotasIntegracao } from './integracao'
 import { abrirEventos, avisarAoMudar } from './tempoReal'
 import { rotasFichaPaciente, rotasProntuario } from './prontuario'
-import { rotasEu, rotasRecuperarSenha, rotasUsuarios } from './usuarios'
+import { dadosDoEu, rotasEu, rotasRecuperarSenha, rotasUsuarios } from './usuarios'
 import { rotasConfiguracoes, rotasTabelaProcedimentos } from './configuracoes'
 import { rotasProtetico } from './protetico'
 import { rotasConfirmacoes, rotasPublicas } from './confirmacoes'
@@ -25,16 +25,6 @@ import { rotasMensagens } from './mensagens'
 import { rotasImportacao } from './importacao'
 import { lerCorpo } from './dto'
 import { EntrarDto } from '../../shared/dtos'
-import type { Usuario } from './generated/prisma/client'
-
-// O login e o /eu devolvem o mesmo formato: a tela de entrar grava a resposta como o "eu".
-const dadosDoEu = ({ id, nome, login, perfis, preferencias }: Usuario) => ({
-  id,
-  nome,
-  login,
-  perfis,
-  preferencias: preferencias ?? {},
-})
 
 export function criarApp() {
   const app = express()
@@ -58,7 +48,7 @@ export function criarApp() {
       const usuario = await conferirSenha(b.login, b.senha)
       if (!usuario) return res.status(401).json({ erro: 'Usuário ou senha incorretos.' })
       abrirSessao(res, usuario.id)
-      res.json(dadosDoEu(usuario))
+      res.json(await dadosDoEu(usuario))
     },
   )
 
@@ -80,8 +70,8 @@ export function criarApp() {
   app.use('/api/publico', avisarAoMudar('agenda'), rotasPublicas)
   app.use('/api/integracao', avisarAoMudar('retornos'), rotasIntegracao) // n8n: entra por token, não por login
 
-  app.get('/api/eu', exigirLogin, (_req, res) => {
-    res.json(dadosDoEu(usuarioDe(res)))
+  app.get('/api/eu', exigirLogin, async (_req, res) => {
+    res.json(await dadosDoEu(usuarioDe(res)))
   })
 
   // Tempo real: o navegador fica ouvindo; alterações com avisarAoMudar avisam todos (tempoReal.ts).

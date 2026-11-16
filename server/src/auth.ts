@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import type { NextFunction, Request, Response } from 'express'
 import { db } from './db'
-import { pode, type Acao } from '../../shared/permissoes'
+import { definirMatriz, pode, type Acao, type Matriz } from '../../shared/permissoes'
 import type { Usuario } from './generated/prisma/client'
 
 const SEGREDO = process.env.JWT_SEGREDO ?? ''
@@ -43,12 +43,19 @@ export async function exigirLogin(req: Request, res: Response, next: NextFunctio
     const usuario = await db.usuario.findUnique({ where: { id: Number(sub) } })
     if (usuario?.ativo) {
       res.locals.usuario = usuario
+      await carregarPermissoes()
       return next()
     }
   } catch {
     // token ausente, vencido ou adulterado
   }
   res.status(401).json({ erro: 'Faça login para continuar.' })
+}
+
+/** Relida a cada pedido: mudar a tela de permissões vale na hora, em qualquer servidor. */
+export async function carregarPermissoes() {
+  const c = await db.configuracao.findUnique({ where: { chave: 'permissoes' } })
+  definirMatriz((c?.valor ?? {}) as Partial<Matriz>)
 }
 
 export const exigir = (acao: Acao) => (_req: Request, res: Response, next: NextFunction) => {

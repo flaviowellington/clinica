@@ -319,7 +319,7 @@ describe('planejamento (ficha de especialidade) para o paciente assinar', () => 
     })
     expect(andamento.corpo.status).toBe('Em tratamento')
 
-    // Os pedidos do planejamento ficam nele, não em "Aprovação de procedimentos".
+    // Os pedidos do planejamento ficam nele, não em "Evolução clínica".
     expect((await api('GET', `/api/autorizacoes?pacienteId=${paciente.id}`)).corpo).toEqual([])
     expect(
       (await api('GET', `/api/autorizacoes?pacienteId=${paciente.id}&fichaId=${f.id}`)).corpo,

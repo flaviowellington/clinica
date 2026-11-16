@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, dataBR, errosDosCampos, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
-import { PERFIS, type Perfil } from '../../../shared/permissoes'
+import { COR_PERFIL, PERFIS, type Perfil } from '../../../shared/permissoes'
 import { Dialogo } from '../componentes/Dialogo'
 import { CampoSelect } from '../componentes/CampoSelect'
 import { Icone } from '../componentes/Icones'
@@ -33,13 +33,6 @@ const DESCRICAO_PERFIL: Record<Perfil, string> = {
   PROFISSIONAL: 'Agenda, prontuário completo e orçamentos.',
   RECEPCAO: 'Agenda, cadastro, orçamentos e recebimentos.',
   FINANCEIRO: 'Financeiro da clínica e relatórios financeiros.',
-}
-/** Cor de cada perfil, pela área: roxo = controle, ciano = saúde, laranja = atendimento, verde = dinheiro. */
-const COR_PERFIL: Record<Perfil, string> = {
-  ADMINISTRADOR: '#7c3aed',
-  PROFISSIONAL: '#0891b2',
-  RECEPCAO: '#ea580c',
-  FINANCEIRO: '#16a34a',
 }
 /** Etiqueta na cor do perfil; o texto mistura com a cor do tema para ler bem no claro e no escuro. */
 const estiloPerfil = (p: Perfil) => ({

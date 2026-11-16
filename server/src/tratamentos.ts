@@ -1,4 +1,4 @@
-// Alerta de retorno, tabela de procedimentos e orçamentos (rules/orcamentos.md).
+﻿// Alerta de retorno, tabela de procedimentos e orçamentos (rules/orcamentos.md).
 import { Router, type Request } from 'express'
 import type { z } from 'zod'
 import { db } from './db'
@@ -305,6 +305,20 @@ rotasOrcamentos.post('/:id/aprovar', exigir('orcamento.aprovar'), async (req, re
   res.json(paraTela((await acharOrcamento(req))!))
 })
 
+/** O administrador confere a aprovação (Financeiro → Aprovações). */
+rotasOrcamentos.post('/:id/confirmar', exigir('orcamento.confirmar'), async (req, res) => {
+  const o = await acharOrcamento(req)
+  if (!o) return res.status(404).json({ erro: 'Orçamento não encontrado.' })
+  if (o.status !== 'APROVADO')
+    return res.status(409).json({ erro: 'Este orçamento não está aprovado.' })
+  if (o.confirmadoEm) return res.status(409).json({ erro: 'Esta aprovação já foi confirmada.' })
+  await db.orcamento.update({
+    where: { id: o.id },
+    data: { confirmadoEm: new Date(), confirmadoPorId: usuarioDe(res).id },
+  })
+  res.json(paraTela((await acharOrcamento(req))!))
+})
+
 /** Exclusão lógica: só orçamento em aberto, que não gerou venda nem parcelas. */
 rotasOrcamentos.delete('/:id', exigir('orcamento.editar'), async (req, res) => {
   const o = await acharOrcamento(req)
@@ -332,7 +346,7 @@ rotasOrcamentos.post('/:id/desaprovar', exigir('orcamento.aprovar'), async (req,
   const b = lerCorpo(DesaprovarOrcamentoDto, req.body, res)
   if (!b) return
   if (!(await conferirSenha(u.login, b.senha)))
-    return res.status(401).json({ erro: 'Senha incorreta.' })
+    return res.status(403).json({ erro: 'Senha incorreta.' }) // 403: a sessão continua; 401 tiraria do sistema
   if (o.contas.some((c) => c.status === 'PAGA'))
     return res
       .status(409)
@@ -341,20 +355,53 @@ rotasOrcamentos.post('/:id/desaprovar', exigir('orcamento.aprovar'), async (req,
     return res
       .status(409)
       .json({ erro: 'Já há procedimento executado: cancele o orçamento em vez de desaprovar.' })
-  await db.$transaction([
+  await voltarParaAberto(o.id, u.id, ['ABERTA'])
+  res.json(paraTela((await acharOrcamento(req))!))
+})
+
+/** Volta o orçamento para aberto: exclui os lançamentos dele e cancela as contas nos status dados. */
+function voltarParaAberto(id: number, usuarioId: number, contas: ('ABERTA' | 'PAGA')[]) {
+  return db.$transaction([
     db.orcamento.update({
-      where: { id: o.id },
-      data: { status: 'ABERTO', aprovadoEm: null, aprovadoPorId: null },
+      where: { id },
+      data: {
+        status: 'ABERTO',
+        aprovadoEm: null,
+        aprovadoPorId: null,
+        confirmadoEm: null,
+        confirmadoPorId: null,
+      },
     }),
     db.lancamento.updateMany({
-      where: { orcamentoId: o.id, excluidoEm: null },
-      data: { excluidoEm: new Date(), excluidoPorId: u.id },
+      where: { orcamentoId: id, excluidoEm: null },
+      data: { excluidoEm: new Date(), excluidoPorId: usuarioId },
     }),
     db.contaFinanceira.updateMany({
-      where: { orcamentoId: o.id, status: 'ABERTA' },
+      where: { orcamentoId: id, status: { in: contas } },
       data: { status: 'CANCELADA' },
     }),
   ])
+}
+
+/**
+ * O administrador rejeita uma aprovação que ainda não conferiu (Financeiro → Aprovações):
+ * volta para Orçamentos abertos e desfaz também o pagamento lançado junto. Pede a senha (R-037).
+ */
+rotasOrcamentos.post('/:id/rejeitar', exigir('orcamento.confirmar'), async (req, res) => {
+  const o = await acharOrcamento(req)
+  if (!o) return res.status(404).json({ erro: 'Orçamento não encontrado.' })
+  if (o.status !== 'APROVADO' || o.confirmadoEm)
+    return res.status(409).json({ erro: 'Só dá para rejeitar aprovação ainda não confirmada.' })
+  const u = usuarioDe(res)
+  const b = lerCorpo(DesaprovarOrcamentoDto, req.body, res)
+  if (!b) return
+  if (!(await conferirSenha(u.login, b.senha)))
+    return res.status(403).json({ erro: 'Senha incorreta.' }) // 403: a sessão continua; 401 tiraria do sistema
+  if (o.itens.some((i) => i.executadoEm))
+    return res
+      .status(409)
+      .json({ erro: 'Já há procedimento executado: cancele o orçamento em vez de rejeitar.' })
+  await voltarParaAberto(o.id, u.id, ['ABERTA', 'PAGA'])
   res.json(paraTela((await acharOrcamento(req))!))
 })
 

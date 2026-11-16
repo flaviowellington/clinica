@@ -29,7 +29,7 @@ async function abrirFicha(page: Page, login: string) {
   await expect(page.getByRole('heading', { name: /Ana Fictícia Oliveira/ })).toBeVisible()
 }
 
-test('S-003: a ficha tem as 10 seções (aprovação de procedimentos e planejamentos ficam em Plano e Ficha Clínica); anamnese obrigatória e alerta (PT-58, PT-59, PT-74)', async ({
+test('S-003: a ficha tem as 10 seções (evolução clínica e planejamentos ficam em Plano e Ficha Clínica); anamnese obrigatória e alerta (PT-58, PT-59, PT-74)', async ({
   page,
 }) => {
   await abrirFicha(page, 'admin')

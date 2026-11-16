@@ -5,6 +5,8 @@ import { Router, type Request, type Response } from 'express'
 import { db } from './db'
 import { abrirSessao, conferirSenha, exigir, gerarHash, usuarioDe } from './auth'
 import { emailConfigurado, enviarEmail } from './mensagens'
+import { lerConfig } from './configuracoes'
+import type { Usuario } from './generated/prisma/client'
 import {
   MinhaSenhaDto,
   PedirCodigoDto,
@@ -236,5 +238,15 @@ rotasRecuperarSenha.post('/redefinir', async (req, res) => {
     },
   })
   abrirSessao(res, u.id)
-  res.json({ id: u.id, nome: u.nome, login: u.login, perfis: u.perfis })
+  res.json(await dadosDoEu(u))
+})
+
+/** O login e o /eu devolvem o mesmo formato: a tela de entrar grava a resposta como o "eu". */
+export const dadosDoEu = async ({ id, nome, login, perfis, preferencias }: Usuario) => ({
+  id,
+  nome,
+  login,
+  perfis,
+  preferencias: preferencias ?? {},
+  permissoes: await lerConfig('permissoes'),
 })

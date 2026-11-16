@@ -262,6 +262,56 @@ rotasFinanceiroContas.get('/analise', exigir('financeiro.ver'), async (req, res)
   })
 })
 
+/** Confirma de uma vez os aprovados listados na tela (só os ids enviados: nada que chegou depois). */
+rotasFinanceiroContas.post(
+  '/aprovacoes/confirmar',
+  exigir('orcamento.confirmar'),
+  async (req, res) => {
+    const ids: unknown = req.body?.ids
+    if (!Array.isArray(ids) || !ids.every((n) => Number.isInteger(n)))
+      return res.status(400).json({ erro: 'Lista de orçamentos inválida.' })
+    const r = await db.orcamento.updateMany({
+      where: { id: { in: ids }, status: 'APROVADO', excluidoEm: null, confirmadoEm: null },
+      data: { confirmadoEm: new Date(), confirmadoPorId: usuarioDe(res).id },
+    })
+    res.json({ confirmados: r.count })
+  },
+)
+
+/** Aprovados que o administrador ainda não confirmou, com quem aprovou (mais antigos primeiro). */
+rotasFinanceiroContas.get('/aprovacoes', exigir('orcamento.confirmar'), async (_req, res) => {
+  const lista = await db.orcamento.findMany({
+    where: { status: 'APROVADO', excluidoEm: null, confirmadoEm: null },
+    include: {
+      paciente: { select: { id: true, nome: true } },
+      profissional: { select: { id: true, nome: true, corAgenda: true } },
+      aprovadoPor: { select: { nome: true } },
+      itens: { orderBy: { id: 'asc' }, select: { nome: true, dente: true, valorCentavos: true } },
+      lancamentos: {
+        where: { tipo: 'ENTRADA', excluidoEm: null },
+        orderBy: { data: 'asc' },
+        select: { data: true, forma: true, valorCentavos: true },
+      },
+    },
+    orderBy: { aprovadoEm: 'asc' },
+  })
+  res.json(
+    lista.map((o) => ({
+      id: o.id,
+      criadoEm: o.criadoEm,
+      aprovadoEm: o.aprovadoEm,
+      aprovadoPor: o.aprovadoPor,
+      paciente: o.paciente,
+      profissional: o.profissional,
+      observacoes: o.observacoes,
+      descontoCentavos: o.descontoCentavos,
+      itens: o.itens,
+      totalCentavos: totalOrcamento(o.itens, o.descontoCentavos),
+      pagamentos: o.lancamentos.map((l) => ({ ...l, data: isoDe(l.data) })),
+    })),
+  )
+})
+
 /**
  * Orçamentos em aberto para aprovar quando o paciente pagar. ?de&ate filtram pela data em
  * que o orçamento foi feito (fuso da clínica); sem eles, todos. ?profissionalId filtra.

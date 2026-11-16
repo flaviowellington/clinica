@@ -13,6 +13,7 @@ import {
   preencherModelo,
 } from '../../shared/prontuario'
 import { TERMO } from './autorizacoes'
+import { MATRIZ_PADRAO } from '../../shared/permissoes'
 import type {
   MotivoInativacao,
   Perfil,
@@ -1116,6 +1117,8 @@ if (!(await db.agendamento.count({ where: { status: 'FALTOU' } }))) {
 
 // ── Configurações da clínica (fictícias) ────────────────────────────────────
 const configs: [string, object][] = [
+  // Matriz de permissões já gravada: a tela Configurações → Permissões parte dela.
+  ['permissoes', MATRIZ_PADRAO],
   [
     'clinica',
     {

@@ -200,7 +200,8 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
         </div>
       )}
       {selecionados.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 border-primaria bg-primaria-clara px-4 py-3">
+        // Fica preso no pé da tela enquanto a lista rola; no celular, acima da barra de navegação.
+        <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 border-primaria bg-primaria-clara px-4 py-3 shadow-lg max-md:bottom-24">
           <div>
             <p className="text-suave">
               {selecionados.length}{' '}

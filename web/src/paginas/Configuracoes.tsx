@@ -1,5 +1,5 @@
 // Configurações da clínica (S-014).
-import { useState, type ReactNode } from 'react'
+import { useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, consultaConfig, dataBR, mensagemDeErro } from '../api'
@@ -32,6 +32,16 @@ import { Situacao } from './Pacientes'
 import { CampoEmail } from '../componentes/CampoMascara'
 import { ETAPAS, type Etapa } from '../../../shared/protetico'
 import { Importacao } from './Importacao'
+import {
+  ACOES,
+  COR_PERFIL,
+  MATRIZ_PADRAO,
+  MODULOS,
+  PERFIS,
+  type Acao,
+  type Matriz,
+  type Perfil,
+} from '../../../shared/permissoes'
 
 // Ordem: a clínica; o que é cadastrado antes (especialidades → procedimentos → laboratórios);
 // o atendimento (anamnese → documentos); a comunicação.
@@ -44,6 +54,7 @@ export const ABAS = [
   { id: 'anamnese', rotulo: 'Anamnese' },
   { id: 'documentos', rotulo: 'Modelos de documento' },
   { id: 'mensagens', rotulo: 'E-mail e mensagens' },
+  { id: 'permissoes', rotulo: 'Permissões' },
   { id: 'importacao', rotulo: 'Importar dados' },
 ] as const
 
@@ -74,6 +85,7 @@ export function Configuracoes() {
       {aba === 'documentos' && <ModelosDocumento />}
       {aba === 'especialidades' && <Especialidades />}
       {aba === 'mensagens' && <Mensagens />}
+      {aba === 'permissoes' && <Permissoes />}
       {aba === 'importacao' && <Importacao />}
     </div>
   )
@@ -1407,5 +1419,193 @@ function Mensagens() {
         )}
       </Secao>
     </div>
+  )
+}
+
+// ── Permissões ──────────────────────────────────────────────────────────────
+
+const CARGOS = (Object.keys(PERFIS) as Perfil[]).filter((p) => p !== 'ADMINISTRADOR')
+/** Ação, Administrador e uma coluna por cargo (no celular cada linha vira um cartão). */
+const COLUNAS_MATRIZ = 'md:grid-cols-[minmax(0,1fr)_repeat(4,7rem)]'
+const corCheck = (p: Perfil) =>
+  ({ '--cor-check': COR_PERFIL[p], '--sobre-check': '#fff' }) as CSSProperties
+
+function Permissoes() {
+  const c = useQuery(consultaConfig('permissoes'))
+  if (!c.data) return <Carregando />
+  return <EditarPermissoes salvo={c.data} />
+}
+
+function Feito({ rotulo }: { rotulo: string }) {
+  return (
+    <span className="hidden justify-center md:flex" style={{ color: COR_PERFIL.ADMINISTRADOR }}>
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        role="img"
+        aria-label={rotulo}
+      >
+        <path d="M5 12l5 5 9-10" />
+      </svg>
+    </span>
+  )
+}
+
+function EditarPermissoes({ salvo }: { salvo: Matriz }) {
+  const [matriz, setMatriz] = useState(salvo)
+  const [busca, setBusca] = useState('')
+  const salvar = useSalvar('permissoes', 'Permissões salvas')
+  const igual = (a: Perfil[], b: Perfil[]) => a.length === b.length && a.every((p) => b.includes(p))
+  const mudancas = ACOES.filter((a) => !igual(matriz[a], salvo[a])).length
+  const ePadrao = ACOES.every((a) => igual(matriz[a], MATRIZ_PADRAO[a]))
+  const marcar = (a: Acao, p: Perfil, sim: boolean) =>
+    setMatriz((m) => ({
+      ...m,
+      [a]: sim ? [...m[a].filter((x) => x !== p), p] : m[a].filter((x) => x !== p),
+    }))
+  const termo = normalizar(busca)
+  const modulos = MODULOS.map((m) => ({
+    ...m,
+    itens: termo
+      ? m.itens.filter((i) => normalizar(`${m.nome} ${i.rotulo}`).includes(termo))
+      : m.itens,
+  })).filter((m) => !termo || m.itens.length > 0 || normalizar(m.nome).includes(termo))
+
+  const caixas = (p: { acao: Acao; rotulo: string; ver?: Acao }) =>
+    CARGOS.map((c) => (
+      <label key={c} className="flex min-h-11 cursor-pointer items-center gap-2 md:justify-center">
+        <input
+          type="checkbox"
+          style={corCheck(c)}
+          checked={matriz[p.acao].includes(c)}
+          disabled={!!p.ver && !matriz[p.ver].includes(c)}
+          onChange={(e) => marcar(p.acao, c, e.target.checked)}
+          aria-label={`${PERFIS[c]}: ${p.rotulo}`}
+        />
+        <span className="text-sm md:hidden" aria-hidden>
+          {PERFIS[c]}
+        </span>
+      </label>
+    ))
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        salvar.mutate(matriz)
+      }}
+    >
+      <Secao
+        titulo="Permissões"
+        descricao="Cada linha é uma ação, cada coluna um cargo. Sem a linha “Ver” do módulo, as ações de dentro dele ficam travadas. O Administrador pode tudo, sempre."
+        acao={
+          <button
+            type="button"
+            className="botao-leve"
+            disabled={ePadrao}
+            onClick={() => setMatriz(MATRIZ_PADRAO)}
+          >
+            Restaurar padrão
+          </button>
+        }
+        colado
+      >
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-4">
+          <div className="min-w-0 flex-[1_1_16rem]">
+            <CampoBusca
+              rotulo="Buscar ação (ex.: prontuário, receber)"
+              valor={busca}
+              aoMudar={setBusca}
+            />
+          </div>
+          <ul
+            className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-suave"
+            aria-label="Cores dos cargos"
+          >
+            {(Object.keys(PERFIS) as Perfil[]).map((p) => (
+              <li key={p} className="flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="size-2.5 rounded-full"
+                  style={{ backgroundColor: COR_PERFIL[p] }}
+                />
+                {PERFIS[p]}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div
+          className={`hidden items-center gap-x-4 border-y border-borda bg-superficie-2 px-5 py-3 text-sm font-bold md:grid ${COLUNAS_MATRIZ}`}
+        >
+          <span className="text-suave">Ação</span>
+          <span
+            className="flex flex-col items-center text-center"
+            style={{ color: COR_PERFIL.ADMINISTRADOR }}
+          >
+            <span className="flex items-center gap-1">
+              <Icone nome="cadeado" className="h-3.5 w-3.5" />
+              {PERFIS.ADMINISTRADOR}
+            </span>
+            <span className="text-xs font-normal text-suave">pode tudo</span>
+          </span>
+          {CARGOS.map((c) => (
+            <span
+              key={c}
+              className="text-center"
+              style={{ color: `color-mix(in srgb, ${COR_PERFIL[c]} 75%, var(--texto))` }}
+            >
+              {PERFIS[c]}
+            </span>
+          ))}
+        </div>
+
+        {modulos.map((m) => (
+          <div key={m.ver} className="border-t border-borda first:border-t-0 md:first:border-t">
+            <div className={`grid items-center gap-x-4 bg-superficie-2/60 px-5 py-2 ${COLUNAS_MATRIZ}`}>
+              <span className="self-center py-1 font-bold text-titulo">Ver {m.nome}</span>
+              <Feito rotulo="Administrador: sempre" />
+              <div className="flex flex-wrap gap-x-4 md:contents">
+                {caixas({ acao: m.ver, rotulo: `Ver ${m.nome}` })}
+              </div>
+            </div>
+            {m.itens.map((i) => (
+              <div
+                key={i.acao}
+                className={`grid items-center gap-x-4 border-t border-borda/50 px-5 py-1 md:pl-10 ${COLUNAS_MATRIZ}`}
+              >
+                <span className="self-center pt-2 md:py-2">{i.rotulo}</span>
+                <Feito rotulo="Administrador: sempre" />
+                <div className="flex flex-wrap gap-x-4 md:contents">
+                  {caixas({ acao: i.acao, rotulo: i.rotulo, ver: m.ver })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+        {modulos.length === 0 && (
+          <p className="px-5 py-8 text-center text-suave">Nenhuma ação encontrada.</p>
+        )}
+
+        <div className="border-t border-borda px-5 py-4">
+          <Rodape
+            ocupado={salvar.isPending}
+            desativado={!mudancas}
+            aoCancelar={mudancas ? () => setMatriz(salvo) : undefined}
+          >
+            {mudancas > 0 && (
+              <span className="mr-auto text-sm font-bold text-aviso">
+                {mudancas === 1 ? '1 alteração não salva' : `${mudancas} alterações não salvas`}
+              </span>
+            )}
+          </Rodape>
+        </div>
+      </Secao>
+    </form>
   )
 }

@@ -1,4 +1,10 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
+
+function foraDoDialogo(e: PointerEvent<HTMLDialogElement>) {
+  if (e.target !== e.currentTarget) return false
+  const r = e.currentTarget.getBoundingClientRect()
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom
+}
 
 /** Janela modal com o <dialog> do próprio navegador (Esc fecha, foco preso dentro). */
 export function Dialogo(props: {
@@ -39,10 +45,11 @@ export function Dialogo(props: {
       // No React o "close" de um diálogo aberto por cima sobe até este: só fecha se for o próprio.
       onClose={(e) => e.target === e.currentTarget && props.aoFechar()}
       // Clique fora fecha só se apertou E soltou no fundo: arrastar de dentro para fora (ex.: selecionar texto) não fecha.
-      // O conteúdo preenche o <dialog> (p-0), então alvo === o próprio diálogo significa o fundo.
-      onPointerDown={(e) => (apertouFora.current = e.target === e.currentTarget)}
+      // Fundo = ponto fora do retângulo do diálogo. Só "alvo === diálogo" não basta: a barra de rolagem
+      // do próprio <dialog> também tem esse alvo, e arrastá-la (ex.: touchpad) fechava a janela.
+      onPointerDown={(e) => (apertouFora.current = foraDoDialogo(e))}
       onPointerUp={(e) => {
-        if (apertouFora.current && e.target === e.currentTarget) props.aoFechar()
+        if (apertouFora.current && foraDoDialogo(e)) props.aoFechar()
         apertouFora.current = false
       }}
       // has-[.dialogo-largo]: o conteúdo pode pedir a janela larga sozinho (ex.: usuário + profissional).

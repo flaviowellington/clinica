@@ -9,6 +9,7 @@ import {
 } from './prontuario'
 import { normalizar } from './regras'
 import { CATEGORIAS, lerHorariosSemana } from './agenda'
+import { lerMatriz, MATRIZ_PADRAO } from './permissoes'
 
 export interface DadosClinica {
   nome: string
@@ -78,6 +79,8 @@ export const PADROES = {
       'Olá, {paciente}! Sua consulta na {clinica} está marcada para {data} às {horario}, com ' +
       '{profissional}. Para confirmar sua presença, acesse: {link}',
   } as Mensagens,
+  /** Perfis que podem cada ação (shared/permissoes.ts). */
+  permissoes: MATRIZ_PADRAO,
 }
 export type ChaveConfig = keyof typeof PADROES
 export const CHAVES = Object.keys(PADROES) as ChaveConfig[]
@@ -219,6 +222,10 @@ export function validarConfig(
         valor[nome] = cor
       }
       return { valor }
+    }
+    case 'permissoes': {
+      const valor = lerMatriz(bruto)
+      return valor ? { valor } : { erro: 'Permissões inválidas.' }
     }
     case 'mensagens': {
       const confirmacao = txt(b?.confirmacao, 1000)

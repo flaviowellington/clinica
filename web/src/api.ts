@@ -2,7 +2,7 @@ import axios from 'axios'
 import { useEffect, useRef, useState } from 'react'
 import { queryOptions, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import type { Preferencias } from '../../shared/dtos'
-import type { Perfil } from '../../shared/permissoes'
+import type { Matriz, Perfil } from '../../shared/permissoes'
 import type { MotivoInativacao } from '../../shared/regras'
 import type { StatusAgenda } from '../../shared/agenda'
 import type { ChaveConfig, PADROES } from '../../shared/configuracoes'
@@ -32,6 +32,7 @@ export interface Eu {
   login: string
   perfis: Perfil[]
   preferencias: Preferencias
+  permissoes: Matriz
 }
 
 /**

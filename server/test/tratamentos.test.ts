@@ -1,4 +1,4 @@
-// Alerta de retorno, desmarcação, orçamentos e o financeiro que sai deles.
+﻿// Alerta de retorno, desmarcação, orçamentos e o financeiro que sai deles.
 import { describe, expect, it } from 'vitest'
 import { db } from '../src/db'
 import { entrarComo, PACIENTE, urlBase, usarServidor, type Cliente } from './ajuda'
@@ -287,7 +287,7 @@ describe('PT-10 a PT-19 orçamento', () => {
     await api('POST', `/api/orcamentos/${r.corpo.id}/aprovar`)
     expect(
       (await api('POST', `/api/orcamentos/${r.corpo.id}/desaprovar`, { senha: 'errada' })).status,
-    ).toBe(401)
+    ).toBe(403)
     const ok = await api('POST', `/api/orcamentos/${r.corpo.id}/desaprovar`, {
       senha: 'senha-de-teste',
     })
@@ -596,5 +596,110 @@ describe('orçamentos abertos e aprovar já pago', () => {
     const entradas = await db.lancamento.findMany({ where: { orcamentoId: o.id, tipo: 'ENTRADA' } })
     expect(entradas).toMatchObject([{ valorCentavos: 30000, forma: 'Pix' }])
     expect(entradas[0].data.toISOString().slice(0, 10)).toBe('2026-11-03')
+  })
+})
+
+describe('confirmação das aprovações pelo administrador', () => {
+  it('lista os aprovados sem confirmação com quem aprovou; só o administrador confirma', async () => {
+    const recepcao = await entrarComo('RECEPCAO')
+    const admin = await entrarComo('ADMINISTRADOR')
+    const { dentista, paciente, resina } = await base(recepcao)
+    const { corpo: o } = await recepcao('POST', '/api/orcamentos', {
+      pacienteId: paciente.id,
+      profissionalId: dentista.id,
+      itens: [{ procedimentoId: resina.id }],
+    })
+    await recepcao('POST', `/api/orcamentos/${o.id}/aprovar`)
+
+    expect((await recepcao('GET', '/api/financeiro/aprovacoes')).status).toBe(403)
+    const lista = await admin('GET', '/api/financeiro/aprovacoes')
+    expect(lista.status).toBe(200)
+    expect(lista.corpo).toMatchObject([
+      {
+        id: o.id,
+        totalCentavos: 30000,
+        paciente: { id: paciente.id },
+        aprovadoPor: { nome: recepcao.usuario.nome },
+        descontoCentavos: 0,
+        pagamentos: [], // aprovou sem receber: a venda não conta como pagamento
+      },
+    ])
+
+    expect((await recepcao('POST', `/api/orcamentos/${o.id}/confirmar`)).status).toBe(403)
+    const ok = await admin('POST', `/api/orcamentos/${o.id}/confirmar`)
+    expect(ok.status).toBe(200)
+    expect((await admin('POST', `/api/orcamentos/${o.id}/confirmar`)).status).toBe(409)
+    expect((await admin('GET', '/api/financeiro/aprovacoes')).corpo).toEqual([])
+    const salvo = await db.orcamento.findUnique({ where: { id: o.id } })
+    expect(salvo?.confirmadoPorId).toBe(admin.usuario.id)
+  })
+})
+
+describe('confirmar todas as aprovações de uma vez', () => {
+  it('confirma só os aprovados enviados, e só o administrador', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const { dentista, paciente, resina } = await base(admin)
+    const novo = async () =>
+      (
+        await admin('POST', '/api/orcamentos', {
+          pacienteId: paciente.id,
+          profissionalId: dentista.id,
+          itens: [{ procedimentoId: resina.id }],
+        })
+      ).corpo
+    const [a, b, c, aberto] = [await novo(), await novo(), await novo(), await novo()]
+    for (const o of [a, b, c]) await admin('POST', `/api/orcamentos/${o.id}/aprovar`)
+
+    const recepcao = await entrarComo('RECEPCAO')
+    const corpo = { ids: [a.id, b.id, aberto.id] }
+    expect((await recepcao('POST', '/api/financeiro/aprovacoes/confirmar', corpo)).status).toBe(403)
+    expect((await admin('POST', '/api/financeiro/aprovacoes/confirmar', { ids: 'x' })).status).toBe(
+      400,
+    )
+    const r = await admin('POST', '/api/financeiro/aprovacoes/confirmar', corpo)
+    expect(r.status).toBe(200)
+    expect(r.corpo).toEqual({ confirmados: 2 })
+    expect((await admin('GET', '/api/financeiro/aprovacoes')).corpo).toMatchObject([{ id: c.id }])
+  })
+})
+
+describe('rejeitar uma aprovação', () => {
+  it('volta para aberto e desfaz o pagamento lançado; pede senha; só sem confirmação', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const { dentista, paciente, resina } = await base(admin)
+    const novo = async () =>
+      (
+        await admin('POST', '/api/orcamentos', {
+          pacienteId: paciente.id,
+          profissionalId: dentista.id,
+          itens: [{ procedimentoId: resina.id }],
+        })
+      ).corpo
+    const [o, conferido] = [await novo(), await novo()]
+    const pagamento = { data: '2026-11-14', forma: 'Pix' }
+    await admin('POST', `/api/orcamentos/${o.id}/aprovar`, { pagamento })
+    await admin('POST', `/api/orcamentos/${conferido.id}/aprovar`, { pagamento })
+    await admin('POST', `/api/orcamentos/${conferido.id}/confirmar`)
+
+    const recepcao = await entrarComo('RECEPCAO')
+    const senha = { senha: 'senha-de-teste' }
+    expect((await recepcao('POST', `/api/orcamentos/${o.id}/rejeitar`, senha)).status).toBe(403)
+    expect(
+      (await admin('POST', `/api/orcamentos/${o.id}/rejeitar`, { senha: 'errada' })).status,
+    ).toBe(403)
+    expect((await admin('POST', `/api/orcamentos/${conferido.id}/rejeitar`, senha)).status).toBe(
+      409,
+    )
+
+    expect((await admin('POST', `/api/orcamentos/${o.id}/rejeitar`, senha)).status).toBe(200)
+    const salvo = await db.orcamento.findUnique({
+      where: { id: o.id },
+      include: { lancamentos: true, contas: true },
+    })
+    expect(salvo).toMatchObject({ status: 'ABERTO', aprovadoEm: null, aprovadoPorId: null })
+    expect(salvo!.lancamentos.every((l) => l.excluidoEm)).toBe(true)
+    expect(salvo!.contas.every((c) => c.status === 'CANCELADA')).toBe(true)
+    expect((await admin('GET', '/api/financeiro/aprovacoes')).corpo).toEqual([])
+    expect((await admin('POST', `/api/orcamentos/${o.id}/rejeitar`, senha)).status).toBe(409)
   })
 })

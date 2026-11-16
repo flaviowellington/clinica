@@ -1,4 +1,4 @@
-// Odontograma e a aba Plano e Ficha Clínica: aprovação de procedimentos e planejamentos
+// Odontograma e a aba Plano e Ficha Clínica: evolução clínica e planejamentos
 // (R-019, R-061, R-068, R-069, R-078).
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
@@ -1860,10 +1860,10 @@ export function PlanoFichaClinica({ paciente }: { paciente: Paciente }) {
     <div className="space-y-4">
       <header className="cartao flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl">Aprovação de procedimentos</h2>
+          <h2 className="text-xl">Evolução clínica</h2>
           <p className="subtitulo">
-            Procedimentos avulsos: marque e envie para o paciente ler e assinar pelo celular. O
-            tratamento completo fica em Planejamentos.
+            Registre os procedimentos avulsos feitos ou a fazer e envie ao paciente para confirmar
+            e assinar pelo celular. O tratamento completo fica em Planejamentos.
           </p>
         </div>
         {podeEditar && (
@@ -2399,7 +2399,7 @@ const dentesDoGrupo = (g: { dente: string | null; faces: string | null }[]) =>
 const chaveFichas = (id: number) => ['fichas', id]
 
 /**
- * Aba "Plano e Ficha Clínica": a aprovação de procedimentos avulsos (cada um assinado por
+ * Aba "Plano e Ficha Clínica": a evolução clínica (procedimentos avulsos, cada um assinado por
  * vez) e os planejamentos completos de cada especialidade.
  */
 export function FichasEspecialidade({ paciente }: { paciente: Paciente }) {
@@ -2482,8 +2482,8 @@ export function FichasEspecialidade({ paciente }: { paciente: Paciente }) {
         <div className={bloco(!emPlanejamentos)}>
           {opcao({
             icone: 'documento',
-            titulo: 'Aprovação de procedimentos',
-            descricao: 'Avulsos, assinados um a um',
+            titulo: 'Evolução clínica',
+            descricao: 'Procedimentos avulsos, confirmados um a um',
             n: aguardandoAvulsos,
             rotuloN: `${aguardandoAvulsos} aguardando assinatura`,
             atual: !emPlanejamentos,

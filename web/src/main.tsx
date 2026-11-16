@@ -34,7 +34,7 @@ import { api, consultaConfig, consultaEu } from './api'
 import logoRiso from './assets/logo_riso.png'
 import { Confirmacao } from './componentes/Confirmar'
 import { avisar, useAvisos, useTema } from './estado'
-import { PERFIS, pode } from '../../shared/permissoes'
+import { definirMatriz, PERFIS, pode } from '../../shared/permissoes'
 import { Entrar, LOGO } from './paginas/Entrar'
 import { Pacientes } from './paginas/Pacientes'
 import { Ficha } from './paginas/Ficha'
@@ -132,7 +132,7 @@ const RECARREGAR: Record<string, string[][]> = {
     ['grafico-codigo'],
   ],
   protetico: [['protetico']],
-  config: [['config'], ['email-estado']],
+  config: [['config'], ['email-estado'], ['eu']],
 }
 
 /** Tempo real: ouve os avisos do servidor e recarrega o que outra máquina mudou. */
@@ -604,7 +604,7 @@ const logado = createRoute({
   id: 'logado',
   beforeLoad: async ({ context }) => {
     try {
-      await context.queryClient.ensureQueryData(consultaEu)
+      definirMatriz((await context.queryClient.ensureQueryData(consultaEu)).permissoes)
     } catch {
       throw redirect({ to: '/entrar' })
     }

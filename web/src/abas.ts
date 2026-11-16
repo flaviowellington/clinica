@@ -3,8 +3,6 @@ import { pode, type Perfil } from '../../shared/permissoes'
 import { GRUPOS } from '../../shared/relatorios'
 import type { NomeIcone } from './componentes/Icones'
 
-const todos = () => true
-
 export const ABAS: {
   para:
     | '/agenda'
@@ -28,7 +26,7 @@ export const ABAS: {
     rotulo: 'Agenda',
     descricao: 'Marque, remarque e acompanhe as consultas do dia.',
     icone: 'agenda',
-    visivel: todos,
+    visivel: (p) => pode(p, 'agenda.ver'),
   },
   {
     para: '/confirmacoes',
@@ -49,7 +47,7 @@ export const ABAS: {
     rotulo: 'Pacientes',
     descricao: 'Cadastro, prontuário e histórico de cada paciente.',
     icone: 'pacientes',
-    visivel: todos,
+    visivel: (p) => pode(p, 'paciente.ver'),
   },
   {
     para: '/protetico',
@@ -71,7 +69,7 @@ export const ABAS: {
     rotulo: 'Profissionais',
     descricao: 'Dentistas da clínica, especialidades e cor na agenda.',
     icone: 'profissionais',
-    visivel: todos,
+    visivel: (p) => pode(p, 'profissional.ver'),
   },
   {
     para: '/relatorios',

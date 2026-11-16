@@ -18,12 +18,14 @@ import {
 } from './FinanceiroAbas'
 import { Graficos } from './FinanceiroGraficos'
 import { OrcamentosAbertos } from './FinanceiroAbertos'
+import { Aprovacoes } from './FinanceiroAprovacoes'
 import { COR_PADRAO } from './Profissionais'
 import { MESES, meio } from '../componentes/CalendarioIntervalo'
 
 // Recepção e profissional só veem os orçamentos abertos; o resto é do financeiro.
 export const ABAS = [
   { id: 'abertos', rotulo: 'Orçamentos abertos', acao: 'orcamento.ver' },
+  { id: 'aprovacoes', rotulo: 'Aprovações', acao: 'orcamento.confirmar' },
   { id: 'controle', rotulo: 'Controle Financeiro', acao: 'financeiro.ver' },
   { id: 'graficos', rotulo: 'Gráficos', acao: 'financeiro.ver' },
   // Gráficos 2 (a versão antiga, livre: adicionar, favoritar, remover): desligada.
@@ -47,6 +49,7 @@ export function Financeiro() {
         {abas.length > 1 && <Abas abas={abas} atual={aba} aoTrocar={ir} />}
       </div>
       {aba === 'abertos' && <OrcamentosAbertos />}
+      {aba === 'aprovacoes' && <Aprovacoes />}
       {aba === 'controle' && <ControleFinanceiro />}
       {aba === 'graficos' && <Graficos fixo />}
       {/* {aba === 'graficos2' && <Graficos />} */}
