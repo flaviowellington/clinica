@@ -31,8 +31,8 @@ async function preparar(api: Cliente) {
 
 describe('PT-21 e PT-83 grade de 15 min no expediente', () => {
   it('48 horários de 8:00 a 19:45', () => {
-    expect(HORARIOS).toHaveLength(48)
-    expect([HORARIOS[0], HORARIOS[1], HORARIOS.at(-1)]).toEqual(['08:00', '08:15', '19:45'])
+    expect(HORARIOS).toHaveLength(40)
+    expect([HORARIOS[0], HORARIOS[1], HORARIOS.at(-1)]).toEqual(['08:00', '08:15', '17:45'])
   })
   it('recusa domingo e horário fora da grade', async () => {
     const api = await entrarComo('RECEPCAO')

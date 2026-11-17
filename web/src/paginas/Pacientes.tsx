@@ -6,6 +6,7 @@ import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import { Dialogo } from '../componentes/Dialogo'
 import { FormPaciente } from '../componentes/FormPaciente'
+import { salvarFotoDoNovo, urlFoto, type FotoPendente } from '../componentes/FotoPerfil'
 import { Icone } from '../componentes/Icones'
 import { CampoSelect } from '../componentes/CampoSelect'
 
@@ -39,8 +40,11 @@ export function Pacientes() {
   })
 
   const criar = useMutation({
-    mutationFn: async (dados: Record<string, string>) =>
-      (await api.post<Paciente>('/pacientes', dados)).data,
+    mutationFn: async ([dados, foto]: [Record<string, string>, FotoPendente]) => {
+      const p = (await api.post<Paciente>('/pacientes', dados)).data
+      await salvarFotoDoNovo(`/pacientes/${p.id}`, foto)
+      return p
+    },
     onSuccess: (p) => {
       avisar('Paciente cadastrado com sucesso')
       navegar({ to: '/pacientes/$id', params: { id: String(p.id) } })
@@ -112,7 +116,8 @@ export function Pacientes() {
           className="campo pl-10"
           autoFocus
         />
-        <span id="ajuda-busca" className="ajuda">
+        {/* Só para leitor de tela: visível, empurrava a 10ª linha para fora da tela. */}
+        <span id="ajuda-busca" className="sr-only">
           A lista atualiza enquanto você digita o nome ou sobrenome.
         </span>
       </label>
@@ -120,7 +125,7 @@ export function Pacientes() {
       {/* Sem flex-1: o cartão fica do tamanho das linhas e só rola quando passa da tela. */}
       <div className="cartao flex min-h-0 flex-col overflow-hidden p-0">
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-borda px-4 py-2.5 text-sm text-suave">
-          <span className="flex items-center gap-4">
+          <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <span className="font-bold">
               {lista.isFetching
                 ? 'Buscando…'
@@ -182,7 +187,33 @@ export function Pacientes() {
             </span>
           )}
         </div>
-        <div ref={rolagem} className="min-h-0 overflow-auto">
+        {/* Celular: cartões (foto, nome, celular e status); a tabela só a partir de md. */}
+        <ul className={`divide-y divide-borda md:hidden ${lista.isFetching ? 'opacity-60' : ''}`}>
+          {lista.data?.itens.map((p) => (
+            <li key={p.id} className="flex items-center gap-3 px-4 py-2">
+              <Link
+                to="/pacientes/$id"
+                params={{ id: String(p.id) }}
+                className="flex min-h-11 min-w-0 flex-1 items-center gap-3"
+              >
+                <Avatar p={p} />
+                <span className="min-w-0">
+                  <span className="block truncate font-bold text-primaria">{p.nome}</span>
+                  <span className="block text-sm text-suave tabular-nums">
+                    {p.celular || dataBR(p.nascimento)}
+                  </span>
+                </span>
+              </Link>
+              <Situacao ativo={p.ativo} />
+            </li>
+          ))}
+          {lista.data?.itens.length === 0 && (
+            <li className="px-4 py-10 text-center text-suave">
+              Nenhum paciente encontrado{busca && <> para “{busca}”</>}.
+            </li>
+          )}
+        </ul>
+        <div ref={rolagem} className="hidden min-h-0 overflow-auto md:block">
           <table className="w-full min-w-[46rem] text-left">
             <thead className="sticky top-0 z-10 bg-superficie">
               <tr>
@@ -197,7 +228,8 @@ export function Pacientes() {
                   <th
                     key={t}
                     // Sombra no lugar da borda: com a tabela colapsada, a borda não acompanha o cabeçalho fixo.
-                    className="px-4 py-2.5 text-xs font-bold tracking-wide text-suave uppercase shadow-[inset_0_-1px_0_var(--borda)]"
+                    // "Nome" começa onde começa o nome (depois da foto de 40px + espaço de 12px).
+                    className={`${t === 'Nome' ? 'pr-4 pl-[4.25rem]' : 'px-4'} py-2.5 text-xs font-bold tracking-wide text-suave uppercase shadow-[inset_0_-1px_0_var(--borda)]`}
                   >
                     {t}
                   </th>
@@ -210,22 +242,17 @@ export function Pacientes() {
                   key={p.id}
                   className="border-b border-borda last:border-0 hover:bg-primaria-clara"
                 >
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-1">
                     <Link
                       to="/pacientes/$id"
                       params={{ id: String(p.id) }}
                       className="flex items-center gap-3 font-bold text-primaria hover:underline"
                     >
-                      <span
-                        aria-hidden
-                        className="grid size-8 shrink-0 place-items-center rounded-full bg-primaria/15 text-xs"
-                      >
-                        {iniciais(p.nome)}
-                      </span>
+                      <Avatar p={p} />
                       {p.nome}
                     </Link>
                   </td>
-                  <td className="px-4 py-2.5 whitespace-nowrap">
+                  <td className="px-4 py-1 whitespace-nowrap">
                     {p.celular && (
                       <a
                         href={whatsapp(p.celular)}
@@ -238,10 +265,10 @@ export function Pacientes() {
                       </a>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 tabular-nums">{dataBR(p.nascimento)}</td>
-                  <td className="px-4 py-2.5">{p.email}</td>
-                  <td className="px-4 py-2.5">{p.comoConheceu}</td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-1 tabular-nums">{dataBR(p.nascimento)}</td>
+                  <td className="px-4 py-1">{p.email}</td>
+                  <td className="px-4 py-1">{p.comoConheceu}</td>
+                  <td className="px-4 py-1">
                     <Situacao ativo={p.ativo} />
                   </td>
                 </tr>
@@ -263,7 +290,7 @@ export function Pacientes() {
           textoBotao="Cadastrar paciente"
           enviando={criar.isPending}
           erros={errosDosCampos(criar.error)}
-          aoEnviar={(d) => criar.mutate(d)}
+          aoEnviar={(d, foto) => criar.mutate([d, foto])}
         />
       </Dialogo>
     </div>
@@ -282,6 +309,25 @@ export function Situacao({ ativo }: { ativo: boolean }) {
 export function whatsapp(celular: string) {
   const n = celular.replace(/\D/g, '')
   return `https://wa.me/${n.length <= 11 ? `55${n}` : n}`
+}
+
+/** Foto do paciente na lista (40 px) ou as iniciais, quando não tem foto. */
+function Avatar({ p }: { p: Paciente }) {
+  return p.fotoEm ? (
+    <img
+      src={urlFoto(`/pacientes/${p.id}`, p.fotoEm)!}
+      alt=""
+      loading="lazy"
+      className="size-10 shrink-0 rounded-full object-cover"
+    />
+  ) : (
+    <span
+      aria-hidden
+      className="grid size-10 shrink-0 place-items-center rounded-full bg-primaria/15 text-sm font-bold text-primaria"
+    >
+      {iniciais(p.nome)}
+    </span>
+  )
 }
 
 function iniciais(nome: string) {

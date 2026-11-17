@@ -245,13 +245,19 @@ rotasMensagens.get('/paciente/:id', exigir('agenda.editar'), async (req, res) =>
     historico,
     consultas: consultas.map((c) => ({ ...c, data: c.data.toISOString().slice(0, 10) })),
     autorizacoes: autorizacoes.map(({ conteudo, fichaId, ...a }) => {
-      const c = conteudo as { especialidade?: string; itens?: { nome: string }[] }
+      const c = conteudo as {
+        especialidade?: string
+        itens?: { nome: string }[]
+        retificacao?: unknown
+      }
       const nomes = [...new Set((c.itens ?? []).map((i) => i.nome))].join(', ')
       return {
         ...a,
         // Com ficha: pedido de um planejamento; sem: procedimentos avulsos.
         planejamento: !!fichaId,
-        titulo: c.especialidade ? `Planejamento: ${c.especialidade}` : `Procedimentos: ${nomes}`,
+        titulo:
+          (c.retificacao ? 'Retificação · ' : '') +
+          (c.especialidade ? `Planejamento: ${c.especialidade}` : `Procedimentos: ${nomes}`),
       }
     }),
   })

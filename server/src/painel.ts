@@ -83,8 +83,8 @@ async function resumo(data: Data) {
     .map((o) => ({ ...o, dia: hojeNaClinica(o.aprovadoEm!) }))
     .filter((o) => noPeriodo(o.dia, data))
   // Orçamento só se aprova pago: o faturamento são os aprovados que seguem aprovados
-  // (cancelado sai, como no Financeiro).
-  const faturados = aprovados.filter((o) => o.status === 'APROVADO')
+  // (cancelado sai) e já confirmados em Aprovações, como no Controle Financeiro.
+  const faturados = aprovados.filter((o) => o.status === 'APROVADO' && o.confirmadoEm)
   const faturamento = faturados.reduce((s, o) => s + totalOrc(o), 0)
   const atendidas = consultas.filter((c) => c.status === 'ATENDIDO').length
   const faltas = consultas.filter((c) => c.status === 'FALTOU').length
@@ -174,7 +174,12 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
       select: { status: true, itens: { select: { executadoEm: true } } },
     }),
     db.orcamento.findMany({
-      where: { status: 'APROVADO', excluidoEm: null, aprovadoEm: janelaLarga(doze) },
+      where: {
+        status: 'APROVADO',
+        excluidoEm: null,
+        confirmadoEm: { not: null },
+        aprovadoEm: janelaLarga(doze),
+      },
       select: {
         aprovadoEm: true,
         descontoCentavos: true,
@@ -282,9 +287,6 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
       tendencia,
     },
     inadimplencia: {
-      valor: atrasadas.reduce((s, c) => s + c.valorCentavos, 0),
-      parcelas: atrasadas.length,
-      pacientes: new Set(atrasadas.map((c) => c.pacienteId)).size,
       porAtraso: ATRASOS.map(([max, rotulo], i) => ({
         rotulo,
         valor: atrasadas

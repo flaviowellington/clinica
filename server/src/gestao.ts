@@ -1,9 +1,8 @@
 // Profissionais, conta corrente e relatórios.
 import { Router, type Request } from 'express'
-import multer from 'multer'
-import sharp from 'sharp'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
+import { mandarFoto, receberFoto, tratarFoto } from './foto'
 import { hojeNaClinica, normalizar } from '../../shared/regras'
 import { pode } from '../../shared/permissoes'
 import {
@@ -145,71 +144,18 @@ rotasProfissionais.delete('/:id', exigir('profissional.editar'), async (req, res
 })
 
 // ── Foto do profissional ────────────────────────────────────────────────────
-const FOTO_LADO = 400
-const FOTO_MAXIMO_MB = 10
-const FORMATOS_FOTO = ['jpeg', 'png', 'webp', 'gif', 'tiff']
-// Em memória: a foto vai para o banco já tratada, nada fica em disco.
-const receberFoto = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: FOTO_MAXIMO_MB * 1024 * 1024, files: 1 },
-}).single('foto')
-
-/**
- * Recebe a foto e o quadrado escolhido na tela (x, y, tamanho em pixels da imagem original):
- * corta o resto, reduz para 400x400 e guarda em WebP.
- */
 rotasProfissionais.post(
   '/:id/foto',
   exigir('profissional.editar'),
-  (req, res, next) =>
-    receberFoto(req, res, (e: unknown) => {
-      if (!e) return next()
-      const grande = e instanceof multer.MulterError && e.code === 'LIMIT_FILE_SIZE'
-      res.status(400).json({
-        erro: grande
-          ? `A foto pode ter no máximo ${FOTO_MAXIMO_MB} MB.`
-          : 'Não foi possível receber a foto.',
-      })
-    }),
+  receberFoto,
   async (req, res) => {
     if (!(await acharProfissional(req)))
       return res.status(404).json({ erro: 'Profissional não encontrado.' })
-    if (!req.file) return res.status(400).json({ erro: 'Escolha uma foto.' })
-
-    const erroImagem = { erro: 'Envie uma imagem JPEG, PNG ou WEBP.' }
-    const meta = await sharp(req.file.buffer)
-      .metadata()
-      .catch(() => null)
-    if (!meta?.width || !meta.height || !FORMATOS_FOTO.includes(meta.format ?? ''))
-      return res.status(400).json(erroImagem)
-    // Foto de celular deitada pelo EXIF: a tela mostrou já em pé, então as medidas trocam.
-    const deitada = (meta.orientation ?? 1) >= 5
-    const largura = deitada ? meta.height : meta.width
-    const altura = deitada ? meta.width : meta.height
-
-    const [x, y, tamanho] = ['x', 'y', 'tamanho'].map((k) => Math.round(Number(req.body?.[k])))
-    if (
-      ![x, y, tamanho].every(Number.isFinite) ||
-      x < 0 ||
-      y < 0 ||
-      tamanho < 1 ||
-      x + tamanho > largura ||
-      y + tamanho > altura
-    )
-      return res.status(400).json({ erro: 'Recorte fora da imagem.' })
-
-    const foto = await sharp(req.file.buffer)
-      .rotate() // endireita pelo EXIF antes de cortar
-      .extract({ left: x, top: y, width: tamanho, height: tamanho })
-      .resize(FOTO_LADO, FOTO_LADO)
-      .webp({ quality: 82 })
-      .toBuffer()
-      .catch(() => null)
-    if (!foto) return res.status(400).json(erroImagem)
-
+    const foto = await tratarFoto(req, res)
+    if (!foto) return
     const p = await db.pessoa.update({
       where: { id: id(req) },
-      data: { foto: new Uint8Array(foto), fotoEm: new Date(), alteradoPorId: usuarioDe(res).id },
+      data: { foto, fotoEm: new Date(), alteradoPorId: usuarioDe(res).id },
       select: camposProfissional,
     })
     res.json(p)
@@ -221,10 +167,7 @@ rotasProfissionais.get('/:id/foto', exigir('profissional.ver'), async (req, res)
     where: { id: id(req), tipo: 'PROFISSIONAL', excluidoEm: null },
     select: { foto: true },
   })
-  if (!p?.foto) return res.status(404).json({ erro: 'Sem foto.' })
-  // A URL muda a cada foto nova (?v=fotoEm), então pode guardar em cache à vontade.
-  res.type('image/webp').set('Cache-Control', 'private, max-age=31536000, immutable')
-  res.send(Buffer.from(p.foto))
+  mandarFoto(res, p?.foto)
 })
 
 rotasProfissionais.delete('/:id/foto', exigir('profissional.editar'), async (req, res) => {
@@ -241,8 +184,7 @@ rotasProfissionais.delete('/:id/foto', exigir('profissional.editar'), async (req
 // ── Conta corrente (S-009) ──────────────────────────────────────────────────
 export const rotasFinanceiro = Router()
 
-const zerados = () =>
-  ({ VENDA: 0, CANCELAMENTO: 0, ENTRADA: 0 }) as Record<TipoLancamento, number>
+const zerados = () => ({ VENDA: 0, CANCELAMENTO: 0, ENTRADA: 0 }) as Record<TipoLancamento, number>
 
 rotasFinanceiro.get('/lancamentos', exigir('financeiro.ver'), async (req, res) => {
   const data = periodo(req)

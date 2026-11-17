@@ -3,7 +3,7 @@
 import { db } from './db'
 import { gerarHash } from './auth'
 import { deflateSync, crc32 } from 'node:zlib'
-import { normalizar } from '../../shared/regras'
+import { COMO_CONHECEU, normalizar } from '../../shared/regras'
 import { randomBytes } from 'node:crypto'
 import {
   MODELO_ANAMNESE,
@@ -412,6 +412,73 @@ for (const nome of ['Paciente Fictício Excluído', 'Paciente Fictícia Duplicad
     excluidoPorId: adminId,
   })
 
+// Todos com CPF válido e RG; origem, mãe, pai e responsável em combinações diferentes
+// (cada bit do índice liga um grupo). `??=` preserva o que o paciente já definiu.
+const parentescos = ['Mãe', 'Pai', 'Avó', 'Tio', 'Tutor legal']
+const enderecos = [
+  ['São Paulo', 'SP', 'Centro'],
+  ['Campinas', 'SP', 'Cambuí'],
+  ['Rio de Janeiro', 'RJ', 'Tijuca'],
+  ['Belo Horizonte', 'MG', 'Savassi'],
+  ['Curitiba', 'PR', 'Batel'],
+]
+pacientes.forEach((p, i) => {
+  const cpf = (k: number) => cpfFicticio(String(100000000 + i * 7919 + k * 1000003).slice(-9))
+  const sobrenome = (p.nome as string).split(' ').at(-1)
+  p.cpf ??= cpf(0)
+  p.rg ??= `${10 + i}.${String(100 + i * 37).slice(-3)}.${String(200 + i * 53).slice(-3)}-${i % 10}`
+  if (i & 1) {
+    p.comoConheceu ??= COMO_CONHECEU[i % COMO_CONHECEU.length]
+    if (p.comoConheceu === 'Outros') p.comoConheceuOutro ??= 'Viu a fachada passando de ônibus'
+    if (p.comoConheceu === 'Indicado por') p.indicadoPor ??= 'Paciente Fictício Indicador'
+  }
+  if (i & 2) {
+    p.nomeMae ??= `Mãe Fictícia ${sobrenome}`
+    if (i % 3) p.cpfMae ??= cpf(1)
+  }
+  if (i & 4) {
+    p.nomePai ??= `Pai Fictício ${sobrenome}`
+    if (i % 3 !== 1) p.cpfPai ??= cpf(2)
+  }
+  if (i & 8) {
+    p.responsavelParentesco ??= parentescos[i % parentescos.length]
+    p.responsavelNome ??= `${p.responsavelParentesco} Fictício(a) ${sobrenome}`
+    if (i % 2 === 0) p.responsavelCpf ??= cpf(3)
+  }
+  // Nota fiscal: endereço para todos; o tomador só aponta para quem existe no cadastro.
+  const tomadores = [
+    'PACIENTE',
+    p.nomeMae && 'MAE',
+    p.nomePai && 'PAI',
+    p.responsavelNome && 'RESPONSAVEL',
+    'OUTRO',
+    'EMPRESA',
+  ].filter(Boolean) as string[]
+  const tomador = tomadores[i % tomadores.length]
+  const [cidade, uf, bairro] = enderecos[i % enderecos.length]
+  p.notaFiscal ??= {
+    tomador,
+    nome:
+      tomador === 'OUTRO'
+        ? `Tomador Fictício ${sobrenome}`
+        : tomador === 'EMPRESA'
+          ? `Empresa Fictícia ${sobrenome} Ltda`
+          : null,
+    cpf: tomador === 'OUTRO' ? cpf(4) : null,
+    // CNPJ de exemplo (válido, não é de ninguém).
+    cnpj: tomador === 'EMPRESA' ? '11222333000181' : null,
+    inscricaoEstadual: tomador === 'EMPRESA' && i % 2 ? '110.042.490.114' : null,
+    cep: String(10000000 + i * 104729),
+    logradouro: `Rua Fictícia ${i + 1}`,
+    numero: String(10 + i * 13),
+    complemento: i % 3 === 0 ? `Apto ${100 + i}` : null,
+    bairro,
+    cidade,
+    uf,
+    observacoes: i % 4 === 0 ? 'Enviar a nota por e-mail.' : null,
+  }
+})
+
 let criados = 0
 for (const p of pacientes) {
   const nome = p.nome as string
@@ -613,32 +680,77 @@ if (!(await db.lancamento.count())) {
 }
 
 // ── Tabela de procedimentos (valores fictícios) ──────────────────────────────
-// [nome, especialidade, valor final]
-const TABELA: [string, string, number][] = [
-  ['Consulta de avaliação', 'Clínica geral', 15000],
-  ['Limpeza (profilaxia)', 'Periodontia', 18000],
-  ['Raspagem por quadrante', 'Periodontia', 22000],
-  ['Restauração em resina (1 face)', 'Dentística', 25000],
-  ['Restauração em resina (2 faces)', 'Dentística', 32000],
-  ['Clareamento em consultório', 'Dentística', 90000],
-  ['Tratamento de canal (unirradicular)', 'Endodontia', 85000],
-  ['Tratamento de canal (multirradicular)', 'Endodontia', 130000],
-  ['Extração simples', 'Cirurgia bucomaxilofacial', 25000],
-  ['Extração de siso', 'Cirurgia bucomaxilofacial', 60000],
-  ['Coroa de porcelana', 'Prótese', 180000],
-  ['Implante unitário', 'Implantodontia', 350000],
-  ['Aparelho ortodôntico fixo (instalação)', 'Ortodontia', 120000],
-  ['Manutenção ortodôntica mensal', 'Ortodontia', 25000],
-  ['Aplicação de flúor', 'Odontopediatria', 8000],
-  ['Selante por dente', 'Odontopediatria', 9000],
+// [nome, especialidade, valor final, por dente?]
+// Por dente: cobra valor × dentes. Boca toda: cobra uma vez e marca a dentição inteira.
+const TABELA: [string, string, number, boolean][] = [
+  ['Consulta de avaliação', 'Clínica geral', 15000, false],
+  ['Limpeza (profilaxia)', 'Periodontia', 18000, false],
+  ['Raspagem e alisamento radicular', 'Periodontia', 6000, true],
+  ['Restauração em resina (1 face)', 'Dentística', 25000, true],
+  ['Restauração em resina (2 faces)', 'Dentística', 32000, true],
+  ['Clareamento em consultório', 'Dentística', 90000, false],
+  ['Tratamento de canal (unirradicular)', 'Endodontia', 85000, true],
+  ['Tratamento de canal (multirradicular)', 'Endodontia', 130000, true],
+  ['Extração simples', 'Cirurgia bucomaxilofacial', 25000, true],
+  ['Extração de siso', 'Cirurgia bucomaxilofacial', 60000, true],
+  ['Coroa de porcelana', 'Prótese', 180000, true],
+  ['Implante unitário', 'Implantodontia', 350000, true],
+  ['Aparelho ortodôntico fixo (instalação)', 'Ortodontia', 120000, false],
+  ['Manutenção ortodôntica mensal', 'Ortodontia', 25000, false],
+  ['Aplicação de flúor', 'Odontopediatria', 8000, false],
+  ['Selante', 'Odontopediatria', 9000, true],
 ]
+
+/** Detalhamento fictício por tipo de procedimento; alguns ficam sem, de propósito. */
+const DETALHAMENTOS: [string, string][] = [
+  [
+    'resina',
+    'Resina composta cor A2, sob anestesia local. Evitar alimentos duros e com corante por 24 horas.',
+  ],
+  [
+    'canal',
+    'Tratamento endodôntico em 1 a 2 sessões, sob anestesia local. Pode haver sensibilidade por alguns dias.',
+  ],
+  [
+    'extração',
+    'Extração sob anestesia local. Compressa de gelo nas primeiras horas, sem bochechar por 24 horas.',
+  ],
+  [
+    'siso',
+    'Extração sob anestesia local. Compressa de gelo nas primeiras horas, sem bochechar por 24 horas.',
+  ],
+  [
+    'coroa',
+    'Preparo do dente, moldagem e provisório; a coroa definitiva é cimentada em cerca de 15 dias.',
+  ],
+  [
+    'implante',
+    'Cirurgia sob anestesia local; prótese sobre o implante após 3 a 4 meses de cicatrização.',
+  ],
+  ['limpeza', 'Remoção de placa e tártaro, polimento e orientação de higiene.'],
+  [
+    'raspagem',
+    'Raspagem sob anestesia local, por dente. Pode haver sensibilidade ao frio por alguns dias.',
+  ],
+  [
+    'clareamento',
+    'Três sessões em consultório. Evitar café, vinho e outros corantes durante o tratamento.',
+  ],
+  ['aparelho', 'Instalação do aparelho fixo e orientação de higiene; manutenção mensal.'],
+  ['manutenção', 'Troca de borrachas e ativação do arco.'],
+  ['flúor', 'Aplicação tópica de flúor; não comer nem beber por 30 minutos.'],
+  ['vitalidade', 'Teste com frio para avaliar a polpa do dente.'],
+]
+const detalhamento = (nome: string) =>
+  DETALHAMENTOS.find(([k]) => nome.toLowerCase().includes(k))?.[1] ?? null
 if (!(await db.procedimento.count())) {
   await db.procedimento.createMany({
-    data: TABELA.map(([nome, especialidade, valorCentavos]) => ({
+    data: TABELA.map(([nome, especialidade, valorCentavos, porDente]) => ({
       nome,
       nomeBusca: normalizar(nome),
       especialidade,
       valorCentavos,
+      porDente,
     })),
   })
   console.log('Tabela de procedimentos criada.')
@@ -657,6 +769,7 @@ if (!(await db.orcamento.count())) {
     nome: p.nome,
     dente,
     valorCentavos: p.valorCentavos,
+    observacao: detalhamento(p.nome),
   })
 
   // Em aberto.
@@ -814,6 +927,7 @@ if ((await db.orcamento.count({ where: { status: 'APROVADO' } })) < 10) {
       procedimentoId: p.id,
       nome: p.nome,
       valorCentavos: p.valorCentavos,
+      observacao: detalhamento(p.nome),
     }))
     const subtotal = itens.reduce((s, i) => s + i.valorCentavos, 0)
     const descontoCentavos = sorte() < 0.3 ? Math.round((subtotal * um([5, 10, 15])) / 100) : 0
@@ -916,8 +1030,12 @@ if ((await db.orcamento.count({ where: { status: 'APROVADO' } })) < 250) {
     const itens = escolhidos.map((p) => ({
       procedimentoId: p.id,
       nome: p.nome,
-      dente: sorte() < 0.6 ? String(um([11, 12, 14, 16, 21, 24, 26, 36, 37, 46, 47])) : null,
+      dente:
+        p.porDente && sorte() < 0.6
+          ? String(um([11, 12, 14, 16, 21, 24, 26, 36, 37, 46, 47]))
+          : null,
       valorCentavos: p.valorCentavos,
+      observacao: detalhamento(p.nome),
     }))
     const subtotal = itens.reduce((t, i) => t + i.valorCentavos, 0)
     const descontoCentavos = sorte() < 0.25 ? Math.round((subtotal * um([5, 10, 15])) / 100) : 0
@@ -1005,6 +1123,15 @@ if ((await db.orcamento.count({ where: { status: 'APROVADO' } })) < 250) {
   }
   console.log(`Financeiro: ${aprovados} orçamentos aprovados e ${abertos} abertos no último ano.`)
 }
+// Aprovados há mais de uma semana já foram confirmados; os recentes ficam em Aprovações.
+await db.orcamento.updateMany({
+  where: {
+    status: 'APROVADO',
+    confirmadoEm: null,
+    aprovadoEm: { lt: new Date(Date.now() - 7 * 86_400_000) },
+  },
+  data: { confirmadoEm: new Date() },
+})
 
 // ── Casos para os relatórios: faltas, atendidas, primeira consulta, desmarcações,
 // retornos, parcela atrasada e acessos a fichas, todos dentro do mês atual ──
@@ -1130,6 +1257,45 @@ const configs: [string, object][] = [
       email: 'contato@example.com',
     },
   ],
+  // Emitente da nota: o perfil antigo fica salvo, o novo é o que vale.
+  [
+    'emitentes',
+    {
+      ativo: 1,
+      perfis: [
+        {
+          perfil: 'Até 2025',
+          tipo: 'PF',
+          razaoSocial: 'Dentista Fictício da Silva',
+          documento: '52998224725',
+          inscricaoEstadual: '',
+          cep: '01000000',
+          logradouro: 'Rua Fictícia',
+          numero: '50',
+          complemento: 'Sala 2',
+          bairro: 'Centro',
+          cidade: 'Cidade Fictícia',
+          uf: 'SP',
+          regime: 'PF',
+        },
+        {
+          perfil: 'Clínica (atual)',
+          tipo: 'PJ',
+          razaoSocial: 'Clínica Odontológica Fictícia Ltda',
+          documento: '11222333000181',
+          inscricaoEstadual: '',
+          cep: '01000000',
+          logradouro: 'Rua Fictícia',
+          numero: '100',
+          complemento: '',
+          bairro: 'Centro',
+          cidade: 'Cidade Fictícia',
+          uf: 'SP',
+          regime: 'SIMPLES',
+        },
+      ],
+    },
+  ],
   [
     'laboratorios',
     [
@@ -1253,8 +1419,7 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
         faces: c.faces,
         status: c.status,
         data: c.data,
-        observacao: c.obs,
-        observacaoPaciente: c.obsPac,
+        observacao: [c.obs, c.obsPac].filter(Boolean).join('. ') || detalhamento(c.nome),
         criadoPorId: adminId,
       },
     })
@@ -1502,7 +1667,7 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
           dia,
         })
       } else if (tipo === 'selante')
-        itens.push({ nome: 'Selante por dente', dente: d, faces: 'O', status: 'EXECUTADO', dia })
+        itens.push({ nome: 'Selante', dente: d, faces: 'O', status: 'EXECUTADO', dia })
       else {
         const n = tipo === 'resina2' ? 2 : 1
         itens.push({
@@ -1556,6 +1721,7 @@ if (!(await db.anamnese.count({ where: { pacienteId: completo.id } }))) {
           faces: i.faces,
           status: i.status,
           data: dias(i.dia),
+          observacao: detalhamento(i.nome),
           criadoPorId: adminId,
         })),
     })
@@ -1645,6 +1811,7 @@ if (!(await db.autorizacao.count({ where: { pacienteId: completo.id } }))) {
           procedimento: i.procedimento,
           status: i.status,
           data: dias(i.data),
+          observacao: detalhamento(i.procedimento),
           autorizacaoId,
         })),
       })
@@ -1676,7 +1843,7 @@ if (!(await db.autorizacao.count({ where: { pacienteId: completo.id } }))) {
             ...i,
             dentes: i.dentes.sort(),
             profissional: p.profissional,
-            observacaoPaciente: null,
+            observacaoPaciente: detalhamento(i.nome),
           })),
         },
       },
@@ -1794,7 +1961,7 @@ if (!(await db.autorizacao.count({ where: { pacienteId: completo.id } }))) {
       faces: 'DO',
       status: 'A_REALIZAR',
       data: dias(-2),
-      observacaoPaciente: 'Anestesia local; cerca de 40 minutos.',
+      observacao: 'Anestesia local; cerca de 40 minutos.',
       autorizacaoId: a.id,
       criadoPorId: adminId,
     },

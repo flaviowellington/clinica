@@ -1,10 +1,15 @@
 // PDF do plano de tratamento (o mesmo conteúdo da página que o paciente assina).
 // Arquivo de verdade: baixa no celular (inclusive no navegador do WhatsApp) e no computador.
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import PDFDocument from 'pdfkit'
 import type { Writable } from 'node:stream'
 import type { DadosClinica } from '../../shared/configuracoes'
 import type { ConteudoAutorizacao } from './autorizacoes'
+import { ARCADAS, dentesDoPlano, marcadosNa } from '../../shared/arcadas'
+
+const arquivoArcada = (nome: string) =>
+  fileURLToPath(new URL(`../../shared/arcadas/${nome}.png`, import.meta.url))
 
 // Nunito, a fonte do sistema (a mesma da página que o paciente assina).
 const fonte = (arquivo: string) =>
@@ -38,7 +43,9 @@ export function escreverPdf(
   const doc = new PDFDocument({
     size: 'A4',
     margin: 50,
-    info: { Title: `Plano de tratamento – ${a.conteudo.paciente}` },
+    info: {
+      Title: `${a.conteudo.retificacao ? 'Retificação do plano' : 'Plano'} de tratamento – ${a.conteudo.paciente}`,
+    },
   })
   for (const [nome, arquivo] of Object.entries(FONTES)) doc.registerFont(nome, arquivo)
   doc.pipe(saida)
@@ -60,8 +67,39 @@ export function escreverPdf(
     .lineWidth(1.5)
     .stroke()
 
+  const vermelho = '#b91c1c'
+  const r = a.conteudo.retificacao
   doc.moveDown(1.5).font('Negrito').fontSize(12)
+  if (r) doc.fillColor(vermelho).text('RETIFICAÇÃO', { align: 'center' }).fillColor('black')
   doc.text('TERMO DE CIÊNCIA E AUTORIZAÇÃO DO PLANO DE TRATAMENTO', { align: 'center' })
+
+  // Retificação: quadro em vermelho com o plano que ela substitui e o que mudou.
+  if (r) {
+    doc.moveDown(1)
+    const topo = doc.y
+    const x = 60
+    const w = largura - 20
+    doc.y = topo + 8
+    doc.font('Negrito').fontSize(10).fillColor(vermelho)
+    doc.text('DOCUMENTO DE RETIFICAÇÃO', x, doc.y, { width: w })
+    doc.font('Normal').fillColor('black')
+    doc.text(
+      `Este documento corrige e substitui o plano de tratamento assinado em ${data(new Date(r.assinadoEm))}. O que mudou:`,
+      x,
+      doc.y,
+      { width: w },
+    )
+    for (const t of r.alteracoes) doc.text(`•  ${t}`, x + 6, doc.y, { width: w - 6 })
+    const fim = doc.y + 8
+    doc
+      .rect(50, topo, largura, fim - topo)
+      .lineWidth(1.5)
+      .strokeColor(vermelho)
+      .stroke()
+      .strokeColor('black')
+    doc.x = 50
+    doc.y = fim
+  }
 
   doc.moveDown(1.2).fontSize(10)
   doc.font('Negrito').text('Paciente: ', { continued: true })
@@ -83,6 +121,35 @@ export function escreverPdf(
 
   doc.moveDown(1).font('Negrito').fontSize(11).text('Procedimentos')
   doc.moveDown(0.3)
+
+  // As duas arcadas lado a lado, com os dentes do plano pintados (permanentes e decíduos).
+  const plano = dentesDoPlano(a.conteudo.itens)
+  if (plano.size) {
+    const larg = 100
+    const alt = Math.max(...Object.values(ARCADAS).map((ar) => (ar.altura * larg) / ar.largura))
+    if (doc.y + alt + 20 > doc.page.height - 50) doc.addPage()
+    const topo = doc.y
+    // Mesmo espaço entre as duas e delas até as margens.
+    const vao = (largura - 2 * larg) / 3
+    for (const [tipo, x] of [
+      ['permanente', 50 + vao],
+      ['decidua', 50 + 2 * vao + larg],
+    ] as const) {
+      const ar = ARCADAS[tipo]
+      const s = larg / ar.largura
+      doc.image(arquivoArcada(tipo), x, topo, { width: larg })
+      for (const [n, [dx, dy, w, h]] of marcadosNa(tipo, plano))
+        doc.image(arquivoArcada(`dentes/${n}`), x + dx * s, topo + dy * s, {
+          width: w * s,
+          height: h * s,
+        })
+      doc.font('Normal').fontSize(8).fillColor(cinza)
+      doc.text(ar.nome, x, topo + alt + 4, { width: larg, align: 'center' })
+      doc.fillColor('black')
+    }
+    doc.x = 50
+    doc.y = topo + alt + 22
+  }
   for (const i of a.conteudo.itens) {
     doc.font('Negrito').fontSize(10).text(i.nome)
     doc.font('Normal').fontSize(9).fillColor(cinza)
@@ -119,14 +186,22 @@ export function escreverPdf(
     })
   }
 
-  doc.moveDown(0.5).font('Normal').fontSize(10).text(a.conteudo.termo, { align: 'justify' })
+  // Termo, data e assinatura ficam juntos: se não couberem, vão os três para a próxima página
+  // (nunca a assinatura sozinha). Espaços mínimos: 16 acima da assinatura e 60 para o desenho.
+  const caixa = { largura: 220, altura: 92, espaco: 16 }
+  doc.moveDown(0.5).font('Normal').fontSize(10)
+  const fim =
+    doc.heightOfString(a.conteudo.termo, { width: largura, align: 'justify' }) +
+    doc.currentLineHeight(true) * 2 +
+    caixa.espaco +
+    caixa.altura
+  if (doc.y + fim > doc.page.height - 50) doc.addPage()
+  doc.text(a.conteudo.termo, { align: 'justify' })
   doc.moveDown(1).text(`${c.cidade ? `${c.cidade}, ` : ''}${data(a.assinadoEm ?? a.criadoEm)}.`)
 
-  // Assinatura no canto inferior direito; se não couber, vai para a próxima página.
-  const caixa = { largura: 220, altura: 110 }
-  if (doc.y + 30 + caixa.altura > doc.page.height - 50) doc.addPage()
+  // Assinatura no canto inferior direito.
   const x = 50 + largura - caixa.largura
-  const y = doc.y + 30
+  const y = doc.y + caixa.espaco
   if (a.assinatura)
     try {
       doc.image(Buffer.from(a.assinatura.split(',')[1], 'base64'), x, y, {

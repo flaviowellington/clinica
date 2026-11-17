@@ -15,7 +15,8 @@ import { pode } from '../../../shared/permissoes'
 import { CATEGORIAS, STATUS, type StatusAgenda } from '../../../shared/agenda'
 import { Dialogo } from './Dialogo'
 import { Icone } from './Icones'
-import { NovoAgendamento } from './NovoAgendamento'
+import { NovoAgendamento, RASCUNHO } from './NovoAgendamento'
+import { esquecer, useSalvo } from '../estado'
 
 interface AgendamentoPaciente {
   id: number
@@ -52,7 +53,12 @@ export function AgendamentosPaciente({ paciente }: { paciente: Paciente }) {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const { data: categorias } = useQuery(consultaConfig('categorias'))
   const cores: Record<string, string> = categorias ?? CATEGORIAS
-  const [novo, setNovo] = useState(false)
+  // Guardado: sair da ficha no meio da marcação e voltar reabre o diálogo como estava.
+  const [novo, setNovo] = useSalvo(`ficha.novo.${paciente.id}`, false)
+  const fecharNovo = () => {
+    setNovo(false)
+    esquecer(RASCUNHO)
+  }
   const [filtro, setFiltro] = useState<Filtro | null>(null)
   const hoje = isoLocal(new Date())
   const lista = useQuery({
@@ -249,11 +255,11 @@ export function AgendamentosPaciente({ paciente }: { paciente: Paciente }) {
         </ul>
       </section>
 
-      <Dialogo aberto={novo} aoFechar={() => setNovo(false)} titulo="Nova consulta" largo>
+      <Dialogo aberto={novo} aoFechar={fecharNovo} titulo="Nova consulta" largo>
         {novo && (
           <NovoAgendamento
             inicial={{ tipo: 'CONSULTA', data: hoje, paciente }}
-            aoTerminar={() => setNovo(false)}
+            aoTerminar={fecharNovo}
           />
         )}
       </Dialogo>

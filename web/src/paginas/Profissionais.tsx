@@ -24,8 +24,6 @@ export interface Profissional {
   horariosIndisponiveis: string[]
 }
 
-export const FOTO_MAXIMO_MB = 10
-
 /** Ações que pedem para digitar a palavra (o próprio nome da ação) antes de confirmar. */
 export type Acao = 'inativar' | 'deletar'
 export const TEXTOS: Record<

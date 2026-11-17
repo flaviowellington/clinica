@@ -1,8 +1,8 @@
 // Configurações da clínica (S-014).
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { Fragment, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, consultaConfig, dataBR, mensagemDeErro } from '../api'
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import { api, consultaConfig, consultaEu, dataBR, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
 import { Abas } from '../componentes/Abas'
 import { CampoReais } from '../componentes/CampoReais'
@@ -10,7 +10,8 @@ import { Dialogo } from '../componentes/Dialogo'
 import { confirmar } from '../componentes/Confirmar'
 import { Icone } from '../componentes/Icones'
 import { reais } from '../../../shared/financeiro'
-import { normalizar } from '../../../shared/regras'
+import { TIPO_PROCEDIMENTO, tipoProcedimento } from '../../../shared/orcamentos'
+import { normalizar, REGIMES_TRIBUTARIOS } from '../../../shared/regras'
 import {
   MODELOS_DOCUMENTO,
   TIPOS_PERGUNTA,
@@ -18,8 +19,11 @@ import {
   type TipoPergunta,
 } from '../../../shared/prontuario'
 import {
+  EMITENTE_VAZIO,
   VARIAVEIS_MENSAGEM,
   type ChaveConfig,
+  type Emitente,
+  type Emitentes,
   type DadosClinica,
   type DocumentoPadrao,
   type Laboratorio,
@@ -29,7 +33,8 @@ import { CampoSelect } from '../componentes/CampoSelect'
 import { GradeSemana } from '../componentes/GradeSemana'
 import { CampoEspecialidade } from './Profissionais'
 import { Situacao } from './Pacientes'
-import { CampoEmail } from '../componentes/CampoMascara'
+import { CampoCnpj, CampoCpf, CampoEmail } from '../componentes/CampoMascara'
+import { CamposEndereco } from '../componentes/NotaFiscal'
 import { ETAPAS, type Etapa } from '../../../shared/protetico'
 import { Importacao } from './Importacao'
 import {
@@ -38,6 +43,7 @@ import {
   MATRIZ_PADRAO,
   MODULOS,
   PERFIS,
+  pode,
   type Acao,
   type Matriz,
   type Perfil,
@@ -46,17 +52,17 @@ import {
 // Ordem: a clínica; o que é cadastrado antes (especialidades → procedimentos → laboratórios);
 // o atendimento (anamnese → documentos); a comunicação.
 export const ABAS = [
-  { id: 'clinica', rotulo: 'Clínica' },
-  { id: 'horarios', rotulo: 'Horários de atendimento' },
-  { id: 'especialidades', rotulo: 'Especialidades' },
-  { id: 'procedimentos', rotulo: 'Procedimentos e preços' },
-  { id: 'laboratorios', rotulo: 'Laboratórios' },
-  { id: 'anamnese', rotulo: 'Anamnese' },
-  { id: 'documentos', rotulo: 'Modelos de documento' },
-  { id: 'mensagens', rotulo: 'E-mail e mensagens' },
-  { id: 'permissoes', rotulo: 'Permissões' },
-  { id: 'importacao', rotulo: 'Importar dados' },
-] as const
+  { id: 'clinica', rotulo: 'Clínica', acao: 'configuracao.clinica' },
+  { id: 'horarios', rotulo: 'Horários de atendimento', acao: 'configuracao.horarios' },
+  { id: 'especialidades', rotulo: 'Especialidades', acao: 'configuracao.especialidades' },
+  { id: 'procedimentos', rotulo: 'Procedimentos e preços', acao: 'configuracao.procedimentos' },
+  { id: 'laboratorios', rotulo: 'Laboratórios', acao: 'configuracao.laboratorios' },
+  { id: 'anamnese', rotulo: 'Anamnese', acao: 'configuracao.anamnese' },
+  { id: 'documentos', rotulo: 'Modelos de documento', acao: 'configuracao.documentos' },
+  { id: 'mensagens', rotulo: 'E-mail e mensagens', acao: 'configuracao.mensagens' },
+  { id: 'permissoes', rotulo: 'Permissões', acao: 'configuracao.permissoes' },
+  { id: 'importacao', rotulo: 'Importar dados', acao: 'dados.importar' },
+] as const satisfies readonly { id: string; rotulo: string; acao: Acao }[]
 
 /** Lista longa rola dentro do cartão, não a página (cabeçalho e abas ficam à vista). */
 const ROLAGEM = 'max-h-[calc(100dvh-19rem)] min-h-40 overflow-y-auto'
@@ -65,7 +71,10 @@ type Aba = (typeof ABAS)[number]['id']
 export function Configuracoes() {
   const { aba: daUrl } = useSearch({ from: '/logado/configuracoes' })
   const navegar = useNavigate({ from: '/configuracoes' })
-  const aba = (ABAS.find((a) => a.id === daUrl)?.id ?? 'clinica') as Aba
+  const { data: eu } = useSuspenseQuery(consultaEu)
+  const abas = ABAS.filter((a) => pode(eu.perfis, a.acao))
+  if (!abas.length) return <p className="text-suave">Nenhuma aba de Configurações liberada.</p>
+  const aba = (abas.find((a) => a.id === daUrl) ?? abas[0]).id as Aba
   return (
     <div className="space-y-5">
       <header>
@@ -73,11 +82,19 @@ export function Configuracoes() {
         <p className="subtitulo">Dados da clínica, tabelas e modelos usados no dia a dia.</p>
       </header>
       <Abas
-        abas={[...ABAS]}
+        abas={abas}
         atual={aba}
-        aoTrocar={(a) => navegar({ search: { aba: a === 'clinica' ? undefined : a } })}
+        aoTrocar={(a) =>
+          navegar({ search: { aba: a === abas[0].id ? undefined : a }, replace: true })
+        }
       />
-      {aba === 'clinica' && <Clinica />}
+      {aba === 'clinica' && (
+        // Clínica estreita à esquerda, emitente largo à direita; sem espaço, empilha.
+        <div className="flex flex-wrap items-start gap-5">
+          <Clinica />
+          <Emitentes />
+        </div>
+      )}
       {aba === 'horarios' && <Horarios />}
       {aba === 'procedimentos' && <Procedimentos />}
       {aba === 'laboratorios' && <Laboratorios />}
@@ -219,7 +236,7 @@ function Clinica() {
     <Secao
       titulo="Dados da clínica"
       descricao="Aparecem nos documentos, recibos e e-mails ao paciente."
-      className="max-w-3xl"
+      className="min-w-0 flex-[1_1_20rem] xl:max-w-md"
     >
       <form
         className="space-y-4"
@@ -228,7 +245,7 @@ function Clinica() {
           salvar.mutate(Object.fromEntries(new FormData(e.currentTarget)))
         }}
       >
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
           {campo('nome', 'Nome da clínica *', { required: true })}
           {campo('cnpj', 'CNPJ')}
           {campo('endereco', 'Endereço')}
@@ -246,24 +263,252 @@ function Clinica() {
   )
 }
 
+// ── Emitente da nota fiscal ─────────────────────────────────────────────────
+function Emitentes() {
+  const c = useQuery(consultaConfig('emitentes'))
+  if (!c.data) return <Carregando />
+  return <EditorEmitentes inicial={c.data} />
+}
+
+/**
+ * Perfis do emitente: cada mudança de dados pode virar um perfil novo (o antigo fica salvo).
+ * O perfil novo começa com os dados do atual; "Limpar tudo" esvazia os campos.
+ */
+function EditorEmitentes({ inicial }: { inicial: Emitentes }) {
+  const salvar = useSalvar('emitentes', 'Dados do emitente salvos')
+  const [perfis, setPerfis] = useState<Emitente[]>(
+    inicial.perfis.length ? inicial.perfis : [{ ...EMITENTE_VAZIO, perfil: 'Principal' }],
+  )
+  const [ativo, setAtivo] = useState(inicial.ativo)
+  const [sel, setSel] = useState(Math.min(inicial.ativo, perfis.length - 1))
+  // Trocar de perfil, criar ou limpar remonta os campos com os valores novos.
+  const [versao, setVersao] = useState(0)
+  const [tipo, setTipo] = useState(perfis[sel].tipo)
+  const form = useRef<HTMLFormElement>(null)
+  const atual = perfis[sel]
+
+  /** O que está digitado agora no perfil escolhido. */
+  const lido = (): Emitente => ({
+    ...EMITENTE_VAZIO,
+    ...(Object.fromEntries(new FormData(form.current!)) as Partial<Emitente>),
+    tipo,
+  })
+  function mostrar(lista: Emitente[], i: number) {
+    setPerfis(lista)
+    setSel(i)
+    setTipo(lista[i].tipo)
+    setVersao((v) => v + 1)
+  }
+  const comAtual = () => perfis.map((p, i) => (i === sel ? lido() : p))
+
+  function novo() {
+    const lista = comAtual()
+    let n = lista.length + 1
+    while (lista.some((p) => p.perfil === `Perfil ${n}`)) n++
+    mostrar([...lista, { ...lido(), perfil: `Perfil ${n}` }], lista.length)
+  }
+  async function limpar() {
+    if (
+      !(await confirmar(
+        `Esvaziar todos os campos do perfil "${atual.perfil}"? Nada é apagado até você salvar.`,
+        { titulo: 'Limpar tudo?', botao: 'Limpar tudo' },
+      ))
+    )
+      return
+    const lista = comAtual()
+    lista[sel] = { ...EMITENTE_VAZIO, perfil: lista[sel].perfil, tipo }
+    mostrar(lista, sel)
+  }
+  async function excluir() {
+    if (!(await confirmar(`Excluir o perfil "${atual.perfil}"? Os outros continuam salvos.`)))
+      return
+    const lista = comAtual().filter((_, i) => i !== sel)
+    const novoAtivo = ativo === sel ? 0 : ativo > sel ? ativo - 1 : ativo
+    setAtivo(novoAtivo)
+    mostrar(lista, Math.min(sel, lista.length - 1))
+    salvar.mutate({ ativo: novoAtivo, perfis: lista })
+  }
+
+  const campo = (nome: keyof Emitente, rotulo: string, extra = {}) => (
+    <label className="block">
+      <span className="rotulo">{rotulo}</span>
+      <input name={nome} className="campo" defaultValue={atual[nome]} {...extra} />
+    </label>
+  )
+
+  return (
+    <Secao
+      titulo="Emitente da nota fiscal"
+      descricao="Cada perfil guarda um conjunto de dados; só um vai nas notas. Mudou algo? Crie um perfil novo: o antigo fica salvo."
+      className="min-w-0 flex-[999_1_36rem]"
+      colado
+    >
+      <div className="grid md:grid-cols-[15rem_minmax(0,1fr)]">
+        <aside
+          aria-label="Perfis do emitente"
+          className="flex flex-col gap-1.5 border-b border-borda bg-superficie-2 p-4 md:border-r md:border-b-0"
+        >
+          {perfis.map((p, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-pressed={i === sel}
+              onClick={() => i !== sel && mostrar(comAtual(), i)}
+              className={`min-h-11 rounded-lg border px-3.5 py-2.5 text-left ${
+                i === sel
+                  ? 'border-primaria bg-superficie'
+                  : 'border-transparent hover:bg-superficie'
+              }`}
+            >
+              <span className="block font-bold break-words text-titulo">
+                {p.perfil || '(sem nome)'}
+              </span>
+              {i === ativo && (
+                <span className="etiqueta etiqueta-sucesso mt-1">Em uso nas notas</span>
+              )}
+            </button>
+          ))}
+          <button type="button" className="botao-leve mt-2 w-full" onClick={novo}>
+            <Icone nome="mais" className="h-4 w-4" /> Novo perfil
+          </button>
+        </aside>
+
+        <form
+          ref={form}
+          key={versao}
+          // @container: com espaço, os campos dividem a linha e o bloco cabe na tela sem rolar.
+          className="@container min-w-0 space-y-4 p-5"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!e.currentTarget.checkValidity()) {
+              e.currentTarget.querySelector<HTMLInputElement>(':invalid')?.focus()
+              return
+            }
+            const lista = comAtual()
+            setPerfis(lista)
+            salvar.mutate({ ativo, perfis: lista })
+          }}
+          noValidate
+        >
+          <div className="grid gap-4 @xl:grid-cols-2">
+            {campo('perfil', 'Nome do perfil *', { required: true, maxLength: 60 })}
+            <fieldset>
+              <legend className="rotulo mb-1">Emite como</legend>
+              <div className="flex flex-wrap gap-x-5">
+                {(
+                  [
+                    ['PJ', 'Empresa (CNPJ)'],
+                    ['PF', 'Pessoa física (CPF)'],
+                  ] as const
+                ).map(([v, r]) => (
+                  <label key={v} className="flex min-h-11 items-center gap-2">
+                    <input type="radio" checked={tipo === v} onChange={() => setTipo(v)} />
+                    {r}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 @xl:grid-cols-6">
+            <div className="sm:col-span-2 @xl:col-span-4">
+              {campo('razaoSocial', tipo === 'PJ' ? 'Razão social *' : 'Nome completo *', {
+                required: true,
+                maxLength: 150,
+              })}
+            </div>
+            {/* key: trocar CNPJ ↔ CPF começa o campo de novo, com a máscara certa. */}
+            <label className="block @xl:col-span-2" key={tipo}>
+              <span className="rotulo">{tipo === 'PJ' ? 'CNPJ' : 'CPF'}</span>
+              {tipo === 'PJ' ? (
+                <CampoCnpj
+                  name="documento"
+                  defaultValue={atual.tipo === 'PJ' ? atual.documento : ''}
+                />
+              ) : (
+                <CampoCpf
+                  name="documento"
+                  defaultValue={atual.tipo === 'PF' ? atual.documento : ''}
+                />
+              )}
+            </label>
+            {tipo === 'PJ' && (
+              <div className="@xl:col-span-2">
+                {campo('inscricaoEstadual', 'Inscrição estadual', {
+                  maxLength: 20,
+                  placeholder: 'Vazio se for isenta',
+                })}
+              </div>
+            )}
+            <label
+              className={`block sm:col-span-2 ${tipo === 'PJ' ? '@xl:col-span-4' : '@xl:col-span-6'}`}
+            >
+              <span className="rotulo">Regime tributário</span>
+              <select name="regime" className="campo" defaultValue={atual.regime}>
+                <option value="">Escolha…</option>
+                {Object.entries(REGIMES_TRIBUTARIOS).map(([v, r]) => (
+                  <option key={v} value={v}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <CamposEndereco valores={atual} />
+          <Rodape ocupado={salvar.isPending}>
+            <button type="button" className="botao-fantasma" onClick={limpar}>
+              Limpar tudo
+            </button>
+            {perfis.length > 1 && (
+              <button type="button" className="botao-fantasma text-perigo" onClick={excluir}>
+                Excluir perfil
+              </button>
+            )}
+            <span className="mr-auto" />
+            {sel !== ativo && (
+              <button
+                type="button"
+                className="botao-leve"
+                onClick={() => {
+                  const lista = comAtual()
+                  setPerfis(lista)
+                  setAtivo(sel)
+                  salvar.mutate({ ativo: sel, perfis: lista })
+                }}
+              >
+                Usar nas notas
+              </button>
+            )}
+          </Rodape>
+        </form>
+      </div>
+    </Secao>
+  )
+}
+
 // ── Procedimentos e preços ──────────────────────────────────────────────────
 interface Procedimento {
   id: number
   nome: string
   especialidade: string | null
   valorCentavos: number
+  porDente: boolean
   ativo: boolean
 }
 
 function Procedimentos() {
   const [busca, setBusca] = useState('')
+  const [tipo, setTipo] = useState<'todos' | 'porDente' | 'completo'>('todos')
   const [editando, setEditando] = useState<Procedimento | 'novo' | null>(null)
   const lista = useQuery({
     queryKey: ['procedimentos-tabela-completa'],
     queryFn: async () =>
       (await api.get<Procedimento[]>('/procedimentos', { params: { todos: 1 } })).data,
   })
-  const visiveis = (lista.data ?? []).filter((p) => normalizar(p.nome).includes(normalizar(busca)))
+  const visiveis = (lista.data ?? []).filter(
+    (p) =>
+      normalizar(p.nome).includes(normalizar(busca)) &&
+      (tipo === 'todos' || (tipo === 'porDente') === p.porDente),
+  )
   const ativos = lista.data?.filter((p) => p.ativo).length ?? 0
   return (
     <>
@@ -279,7 +524,33 @@ function Procedimentos() {
         colado
       >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-borda px-4 py-3">
-          <CampoBusca valor={busca} aoMudar={setBusca} rotulo="Buscar procedimento" />
+          <div className="flex flex-wrap items-center gap-3">
+            <CampoBusca valor={busca} aoMudar={setBusca} rotulo="Buscar procedimento" />
+            <div role="radiogroup" aria-label="Tipo de procedimento" className="flex gap-1.5">
+              {(
+                [
+                  ['todos', 'Todos'],
+                  ['porDente', TIPO_PROCEDIMENTO.porDente.rotulo],
+                  ['completo', 'Boca toda'],
+                ] as const
+              ).map(([v, rotulo]) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={tipo === v}
+                  onClick={() => setTipo(v)}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-bold ${
+                    tipo === v
+                      ? 'border-primaria bg-primaria text-sobre-primaria'
+                      : 'border-borda text-suave hover:text-texto'
+                  }`}
+                >
+                  {rotulo}
+                </button>
+              ))}
+            </div>
+          </div>
           {lista.data && (
             <span className="text-sm font-bold text-suave">
               {ativos} {ativos === 1 ? 'ativo' : 'ativos'} · {lista.data.length} no total
@@ -300,6 +571,7 @@ function Procedimentos() {
                 <tr>
                   <th className={TH}>Procedimento</th>
                   <th className={TH}>Especialidade</th>
+                  <th className={TH}>Tipo</th>
                   <th className={`${TH} text-right`}>Valor</th>
                   <th className={TH}>Situação</th>
                   <th className={TH}>
@@ -317,8 +589,14 @@ function Procedimentos() {
                       {p.nome}
                     </td>
                     <td className="px-4 py-2.5">{p.especialidade ?? '—'}</td>
+                    <td className="px-4 py-2.5">
+                      <SeloTipoProcedimento porDente={p.porDente} />
+                    </td>
                     <td className="px-4 py-2.5 text-right font-bold tabular-nums">
                       {reais(p.valorCentavos)}
+                      <span className="block text-xs font-normal text-suave">
+                        {p.porDente ? 'por dente' : 'o procedimento todo'}
+                      </span>
                     </td>
                     <td className="px-4 py-2.5">
                       <Situacao ativo={p.ativo} />
@@ -365,6 +643,7 @@ export function FormProcedimento(props: {
   const qc = useQueryClient()
   const p = props.procedimento
   const [valor, setValor] = useState(p?.valorCentavos ?? 0)
+  const [porDente, setPorDente] = useState(p?.porDente ?? true)
   const salvar = useMutation({
     mutationFn: async (d: Record<string, unknown>) =>
       p
@@ -388,6 +667,7 @@ export function FormProcedimento(props: {
         salvar.mutate({
           ...f,
           valorCentavos: valor,
+          porDente,
           ativo: p ? f.ativo === 'on' : true,
         })
       }}
@@ -406,6 +686,42 @@ export function FormProcedimento(props: {
         <CampoReais id="proc-valor" rotulo="Valor final *" valor={valor} aoMudar={setValor} />
         <span className="ajuda">Preço cobrado do paciente.</span>
       </div>
+      <fieldset>
+        <legend className="rotulo">Tipo de procedimento *</legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {(
+            [
+              [
+                true,
+                tipoProcedimento(true).rotulo,
+                'Feito dente a dente: o valor se multiplica pelos dentes marcados.',
+              ],
+              [
+                false,
+                tipoProcedimento(false).rotulo,
+                'Feito na boca inteira: cobra uma vez e já marca todos os dentes da dentição do paciente.',
+              ],
+            ] as const
+          ).map(([v, rotulo, ajuda]) => (
+            <label
+              key={rotulo}
+              className="flex cursor-pointer items-start gap-3 rounded-2xl bg-superficie-2 p-3"
+            >
+              <input
+                type="radio"
+                name="porDente"
+                className="mt-1"
+                checked={porDente === v}
+                onChange={() => setPorDente(v)}
+              />
+              <span>
+                <span className="block font-bold">{rotulo}</span>
+                <span className="text-sm text-suave">{ajuda}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <div>
         <label className="rotulo" id="p-esp-rotulo">
           Especialidade
@@ -1425,43 +1741,53 @@ function Mensagens() {
 // ── Permissões ──────────────────────────────────────────────────────────────
 
 const CARGOS = (Object.keys(PERFIS) as Perfil[]).filter((p) => p !== 'ADMINISTRADOR')
-/** Ação, Administrador e uma coluna por cargo (no celular cada linha vira um cartão). */
-const COLUNAS_MATRIZ = 'md:grid-cols-[minmax(0,1fr)_repeat(4,7rem)]'
+/** Ação e uma coluna por cargo (no celular cada linha vira um cartão). */
+const COLUNAS_ACOES = 'md:grid-cols-[minmax(0,1fr)_repeat(3,7rem)]'
 const corCheck = (p: Perfil) =>
   ({ '--cor-check': COR_PERFIL[p], '--sobre-check': '#fff' }) as CSSProperties
+const plural = (n: number, um: string, varios: string) => (n === 1 ? `1 ${um}` : `${n} ${varios}`)
 
 function Permissoes() {
   const c = useQuery(consultaConfig('permissoes'))
-  if (!c.data) return <Carregando />
-  return <EditarPermissoes salvo={c.data} />
+  const d = useQuery(consultaConfig('desconto'))
+  if (!c.data || !d.data) return <Carregando />
+  return <EditarPermissoes salvo={c.data} descontoSalvo={d.data} />
 }
 
-function Feito({ rotulo }: { rotulo: string }) {
-  return (
-    <span className="hidden justify-center md:flex" style={{ color: COR_PERFIL.ADMINISTRADOR }}>
-      <svg
-        viewBox="0 0 24 24"
-        className="h-5 w-5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        role="img"
-        aria-label={rotulo}
-      >
-        <path d="M5 12l5 5 9-10" />
-      </svg>
-    </span>
-  )
+/** Usuário como vem de /usuarios (só o que a aba Desconto usa). */
+interface UsuarioLista {
+  id: number
+  nome: string
+  login: string
+  perfis: Perfil[]
+  ativo: boolean
 }
 
-function EditarPermissoes({ salvo }: { salvo: Matriz }) {
+/**
+ * Lista de módulos à esquerda (faixa que rola de lado no celular) e, à direita, o módulo
+ * escolhido: primeiro quem entra nele, depois as ações de dentro, agrupadas por parte.
+ */
+function EditarPermissoes({ salvo, descontoSalvo }: { salvo: Matriz; descontoSalvo: number[] }) {
   const [matriz, setMatriz] = useState(salvo)
+  const [desconto, setDesconto] = useState(descontoSalvo)
   const [busca, setBusca] = useState('')
-  const salvar = useSalvar('permissoes', 'Permissões salvas')
+  // "desconto" é a aba à parte (por usuário); o resto são os módulos (por cargo).
+  const [escolhido, setEscolhido] = useState<Acao | 'desconto'>(MODULOS[0].ver)
+  const salvarMatriz = useSalvar('permissoes', 'Permissões salvas')
+  const salvarDesconto = useSalvar('desconto', 'Permissões salvas')
+  const qc = useQueryClient()
   const igual = (a: Perfil[], b: Perfil[]) => a.length === b.length && a.every((p) => b.includes(p))
-  const mudancas = ACOES.filter((a) => !igual(matriz[a], salvo[a])).length
+  const mudou = (a: Acao) => !igual(matriz[a], salvo[a])
+  const descontoMudou =
+    desconto.length !== descontoSalvo.length || desconto.some((i) => !descontoSalvo.includes(i))
+  const mudancas = ACOES.filter(mudou).length + (descontoMudou ? 1 : 0)
+  const salvando = salvarMatriz.isPending || salvarDesconto.isPending
+  const salvar = async () => {
+    if (ACOES.some(mudou)) await salvarMatriz.mutateAsync(matriz).catch(() => {})
+    if (descontoMudou) await salvarDesconto.mutateAsync(desconto).catch(() => {})
+    // O "eu" traz a matriz e se pode dar desconto: atualiza para valer já nesta tela.
+    qc.invalidateQueries({ queryKey: ['eu'] })
+  }
   const ePadrao = ACOES.every((a) => igual(matriz[a], MATRIZ_PADRAO[a]))
   const marcar = (a: Acao, p: Perfil, sim: boolean) =>
     setMatriz((m) => ({
@@ -1472,131 +1798,260 @@ function EditarPermissoes({ salvo }: { salvo: Matriz }) {
   const modulos = MODULOS.map((m) => ({
     ...m,
     itens: termo
-      ? m.itens.filter((i) => normalizar(`${m.nome} ${i.rotulo}`).includes(termo))
+      ? m.itens.filter((i) => normalizar(`${m.nome} ${i.modulo} ${i.rotulo}`).includes(termo))
       : m.itens,
   })).filter((m) => !termo || m.itens.length > 0 || normalizar(m.nome).includes(termo))
+  const mostraDesconto =
+    !termo || normalizar('desconto orçamentos financeiro usuários').includes(termo)
+  // A busca pode esconder o módulo escolhido: mostra o primeiro que sobrou.
+  const naDesconto = escolhido === 'desconto' && mostraDesconto
+  const atual = naDesconto ? undefined : (modulos.find((m) => m.ver === escolhido) ?? modulos[0])
+  const travados = atual ? CARGOS.filter((c) => !matriz[atual.ver].includes(c)) : []
 
-  const caixas = (p: { acao: Acao; rotulo: string; ver?: Acao }) =>
-    CARGOS.map((c) => (
-      <label key={c} className="flex min-h-11 cursor-pointer items-center gap-2 md:justify-center">
-        <input
-          type="checkbox"
-          style={corCheck(c)}
-          checked={matriz[p.acao].includes(c)}
-          disabled={!!p.ver && !matriz[p.ver].includes(c)}
-          onChange={(e) => marcar(p.acao, c, e.target.checked)}
-          aria-label={`${PERFIS[c]}: ${p.rotulo}`}
-        />
-        <span className="text-sm md:hidden" aria-hidden>
-          {PERFIS[c]}
+  const temFinanceiro = modulos.some((m) => m.ver === 'orcamento.ver')
+  // Aba à parte, logo depois de Financeiro e orçamentos.
+  const botaoDesconto = (
+    <button
+      type="button"
+      aria-current={naDesconto ? 'true' : undefined}
+      onClick={() => setEscolhido('desconto')}
+      className={`flex min-h-14 flex-none items-center justify-between gap-3 rounded-xl border px-3.5 py-2 text-left xl:w-full ${
+        naDesconto
+          ? 'border-primaria bg-primaria-clara'
+          : 'border-borda xl:border-transparent xl:hover:bg-superficie-2'
+      }`}
+    >
+      <span className="flex flex-col">
+        <span className="font-bold whitespace-nowrap text-titulo">Desconto</span>
+        <span className="text-xs whitespace-nowrap text-suave">
+          {descontoMudou ? (
+            <span className="font-bold text-aviso">alterado</span>
+          ) : (
+            plural(desconto.length, 'usuário escolhido', 'usuários escolhidos')
+          )}
         </span>
-      </label>
-    ))
+      </span>
+      <Icone nome="cadeado" className="h-4 w-4 text-suave" />
+    </button>
+  )
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault()
-        salvar.mutate(matriz)
+        salvar()
       }}
     >
       <Secao
         titulo="Permissões"
-        descricao="Cada linha é uma ação, cada coluna um cargo. Sem a linha “Ver” do módulo, as ações de dentro dele ficam travadas. O Administrador pode tudo, sempre."
+        descricao="Escolha um módulo e marque o que cada cargo pode fazer dentro dele. Quem não entra no módulo não usa nenhuma ação de dentro. O Administrador pode tudo, sempre."
         acao={
           <button
             type="button"
             className="botao-leve"
-            disabled={ePadrao}
-            onClick={() => setMatriz(MATRIZ_PADRAO)}
+            disabled={ePadrao && !desconto.length}
+            onClick={() => {
+              setMatriz(MATRIZ_PADRAO)
+              setDesconto([])
+            }}
           >
             Restaurar padrão
           </button>
         }
         colado
       >
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-4">
-          <div className="min-w-0 flex-[1_1_16rem]">
-            <CampoBusca
-              rotulo="Buscar ação (ex.: prontuário, receber)"
-              valor={busca}
-              aoMudar={setBusca}
-            />
-          </div>
-          <ul
-            className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-suave"
-            aria-label="Cores dos cargos"
-          >
-            {(Object.keys(PERFIS) as Perfil[]).map((p) => (
-              <li key={p} className="flex items-center gap-1.5">
-                <span
-                  aria-hidden
-                  className="size-2.5 rounded-full"
-                  style={{ backgroundColor: COR_PERFIL[p] }}
-                />
-                {PERFIS[p]}
-              </li>
-            ))}
-          </ul>
+        <div className="px-5 py-4">
+          <CampoBusca
+            rotulo="Buscar ação (ex.: prontuário, receber)"
+            valor={busca}
+            aoMudar={setBusca}
+          />
         </div>
 
-        <div
-          className={`hidden items-center gap-x-4 border-y border-borda bg-superficie-2 px-5 py-3 text-sm font-bold md:grid ${COLUNAS_MATRIZ}`}
-        >
-          <span className="text-suave">Ação</span>
-          <span
-            className="flex flex-col items-center text-center"
-            style={{ color: COR_PERFIL.ADMINISTRADOR }}
+        {/* Altura presa à tela: cada coluna rola por dentro e o Salvar fica sempre à vista. */}
+        <div className="flex flex-col gap-4 px-5 pb-5 xl:h-[calc(100dvh-30rem)] xl:min-h-72 xl:flex-row">
+          <nav
+            aria-label="Módulos"
+            className="-mx-5 flex flex-none gap-2 overflow-x-auto px-5 pb-1 xl:mx-0 xl:w-72 xl:flex-col xl:gap-1 xl:overflow-x-hidden xl:overflow-y-auto xl:rounded-2xl xl:border xl:border-borda xl:p-2"
           >
-            <span className="flex items-center gap-1">
-              <Icone nome="cadeado" className="h-3.5 w-3.5" />
-              {PERFIS.ADMINISTRADOR}
-            </span>
-            <span className="text-xs font-normal text-suave">pode tudo</span>
-          </span>
-          {CARGOS.map((c) => (
-            <span
-              key={c}
-              className="text-center"
-              style={{ color: `color-mix(in srgb, ${COR_PERFIL[c]} 75%, var(--texto))` }}
+            {modulos.map((m) => {
+              const sel = m.ver === atual?.ver
+              const alterado = [m.ver, ...m.itens.map((i) => i.acao)].some(mudou)
+              return (
+                <Fragment key={m.ver}>
+                  <button
+                    type="button"
+                    aria-current={sel ? 'true' : undefined}
+                    onClick={() => setEscolhido(m.ver)}
+                    className={`flex min-h-14 flex-none items-center justify-between gap-3 rounded-xl border px-3.5 py-2 text-left xl:w-full ${
+                      sel
+                        ? 'border-primaria bg-primaria-clara'
+                        : 'border-borda xl:border-transparent xl:hover:bg-superficie-2'
+                    }`}
+                  >
+                    <span className="flex flex-col">
+                      <span className="font-bold whitespace-nowrap text-titulo">{m.nome}</span>
+                      <span className="text-xs whitespace-nowrap text-suave">
+                        {alterado ? (
+                          <span className="font-bold text-aviso">alterado</span>
+                        ) : m.itens.length ? (
+                          plural(m.itens.length, 'ação interna', 'ações internas')
+                        ) : (
+                          'sem ações internas'
+                        )}
+                      </span>
+                    </span>
+                    <span className="flex gap-1" aria-hidden>
+                      {CARGOS.map((c) => (
+                        <span
+                          key={c}
+                          className="size-2.5 rounded-full border-2"
+                          style={{
+                            borderColor: COR_PERFIL[c],
+                            backgroundColor: matriz[m.ver].includes(c) ? COR_PERFIL[c] : undefined,
+                          }}
+                        />
+                      ))}
+                    </span>
+                  </button>
+                  {m.ver === 'orcamento.ver' && mostraDesconto && botaoDesconto}
+                </Fragment>
+              )
+            })}
+            {mostraDesconto && !temFinanceiro && botaoDesconto}
+            {modulos.length === 0 && !mostraDesconto && (
+              <p className="py-4 text-suave xl:text-center">Nenhuma ação encontrada.</p>
+            )}
+          </nav>
+
+          {naDesconto && <PainelDesconto escolhidos={desconto} aoMudar={setDesconto} />}
+
+          {atual && (
+            <section
+              aria-label={`Módulo ${atual.nome}`}
+              className="max-h-[60dvh] min-w-0 flex-1 overflow-y-auto rounded-2xl border border-borda xl:max-h-none"
             >
-              {PERFIS[c]}
-            </span>
-          ))}
-        </div>
-
-        {modulos.map((m) => (
-          <div key={m.ver} className="border-t border-borda first:border-t-0 md:first:border-t">
-            <div className={`grid items-center gap-x-4 bg-superficie-2/60 px-5 py-2 ${COLUNAS_MATRIZ}`}>
-              <span className="self-center py-1 font-bold text-titulo">Ver {m.nome}</span>
-              <Feito rotulo="Administrador: sempre" />
-              <div className="flex flex-wrap gap-x-4 md:contents">
-                {caixas({ acao: m.ver, rotulo: `Ver ${m.nome}` })}
-              </div>
-            </div>
-            {m.itens.map((i) => (
-              <div
-                key={i.acao}
-                className={`grid items-center gap-x-4 border-t border-borda/50 px-5 py-1 md:pl-10 ${COLUNAS_MATRIZ}`}
-              >
-                <span className="self-center pt-2 md:py-2">{i.rotulo}</span>
-                <Feito rotulo="Administrador: sempre" />
-                <div className="flex flex-wrap gap-x-4 md:contents">
-                  {caixas({ acao: i.acao, rotulo: i.rotulo, ver: m.ver })}
+              <div className="sticky top-0 z-10 flex flex-col gap-2 border-b border-borda bg-superficie px-5 py-3 md:flex-row md:items-center md:justify-between md:gap-4">
+                <h3 className="text-lg font-bold text-titulo">{atual.nome}</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold text-suave">Quem entra:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <span
+                      className="flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-xs font-bold md:min-h-8"
+                      style={{
+                        borderColor: COR_PERFIL.ADMINISTRADOR,
+                        color: COR_PERFIL.ADMINISTRADOR,
+                      }}
+                      title="O Administrador pode tudo, sempre"
+                    >
+                      <Icone nome="cadeado" className="h-3.5 w-3.5" />
+                      {PERFIS.ADMINISTRADOR}
+                    </span>
+                    {CARGOS.map((c) => {
+                      const sim = matriz[atual.ver].includes(c)
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          aria-pressed={sim}
+                          onClick={() => marcar(atual.ver, c, !sim)}
+                          className={`flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-xs font-bold md:min-h-8 ${
+                            sim ? 'text-white' : 'border-dashed text-suave'
+                          }`}
+                          style={
+                            sim
+                              ? { backgroundColor: COR_PERFIL[c], borderColor: COR_PERFIL[c] }
+                              : { borderColor: 'var(--borda-campo)' }
+                          }
+                        >
+                          <span aria-hidden>{sim ? '✓' : '+'}</span>
+                          {PERFIS[c]}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-        ))}
-        {modulos.length === 0 && (
-          <p className="px-5 py-8 text-center text-suave">Nenhuma ação encontrada.</p>
-        )}
+
+              {atual.itens.length === 0 ? (
+                <p className="p-5 text-suave">
+                  Este módulo não tem ações internas: quem entra vê tudo o que há nele.
+                </p>
+              ) : (
+                <div className="px-5 pb-5">
+                  <div
+                    className={`hidden items-center gap-x-4 py-3 text-xs font-bold text-suave md:grid ${COLUNAS_ACOES}`}
+                  >
+                    <span>Ações dentro de {atual.nome}</span>
+                    {CARGOS.map((c) => (
+                      <span
+                        key={c}
+                        className="text-center"
+                        style={{ color: `color-mix(in srgb, ${COR_PERFIL[c]} 75%, var(--texto))` }}
+                      >
+                        {PERFIS[c]}
+                      </span>
+                    ))}
+                  </div>
+                  {atual.itens.map((i, n) => (
+                    <div key={i.acao}>
+                      {i.modulo !== atual.itens[n - 1]?.modulo && (
+                        <p className="pt-4 pb-1 text-xs font-bold tracking-wide text-suave uppercase">
+                          {i.modulo}
+                        </p>
+                      )}
+                      <div
+                        className={`grid items-center gap-x-4 border-t border-borda/60 py-1 ${COLUNAS_ACOES}`}
+                      >
+                        <span className="pt-2 md:py-2">{i.rotulo}</span>
+                        <div className="flex flex-wrap gap-x-4 md:contents">
+                          {CARGOS.map((c) => (
+                            <label
+                              key={c}
+                              className="flex min-h-11 cursor-pointer items-center gap-2 md:justify-center"
+                            >
+                              <input
+                                type="checkbox"
+                                style={corCheck(c)}
+                                checked={matriz[i.acao].includes(c)}
+                                disabled={travados.includes(c)}
+                                onChange={(e) => marcar(i.acao, c, e.target.checked)}
+                                aria-label={`${PERFIS[c]}: ${atual.nome} › ${i.modulo}: ${i.rotulo}`}
+                              />
+                              <span className="text-sm md:hidden" aria-hidden>
+                                {PERFIS[c]}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {travados.length > 0 && (
+                    <p className="pt-4 text-sm text-aviso">
+                      {travados.map((c) => PERFIS[c]).join(', ')}{' '}
+                      {travados.length === 1 ? 'não entra' : 'não entram'} no módulo, então as ações
+                      ficam travadas.
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+        </div>
 
         <div className="border-t border-borda px-5 py-4">
           <Rodape
-            ocupado={salvar.isPending}
+            ocupado={salvando}
             desativado={!mudancas}
-            aoCancelar={mudancas ? () => setMatriz(salvo) : undefined}
+            aoCancelar={
+              mudancas
+                ? () => {
+                    setMatriz(salvo)
+                    setDesconto(descontoSalvo)
+                  }
+                : undefined
+            }
           >
             {mudancas > 0 && (
               <span className="mr-auto text-sm font-bold text-aviso">
@@ -1607,5 +2062,95 @@ function EditarPermissoes({ salvo }: { salvo: Matriz }) {
         </div>
       </Secao>
     </form>
+  )
+}
+
+/**
+ * Aba Desconto: quem pode dar desconto em orçamento é escolhido usuário por usuário (não por
+ * cargo). O Administrador pode sempre.
+ */
+function PainelDesconto(props: { escolhidos: number[]; aoMudar: (ids: number[]) => void }) {
+  const usuarios = useQuery({
+    queryKey: ['usuarios'],
+    queryFn: async () => (await api.get<UsuarioLista[]>('/usuarios')).data,
+  })
+  const [busca, setBusca] = useState('')
+  const lista = (usuarios.data ?? []).filter(
+    (u) => u.ativo && normalizar(`${u.nome} ${u.login}`).includes(normalizar(busca)),
+  )
+  const alternar = (id: number, sim: boolean) =>
+    props.aoMudar(sim ? [...props.escolhidos, id] : props.escolhidos.filter((i) => i !== id))
+  return (
+    <section
+      aria-label="Desconto"
+      className="max-h-[60dvh] min-w-0 flex-1 overflow-y-auto rounded-2xl border border-borda xl:max-h-none"
+    >
+      <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-borda bg-superficie p-5">
+        <h3 className="text-xl font-bold text-titulo">Desconto em orçamentos</h3>
+        <p className="text-suave">
+          Marque cada usuário que pode dar desconto (em R$ ou %) nos orçamentos e no Adicionar
+          procedimento do prontuário. Vale por pessoa, não por cargo. Quem não está marcado não vê o
+          campo de desconto.
+        </p>
+        <CampoBusca rotulo="Buscar usuário" valor={busca} aoMudar={setBusca} />
+      </div>
+      {usuarios.isPending && <p className="p-5 text-suave">Carregando…</p>}
+      {usuarios.isError && (
+        <p className="p-5 text-perigo">
+          Não foi possível listar os usuários: é preciso poder gerenciar usuários.
+        </p>
+      )}
+      {usuarios.data && !lista.length && (
+        <p className="p-5 text-suave">Nenhum usuário encontrado.</p>
+      )}
+      <ul className="divide-y divide-borda/60 px-5 pb-3">
+        {lista.map((u) => {
+          const adm = u.perfis.includes('ADMINISTRADOR')
+          return (
+            <li key={u.id}>
+              <label className="flex min-h-14 cursor-pointer items-center gap-3 py-2">
+                <input
+                  type="checkbox"
+                  className="check-sucesso"
+                  checked={adm || props.escolhidos.includes(u.id)}
+                  disabled={adm}
+                  onChange={(e) => alternar(u.id, e.target.checked)}
+                  aria-label={`${u.nome} pode dar desconto`}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-bold text-titulo">{u.nome}</span>
+                  <span className="block truncate text-xs text-suave">
+                    {u.perfis.map((p) => PERFIS[p]).join(', ')} · {u.login}
+                  </span>
+                </span>
+                {adm && (
+                  <span
+                    className="flex items-center gap-1 text-xs font-bold"
+                    style={{ color: COR_PERFIL.ADMINISTRADOR }}
+                    title="O Administrador pode tudo, sempre"
+                  >
+                    <Icone nome="cadeado" className="h-3.5 w-3.5" />
+                    Sempre
+                  </span>
+                )}
+              </label>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+/** Etiqueta do tipo do procedimento: por dente ou completo (boca toda). */
+export function SeloTipoProcedimento({ porDente }: { porDente: boolean }) {
+  return (
+    <span
+      className={`etiqueta inline-flex items-center gap-1 whitespace-nowrap ${porDente ? '' : 'etiqueta-primaria'}`}
+      title={tipoProcedimento(porDente).rotulo}
+    >
+      <Icone nome="dente" className="h-3.5 w-3.5" />
+      {porDente ? 'Por dente' : 'Boca toda'}
+    </span>
   )
 }

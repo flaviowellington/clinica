@@ -62,6 +62,8 @@ export function periodoAnterior(de: string, ate: string) {
     const [a, m] = iso.split('-').map(Number)
     return isoLocal(new Date(a, m, 0))
   }
+  if (de.endsWith('-01-01') && ate === `${de.slice(0, 4)}-12-31`)
+    return andarIntervalo({ de, ate }, -1)
   if (de.endsWith('-01') && ate === fimMes(de)) {
     const ini = isoLocal(new Date(Number(de.slice(0, 4)), Number(de.slice(5, 7)) - 2, 1))
     return { de: ini, ate: fimMes(ini) }
@@ -70,12 +72,16 @@ export function periodoAnterior(de: string, ate: string) {
   return { de: somarDias(de, -dias), ate: somarDias(de, -1) }
 }
 
-/** Período escolhido no calendário (padrão: o mês atual; `inicioTudo` começa vendo todos). */
-export function useIntervalo(inicioTudo = false) {
+/** Período escolhido no calendário (padrão: o mês atual; 'tudo' começa vendo todos; 'ano', o ano atual). */
+export function useIntervalo(inicio: 'mes' | 'tudo' | 'ano' = 'mes') {
   const hoje = isoLocal(new Date())
-  const [intervalo, setIntervalo] = useState(() => mesDe(hoje))
+  const [intervalo, setIntervalo] = useState(() =>
+    inicio === 'ano'
+      ? { de: `${hoje.slice(0, 4)}-01-01`, ate: `${hoje.slice(0, 4)}-12-31` }
+      : mesDe(hoje),
+  )
   const [pendente, setPendente] = useState<string | null>(null)
-  const [tudo, setTudo] = useState(inicioTudo)
+  const [tudo, setTudo] = useState(inicio === 'tudo')
   const clicarDia = (d: string) => {
     setTudo(false)
     if (!pendente) return setPendente(d)
@@ -85,6 +91,12 @@ export function useIntervalo(inicioTudo = false) {
   const verTudo = () => {
     setPendente(null)
     setTudo(!tudo)
+  }
+  const verAno = () => {
+    const ano = new Date(Date.now()).getFullYear()
+    setPendente(null)
+    setTudo(false)
+    setIntervalo({ de: `${ano}-01-01`, ate: `${ano}-12-31` })
   }
   const passo = (n: -1 | 1) => setIntervalo(andarIntervalo(intervalo, n))
   const resumo = tudo
@@ -106,7 +118,19 @@ export function useIntervalo(inicioTudo = false) {
   )
   /** "Ver todo o período": a API pede um intervalo, então vai um bem largo. */
   const consulta = tudo ? TUDO : intervalo
-  return { intervalo, tudo, hoje, pendente, consulta, cartao, resumo, clicarDia, verTudo, passo }
+  return {
+    intervalo,
+    tudo,
+    hoje,
+    pendente,
+    consulta,
+    cartao,
+    resumo,
+    clicarDia,
+    verTudo,
+    verAno,
+    passo,
+  }
 }
 const TUDO = { de: '2000-01-01', ate: '2100-12-31' }
 
@@ -119,6 +143,11 @@ const fimDoMes = (iso: string) =>
  * ao último dia do mês novo. Outro intervalo anda pelo seu próprio nº de dias.
  */
 export function andarIntervalo(i: { de: string; ate: string }, n: number) {
+  // Ano cheio anda de ano em ano (contar dias erraria nos bissextos).
+  if (i.de.endsWith('-01-01') && i.ate === `${i.de.slice(0, 4)}-12-31`) {
+    const a = Number(i.de.slice(0, 4)) + n
+    return { de: `${a}-01-01`, ate: `${a}-12-31` }
+  }
   if (i.de.endsWith('-01') && i.ate === fimDoMes(i.de)) {
     const de = isoLocal(new Date(Number(i.de.slice(0, 4)), Number(i.de.slice(5, 7)) - 1 + n, 1))
     return { de, ate: fimDoMes(de) }
@@ -212,7 +241,7 @@ export function Suspenso(props: {
       {aberto && <div className="fixed inset-0 z-30" onClick={fechar} />}
       <button
         type="button"
-        className={`botao-leve flex w-full items-center justify-center gap-2 py-1.5 sm:w-auto ${ativo(aberto || !!props.marcado)}`}
+        className={`botao-leve flex w-full items-center justify-center gap-2 px-3 py-1.5 whitespace-nowrap sm:w-auto sm:px-4 ${ativo(aberto || !!props.marcado)}`}
         aria-expanded={aberto}
         onClick={() => setAberto(!aberto)}
       >
@@ -228,7 +257,14 @@ export function Suspenso(props: {
 }
 
 /** ◀ período ▶ com o calendário de intervalo numa janela. */
-export function PeriodoSuspenso({ p }: { p: ReturnType<typeof useIntervalo> }) {
+export function PeriodoSuspenso({
+  p,
+  comAno,
+}: {
+  p: ReturnType<typeof useIntervalo>
+  /** Mostra o botão "Nesse ano" embaixo de "Ver todo o período". */
+  comAno?: boolean
+}) {
   return (
     <div className="flex w-full items-center gap-1 sm:w-auto">
       <button
@@ -265,6 +301,14 @@ export function PeriodoSuspenso({ p }: { p: ReturnType<typeof useIntervalo> }) {
               p.verTudo()
               fechar()
             }}
+            aoVerAno={
+              comAno
+                ? () => {
+                    p.verAno()
+                    fechar()
+                  }
+                : undefined
+            }
           />
         )}
       </Suspenso>
@@ -281,20 +325,27 @@ export function PeriodoSuspenso({ p }: { p: ReturnType<typeof useIntervalo> }) {
   )
 }
 
-/** Profissionais marcáveis (vários de uma vez), com busca e um valor ao lado de cada um. */
+/**
+ * Profissionais marcáveis (vários de uma vez), com busca e um valor ao lado de cada um.
+ * `lista` e `titulo` trocam quem aparece (ex.: Aprovações lista todos os usuários).
+ */
 export function ProfissionaisSuspenso(props: {
   ocultos: number[]
   aoMudar: (ocultos: number[]) => void
   valor: (id: number) => ReactNode
+  lista?: { id: number; nome: string; corAgenda?: string | null }[]
+  titulo?: string
 }) {
   const profs = useQuery(consultaProfissionais)
   const [busca, setBusca] = useState('')
-  const lista = profs.data?.profissionais ?? []
+  const lista = props.lista ?? profs.data?.profissionais ?? []
+  const titulo = props.titulo ?? 'Profissionais'
+  const vistos = lista.filter((p) => !props.ocultos.includes(p.id)).length
   const achados = lista.filter((p) => normalizar(p.nome).includes(normalizar(busca.trim())))
   const { ocultos, aoMudar } = props
   return (
     <Suspenso
-      marcado={ocultos.length > 0}
+      marcado={vistos < lista.length}
       painel="w-72 space-y-2"
       rotulo={
         <>
@@ -311,9 +362,9 @@ export function ProfissionaisSuspenso(props: {
               />
             ))}
           </span>
-          Profissionais
+          {titulo}
           <span className="hidden text-suave sm:inline">
-            {ocultos.length ? `${lista.length - ocultos.length} de ${lista.length}` : 'todos'}
+            {vistos < lista.length ? `${vistos} de ${lista.length}` : 'todos'}
           </span>
           ▾
         </>
@@ -322,7 +373,7 @@ export function ProfissionaisSuspenso(props: {
       {(fechar) => (
         <>
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-base">Profissionais</h2>
+            <h2 className="text-base">{titulo}</h2>
             <button
               type="button"
               className="botao-leve botao-pequeno"
@@ -343,8 +394,8 @@ export function ProfissionaisSuspenso(props: {
               type="search"
               autoFocus
               className="campo py-1.5 pl-8"
-              placeholder="Buscar profissional"
-              aria-label="Buscar profissional"
+              placeholder="Buscar nome"
+              aria-label="Buscar nome"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               onKeyDown={(e) => e.key === 'Escape' && fechar()}
@@ -369,7 +420,7 @@ export function ProfissionaisSuspenso(props: {
                 <span className="text-sm text-suave tabular-nums">{props.valor(p.id)}</span>
               </label>
             ))}
-            {!achados.length && <p className="text-suave">Nenhum profissional encontrado.</p>}
+            {!achados.length && <p className="text-suave">Ninguém encontrado.</p>}
           </div>
         </>
       )}

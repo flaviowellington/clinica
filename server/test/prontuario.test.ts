@@ -122,8 +122,7 @@ describe('odontograma e ficha clínica (R-061, R-069, R-078)', () => {
       status: 'EXECUTADO',
       dente: '16',
       faces: 'om',
-      observacao: 'Interna',
-      observacaoPaciente: 'Evitar mastigar do lado direito hoje',
+      observacao: 'Evitar mastigar do lado direito hoje',
     })
     expect(r.status).toBe(201)
     const lista = (await api('GET', `/api/pacientes/${paciente.id}/procedimentos`)).corpo
@@ -131,11 +130,8 @@ describe('odontograma e ficha clínica (R-061, R-069, R-078)', () => {
     expect(lista).toMatchObject([
       { nome: resina.nome, status: 'EXECUTADO', dente: '16', faces: 'MO', origem: 'CLINICO' },
     ])
-    // PT-78: as duas observações ficam separadas.
-    expect(lista[0]).toMatchObject({
-      observacao: 'Interna',
-      observacaoPaciente: 'Evitar mastigar do lado direito hoje',
-    })
+    // Um campo só: o detalhamento.
+    expect(lista[0]).toMatchObject({ observacao: 'Evitar mastigar do lado direito hoje' })
     expect(await db.lancamento.count()).toBe(0)
     expect(await db.contaFinanceira.count()).toBe(0)
   })
@@ -223,6 +219,7 @@ describe('odontograma e ficha clínica (R-061, R-069, R-078)', () => {
       pacienteId: paciente.id,
       profissionalId: dentista.id,
       itens: [{ procedimentoId: resina.id, dente: '16', faces: 'om', valorCentavos: 25000 }],
+      descontoCentavos: 5000,
     })
     const url = `/api/pacientes/${paciente.id}/procedimentos`
     expect((await api('GET', url)).corpo).toMatchObject([
@@ -234,10 +231,45 @@ describe('odontograma e ficha clínica (R-061, R-069, R-078)', () => {
         valorCentavos: 25000,
         orcamentoId: o.corpo.id,
         orcamentoStatus: 'ABERTO',
+        orcamentoDescontoCentavos: 5000,
       },
     ])
     await api('DELETE', `/api/orcamentos/${o.corpo.id}`)
     expect((await api('GET', url)).corpo).toEqual([])
+  })
+
+  it('procedimento completo (boca toda) vem marcado na lista; escrito à mão conta como por dente', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const { dentista, paciente } = await base(api)
+    const limpeza = await db.procedimento.create({
+      data: {
+        nome: 'Raspagem fictícia',
+        nomeBusca: 'raspagem ficticia',
+        valorCentavos: 20000,
+        porDente: false,
+      },
+    })
+    const dentes = ['11', '21'].map((dente) => ({ dente, faces: '' }))
+    await api('POST', `/api/pacientes/${paciente.id}/procedimentos`, {
+      procedimentoId: limpeza.id,
+      nome: limpeza.nome,
+      profissionalId: dentista.id,
+      status: 'EXECUTADO',
+      dentes,
+    })
+    await api('POST', `/api/pacientes/${paciente.id}/procedimentos`, {
+      nome: 'Escrito à mão',
+      profissionalId: dentista.id,
+      status: 'EXECUTADO',
+      dentes,
+    })
+    const lista = (await api('GET', `/api/pacientes/${paciente.id}/procedimentos`)).corpo
+    const porNome = (n: string) => lista.filter((i: { nome: string }) => i.nome === n)
+    expect(porNome('Raspagem fictícia').map((i: { porDente: boolean }) => i.porDente)).toEqual([
+      false,
+      false,
+    ])
+    expect(porNome('Escrito à mão').every((i: { porDente: boolean }) => i.porDente)).toBe(true)
   })
 
   it('Recepção não vê o odontograma', async () => {

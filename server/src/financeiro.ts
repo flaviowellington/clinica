@@ -200,7 +200,14 @@ rotasFinanceiroContas.get('/analise', exigir('financeiro.ver'), async (req, res)
   }
   const [orcs, entradas] = await Promise.all([
     db.orcamento.findMany({
-      where: { status: 'APROVADO', excluidoEm: null, aprovadoEm: janela, profissionalId },
+      // Só entra no Controle depois de confirmado em Aprovações.
+      where: {
+        status: 'APROVADO',
+        excluidoEm: null,
+        confirmadoEm: { not: null },
+        aprovadoEm: janela,
+        profissionalId,
+      },
       include: {
         paciente: { select: { id: true, nome: true } },
         profissional: { select: { id: true, nome: true } },
@@ -285,7 +292,7 @@ rotasFinanceiroContas.get('/aprovacoes', exigir('orcamento.confirmar'), async (_
     include: {
       paciente: { select: { id: true, nome: true } },
       profissional: { select: { id: true, nome: true, corAgenda: true } },
-      aprovadoPor: { select: { nome: true } },
+      aprovadoPor: { select: { id: true, nome: true } },
       itens: { orderBy: { id: 'asc' }, select: { nome: true, dente: true, valorCentavos: true } },
       lancamentos: {
         where: { tipo: 'ENTRADA', excluidoEm: null },
@@ -311,6 +318,21 @@ rotasFinanceiroContas.get('/aprovacoes', exigir('orcamento.confirmar'), async (_
     })),
   )
 })
+
+/** Todos os usuários ativos (profissionais, recepção, financeiro…) para o filtro "quem aprovou". */
+rotasFinanceiroContas.get(
+  '/aprovacoes/aprovadores',
+  exigir('orcamento.confirmar'),
+  async (_req, res) => {
+    res.json(
+      await db.usuario.findMany({
+        where: { ativo: true },
+        select: { id: true, nome: true },
+        orderBy: { nome: 'asc' },
+      }),
+    )
+  },
+)
 
 /**
  * Orçamentos em aberto para aprovar quando o paciente pagar. ?de&ate filtram pela data em

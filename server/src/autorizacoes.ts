@@ -34,22 +34,154 @@ export interface ConteudoAutorizacao {
   /** Planejamento (ficha de especialidade): a especialidade e as etapas com as datas previstas. */
   especialidade?: string
   etapas?: { id: string; nome: string; data: string | null; comentario: string | null }[]
+  /** Retificação: o pedido assinado que este corrige, quando foi assinado e o que mudou. */
+  retificacao?: { de: number; assinadoEm: string; alteracoes: string[] }
   itens: {
     nome: string
     profissional: string
     dentes: string[]
     /** Data prevista (planejamento). */
     data?: string | null
+    /** Detalhamento que sai no documento (nome antigo mantido: pedidos já gravados usam). */
     observacaoPaciente: string | null
   }[]
 }
 
+/** Um procedimento num dente, como vai no documento (a data só no planejamento). */
+export type Unidade = { nome: string; dente: string; data?: string | null }
+
+const dataBR = (iso: string) => iso.split('-').reverse().join('/')
+
+/**
+ * O que mudou desde a cópia que o paciente assinou: etapas novas, alteradas ou retiradas e
+ * procedimentos (por dente) incluídos ou retirados. Mudar dente, nome ou data aparece como
+ * retirado + incluído.
+ * Andamento (executado, situação) não conta: é o que se espera mudar depois de assinar.
+ * ponytail: compara por conjunto; o mesmo procedimento duas vezes no mesmo dente conta uma.
+ */
+export function alteracoesDesde(
+  assinado: ConteudoAutorizacao,
+  atuais: Unidade[],
+  etapas: { id: string; nome: string; data?: string | null; tipo?: string }[] = [],
+) {
+  const antes: Unidade[] = assinado.itens.flatMap((i) =>
+    (i.dentes.length ? i.dentes : ['']).map((dente) => ({ nome: i.nome, dente, data: i.data })),
+  )
+  const k = (u: Unidade) => JSON.stringify([u.nome, u.dente, u.data ?? null])
+  const previsto = (data?: string | null) => (data ? ` (previsto para ${dataBR(data)})` : '')
+  const de = new Set(antes.map(k))
+  const para = new Set(atuais.map(k))
+  const descrever = (rotulo: string, lista: Unidade[]) => {
+    const grupos = new Map<string, Unidade[]>()
+    for (const u of lista) {
+      const g = JSON.stringify([u.nome, u.data ?? null])
+      grupos.set(g, [...(grupos.get(g) ?? []), u])
+    }
+    return [...grupos.values()].map(([u, ...resto]) => {
+      const dentes = [u, ...resto]
+        .map((x) => x.dente)
+        .filter(Boolean)
+        .sort()
+      return `${rotulo}: ${u.nome}${dentes.length ? ` — ${dentes.join(', ')}` : ''}${previsto(u.data)}`
+    })
+  }
+  const assinadas = new Map(assinado.etapas?.map((e) => [e.id, e]))
+  const idsAtuais = new Set(etapas.map((e) => e.id))
+  return [
+    ...etapas.filter((e) => !assinadas.has(e.id)).map((e) => `Etapa incluída: ${e.nome}`),
+    // A aprovação tem a data da assinatura: não conta como alterada.
+    ...etapas
+      .filter((e) => {
+        const antes = assinadas.get(e.id)
+        return (
+          antes &&
+          e.tipo !== 'APROVACAO' &&
+          (antes.nome !== e.nome || (antes.data ?? null) !== (e.data ?? null))
+        )
+      })
+      .map((e) => `Etapa alterada: ${e.nome}${previsto(e.data)}`),
+    ...(etapas.length ? [...assinadas.values()] : [])
+      .filter((e) => !idsAtuais.has(e.id))
+      .map((e) => `Etapa retirada: ${e.nome}`),
+    ...descrever(
+      'Incluído',
+      atuais.filter((u) => !de.has(k(u))),
+    ),
+    ...descrever(
+      'Retirado',
+      antes.filter((u) => !para.has(k(u))),
+    ),
+  ]
+}
+
+/**
+ * Avulsos: o que mudou desde a assinatura, inclusive o detalhamento de um procedimento que
+ * continua no documento (a retificação leva o detalhamento como está hoje).
+ */
+function alteracoesAvulsas(
+  assinado: ConteudoAutorizacao,
+  atuais: { nome: string; dente: string | null; faces: string | null; observacao: string | null }[],
+) {
+  const detalhes = new Set(
+    atuais
+      .filter((u) => {
+        const v = assinado.itens.find((i) => i.nome === u.nome)
+        return v && (v.observacaoPaciente ?? null) !== (u.observacao ?? null)
+      })
+      .map((u) => `Detalhamento alterado: ${u.nome}`),
+  )
+  return [...alteracoesSemDetalhe(assinado, atuais), ...detalhes]
+}
+/** Sem mudança do administrador: o texto escrito ao enviar pode diferir do detalhamento. */
+const alteracoesSemDetalhe = (
+  assinado: ConteudoAutorizacao,
+  atuais: { nome: string; dente: string | null; faces: string | null }[],
+) =>
+  alteracoesDesde(
+    assinado,
+    atuais.map((u) => ({ nome: u.nome, dente: denteComFaces(u.dente, u.faces) })),
+  )
+const atualDoPedido = { nome: true, dente: true, faces: true, observacao: true } as const
+
 const pessoaCurta = { select: { id: true, nome: true, email: true, celular: true } } as const
 const link = (token: string) => `${enderecoPublico()}/autorizar/${token}`
 const linkPdf = (token: string) => `${enderecoPublico()}/api/publico/autorizacao/${token}/pdf`
-const mensagem = (primeiroNome: string, clinica: string, token: string) =>
-  `Olá, ${primeiroNome}! A ${clinica} preparou o seu plano de tratamento. ` +
-  `Leia e assine pelo celular: ${link(token)}`
+const dataDe = (iso: string | Date) =>
+  new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+const mensagem = (primeiroNome: string, clinica: string, token: string, conteudo: unknown) => {
+  const r = (conteudo as ConteudoAutorizacao).retificacao
+  return r
+    ? `Olá, ${primeiroNome}! A ${clinica} fez uma retificação no plano de tratamento que você ` +
+        `assinou em ${dataDe(r.assinadoEm)}. Leia o que mudou e assine de novo pelo celular: ` +
+        link(token)
+    : `Olá, ${primeiroNome}! A ${clinica} preparou o seu plano de tratamento. ` +
+        `Leia e assine pelo celular: ${link(token)}`
+}
+
+/** Um item por procedimento, com os dentes juntos. */
+function agrupar(
+  linhas: {
+    nome: string
+    profissional: string
+    observacaoPaciente: string | null
+    dente: string | null
+    faces: string | null
+  }[],
+) {
+  const itens = new Map<string, ConteudoAutorizacao['itens'][number]>()
+  for (const l of linhas) {
+    const k = JSON.stringify([l.nome, l.profissional, l.observacaoPaciente])
+    const item = itens.get(k) ?? {
+      nome: l.nome,
+      profissional: l.profissional,
+      dentes: [],
+      observacaoPaciente: l.observacaoPaciente,
+    }
+    if (l.dente) item.dentes.push(denteComFaces(l.dente, l.faces))
+    itens.set(k, item)
+  }
+  return [...itens.values()].map((i) => ({ ...i, dentes: i.dentes.sort() }))
+}
 
 /** Tira os procedimentos do pedido: eles voltam para "Para autorizar". */
 const soltar = (autorizacaoId: number) => [
@@ -68,18 +200,35 @@ rotasAutorizacoes.get('/', exigir('prontuario.ver'), async (req, res) => {
   const [lista, clinica] = await Promise.all([
     db.autorizacao.findMany({
       where: { pacienteId, canceladoEm: null, fichaId },
-      include: { paciente: pessoaCurta, criadoPor: { select: { nome: true } } },
+      include: {
+        paciente: pessoaCurta,
+        criadoPor: { select: { nome: true } },
+        // O que está hoje no pedido, para comparar com o que foi assinado.
+        clinicos: { where: { excluidoEm: null }, select: atualDoPedido },
+        itensOrcamento: { where: { orcamento: { excluidoEm: null } }, select: atualDoPedido },
+        retificacoes: { where: { canceladoEm: null }, select: { id: true, assinadoEm: true } },
+      },
       omit: { assinatura: true },
       orderBy: { id: 'desc' },
     }),
     lerConfig('clinica'),
   ])
   res.json(
-    lista.map(({ token, ...a }) => ({
+    lista.map(({ token, clinicos, itensOrcamento, retificacoes, ...a }) => ({
       ...a,
+      // Já retificado: o que vale agora é a retificação (este fica como foi assinado).
+      retificadoPor: retificacoes.at(-1) ?? null,
+      // Avulsos: o planejamento compara o plano inteiro (aprovacao.alteracoes da ficha).
+      alteracoes:
+        a.assinadoEm && !a.fichaId && !retificacoes.length
+          ? (a.alteradoEm ? alteracoesAvulsas : alteracoesSemDetalhe)(
+              a.conteudo as unknown as ConteudoAutorizacao,
+              [...clinicos, ...itensOrcamento],
+            )
+          : [],
       link: link(token),
       pdf: linkPdf(token),
-      mensagem: mensagem(a.paciente.nome.split(' ')[0], clinica.nome, token),
+      mensagem: mensagem(a.paciente.nome.split(' ')[0], clinica.nome, token, a.conteudo),
     })),
   )
 })
@@ -127,7 +276,7 @@ rotasAutorizacoes.post('/', exigir('prontuario.editar'), async (req, res) => {
       .json({ erro: 'Algum procedimento já foi enviado ao paciente. Cancele o pedido antes.' })
 
   // Um item por procedimento, com os dentes juntos. O texto escrito ao enviar vale mais que
-  // a observação gravada.
+  // o detalhamento gravado.
   const textoDe = (origem: string, id: number, gravado: string | null) => {
     const t = b.itens.find((i) => i.origem === origem && i.id === id)?.texto
     return t === undefined ? gravado : t
@@ -136,32 +285,20 @@ rotasAutorizacoes.post('/', exigir('prontuario.editar'), async (req, res) => {
     ...clinicos.map((c) => ({
       ...c,
       profissional: c.profissional.nome,
-      observacaoPaciente: textoDe('CLINICO', c.id, c.observacaoPaciente),
+      observacaoPaciente: textoDe('CLINICO', c.id, c.observacao),
     })),
     ...orcados.map((i) => ({
       ...i,
       profissional: i.orcamento.profissional.nome,
-      observacaoPaciente: textoDe('ORCAMENTO', i.id, i.observacaoPaciente),
+      observacaoPaciente: textoDe('ORCAMENTO', i.id, i.observacao),
     })),
   ]
-  const itens = new Map<string, ConteudoAutorizacao['itens'][number]>()
-  for (const l of linhas) {
-    const k = JSON.stringify([l.nome, l.profissional, l.observacaoPaciente])
-    const item = itens.get(k) ?? {
-      nome: l.nome,
-      profissional: l.profissional,
-      dentes: [],
-      observacaoPaciente: l.observacaoPaciente,
-    }
-    if (l.dente) item.dentes.push(denteComFaces(l.dente, l.faces))
-    itens.set(k, item)
-  }
   const conteudo: ConteudoAutorizacao = {
     paciente: paciente.nome,
     termo: TERMO,
     plano: b.plano,
     autor: usuarioDe(res).nome,
-    itens: [...itens.values()].map((i) => ({ ...i, dentes: i.dentes.sort() })),
+    itens: agrupar(linhas),
   }
   const a = await db.$transaction(async (tx) => {
     const a = await tx.autorizacao.create({
@@ -198,11 +335,15 @@ rotasAutorizacoes.post('/ficha', exigir('prontuario.editar'), async (req, res) =
       paciente: { select: { nome: true } },
       profissional: { select: { nome: true } },
       itens: { where: { excluidoEm: null }, orderBy: { id: 'asc' } },
-      autorizacoes: { where: { canceladoEm: null, assinadoEm: null }, select: { id: true } },
+      autorizacoes: {
+        where: { canceladoEm: null },
+        select: { id: true, assinadoEm: true, alteradoEm: true, conteudo: true },
+        orderBy: { id: 'asc' },
+      },
     },
   })
   if (!f) return res.status(404).json({ erro: 'Planejamento não encontrado.' })
-  if (f.autorizacoes.length)
+  if (f.autorizacoes.some((a) => !a.assinadoEm))
     return res.status(409).json({
       erro: 'Já há um pedido esperando a assinatura do paciente. Cancele-o para enviar outro.',
     })
@@ -224,13 +365,34 @@ rotasAutorizacoes.post('/ficha', exigir('prontuario.editar'), async (req, res) =
     item.dentes.push(denteComFaces(i.dente, i.faces))
     itens.set(k, item)
   }
+  // O administrador mudou o que foi assinado depois da última assinatura: vai como retificação.
+  const ultimo = f.autorizacoes.findLast((a) => a.assinadoEm)
+  const etapas = comEtapasFixas(f.etapas as Partial<EtapaFicha>[])
+  const retificacao =
+    ultimo?.assinadoEm &&
+    f.autorizacoes.some((a) => a.alteradoEm && a.alteradoEm > ultimo.assinadoEm!)
+      ? {
+          de: ultimo.id,
+          assinadoEm: ultimo.assinadoEm.toISOString(),
+          alteracoes: alteracoesDesde(
+            ultimo.conteudo as unknown as ConteudoAutorizacao,
+            f.itens.map((i) => ({
+              nome: i.procedimento,
+              dente: denteComFaces(i.dente, i.faces),
+              data: i.data?.toISOString().slice(0, 10) ?? null,
+            })),
+            etapas,
+          ),
+        }
+      : undefined
   const conteudo: ConteudoAutorizacao = {
     paciente: f.paciente.nome,
     termo: TERMO,
     plano: b.plano,
     autor: usuarioDe(res).nome,
     especialidade: f.especialidade,
-    etapas: comEtapasFixas(f.etapas as Partial<EtapaFicha>[]).map((e) => ({
+    retificacao,
+    etapas: etapas.map((e) => ({
       id: e.id,
       nome: e.nome,
       data: e.data,
@@ -243,6 +405,7 @@ rotasAutorizacoes.post('/ficha', exigir('prontuario.editar'), async (req, res) =
       data: {
         pacienteId: f.pacienteId,
         fichaId: f.id,
+        retificaId: retificacao?.de,
         conteudo: conteudo as object,
         token: randomBytes(18).toString('base64url'),
         criadoPorId: usuarioDe(res).id,
@@ -272,11 +435,11 @@ rotasAutorizacoes.post('/juntar', exigir('prontuario.editar'), async (req, res) 
   if (
     pedidos.length !== ids.length ||
     new Set(pedidos.map((p) => p.pacienteId)).size !== 1 ||
-    pedidos.some((p) => p.fichaId)
+    pedidos.some((p) => p.fichaId || p.retificaId)
   )
-    return res
-      .status(409)
-      .json({ erro: 'Só dá para juntar pedidos em aberto do mesmo paciente. Atualize a página.' })
+    return res.status(409).json({
+      erro: 'Só dá para juntar pedidos em aberto do mesmo paciente (retificação vai sozinha).',
+    })
   const conteudos = pedidos.map((p) => p.conteudo as unknown as ConteudoAutorizacao)
   const conteudo: ConteudoAutorizacao = {
     paciente: conteudos[0].paciente,
@@ -329,11 +492,75 @@ rotasAutorizacoes.post('/:id/cancelar', exigir('prontuario.editar'), async (req,
     return res
       .status(409)
       .json({ erro: 'O paciente já assinou: a autorização não pode ser cancelada.' })
+  // Retificação de avulsos: os procedimentos voltam para o pedido assinado (que segue alterado).
+  const de = { autorizacaoId: a.id }
+  const devolver = a.retificaId && !a.fichaId ? { autorizacaoId: a.retificaId } : null
   await db.$transaction([
     db.autorizacao.update({ where: { id: a.id }, data: { canceladoEm: new Date() } }),
-    ...soltar(a.id),
+    ...(devolver
+      ? [
+          db.procedimentoClinico.updateMany({ where: de, data: devolver }),
+          db.itemOrcamento.updateMany({ where: de, data: devolver }),
+        ]
+      : soltar(a.id)),
   ])
   res.json({ ok: true })
+})
+
+/**
+ * Retificação dos procedimentos avulsos: o administrador mudou o que o paciente assinou.
+ * Novo pedido com o que está hoje e o que mudou; o assinado fica guardado como estava.
+ */
+rotasAutorizacoes.post('/:id/retificar', exigir('prontuario.editar'), async (req, res) => {
+  const a = await db.autorizacao.findFirst({
+    where: { id: Number(req.params.id) || 0, canceladoEm: null, fichaId: null },
+    include: {
+      retificacoes: { where: { canceladoEm: null }, select: { id: true } },
+      clinicos: { where: { excluidoEm: null }, include: { profissional: pessoaCurta } },
+      itensOrcamento: {
+        where: { orcamento: { excluidoEm: null } },
+        include: { orcamento: { include: { profissional: pessoaCurta } } },
+      },
+    },
+  })
+  if (!a) return res.status(404).json({ erro: 'Pedido não encontrado.' })
+  if (!a.assinadoEm || !a.alteradoEm)
+    return res.status(409).json({ erro: 'Nada mudou no que o paciente assinou.' })
+  if (a.retificacoes.length)
+    return res.status(409).json({ erro: 'A retificação já foi criada: envie-a ao paciente.' })
+  const antes = a.conteudo as unknown as ConteudoAutorizacao
+  // O documento novo leva o detalhamento como está hoje.
+  const linhas = [
+    ...a.clinicos.map((c) => ({ ...c, profissional: c.profissional.nome })),
+    ...a.itensOrcamento.map((i) => ({ ...i, profissional: i.orcamento.profissional.nome })),
+  ].map((l) => ({ ...l, observacaoPaciente: l.observacao }))
+  const conteudo: ConteudoAutorizacao = {
+    ...antes,
+    termo: TERMO,
+    autor: usuarioDe(res).nome,
+    retificacao: {
+      de: a.id,
+      assinadoEm: a.assinadoEm.toISOString(),
+      alteracoes: alteracoesAvulsas(antes, linhas),
+    },
+    itens: agrupar(linhas),
+  }
+  const novo = await db.$transaction(async (tx) => {
+    const n = await tx.autorizacao.create({
+      data: {
+        pacienteId: a.pacienteId,
+        retificaId: a.id,
+        conteudo: conteudo as object,
+        token: randomBytes(18).toString('base64url'),
+        criadoPorId: usuarioDe(res).id,
+      },
+    })
+    const de = { autorizacaoId: a.id }
+    await tx.procedimentoClinico.updateMany({ where: de, data: { autorizacaoId: n.id } })
+    await tx.itemOrcamento.updateMany({ where: de, data: { autorizacaoId: n.id } })
+    return n
+  })
+  res.status(201).json({ id: novo.id, link: link(novo.token) })
 })
 
 /** Manda o link por e-mail ou WhatsApp (sem a API do WhatsApp: 501 com o link do WhatsApp Web). */
@@ -354,10 +581,14 @@ rotasAutorizacoes.post('/:id/enviar', exigir('agenda.editar'), async (req, res) 
         canal,
         tipo: assinado ? 'AUTORIZACAO_ASSINADA' : 'AUTORIZACAO',
         destino: destino ?? '',
-        assunto: `Seu plano de tratamento${assinado ? ' assinado' : ''} – ${clinica.nome}`,
+        assunto: `${
+          (a.conteudo as unknown as ConteudoAutorizacao).retificacao
+            ? 'Retificação do seu plano de tratamento'
+            : 'Seu plano de tratamento'
+        }${assinado ? ' assinado' : ''} – ${clinica.nome}`,
         texto: assinado
           ? `Olá, ${nome}! Segue o seu plano de tratamento assinado (PDF): ${linkPdf(a.token)}`
-          : mensagem(nome, clinica.nome, a.token),
+          : mensagem(nome, clinica.nome, a.token, a.conteudo),
         usuarioId: usuarioDe(res).id,
       }),
     )

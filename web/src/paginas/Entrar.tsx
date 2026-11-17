@@ -83,7 +83,7 @@ export function Entrar() {
           <>
             <label className="block">
               <span className="rotulo">Usuário</span>
-              <input name="login" autoComplete="username" required className="campo" autoFocus />
+              <input name="login" autoComplete="username" autoCapitalize="none" required className="campo" autoFocus />
             </label>
             <label className="block">
               <span className="rotulo">Senha</span>

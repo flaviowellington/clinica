@@ -49,3 +49,14 @@ export const descontoDoPercentual = (subtotalCentavos: number, percentual: numbe
 /** O mesmo desconto em %, com até 2 casas: R$ 30,00 de R$ 300,00 → 10. */
 export const percentualDoDesconto = (subtotalCentavos: number, descontoCentavos: number) =>
   subtotalCentavos ? Math.round((descontoCentavos / subtotalCentavos) * 10000) / 100 : 0
+
+/**
+ * Os dois tipos de procedimento da tabela: por dente (valor × dentes marcados) ou
+ * procedimento completo, na boca toda (cobra uma vez e vale para todos os dentes da dentição).
+ */
+export const TIPO_PROCEDIMENTO = {
+  porDente: { rotulo: 'Por dente', curto: 'por dente' },
+  completo: { rotulo: 'Procedimento completo (boca toda)', curto: 'boca toda' },
+} as const
+export const tipoProcedimento = (porDente: boolean) =>
+  TIPO_PROCEDIMENTO[porDente ? 'porDente' : 'completo']

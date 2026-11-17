@@ -1,7 +1,9 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
-import { consultaEu, consultaProfissionais, mensagemDeErro } from '../api'
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import { api, consultaEu, consultaProfissionais, mensagemDeErro } from '../api'
+import { avisar } from '../estado'
+import { Dialogo } from '../componentes/Dialogo'
 import { pode, type Acao } from '../../../shared/permissoes'
 import { reais } from '../../../shared/financeiro'
 import { normalizar } from '../../../shared/regras'
@@ -17,16 +19,18 @@ import {
   type Analise,
 } from './FinanceiroAbas'
 import { Graficos } from './FinanceiroGraficos'
-import { OrcamentosAbertos } from './FinanceiroAbertos'
-import { Aprovacoes } from './FinanceiroAprovacoes'
+import { consultaAbertos, OrcamentosAbertos } from './FinanceiroAbertos'
+import { Aprovacoes, consultaAprovacoes } from './FinanceiroAprovacoes'
 import { COR_PADRAO } from './Profissionais'
-import { MESES, meio } from '../componentes/CalendarioIntervalo'
+import { NotaFiscalBusca } from '../componentes/NotaFiscal'
+import { diaDaSemana } from '../componentes/CalendarioIntervalo'
 
 // Recepção e profissional só veem os orçamentos abertos; o resto é do financeiro.
 export const ABAS = [
   { id: 'abertos', rotulo: 'Orçamentos abertos', acao: 'orcamento.ver' },
   { id: 'aprovacoes', rotulo: 'Aprovações', acao: 'orcamento.confirmar' },
   { id: 'controle', rotulo: 'Controle Financeiro', acao: 'financeiro.ver' },
+  { id: 'nota-fiscal', rotulo: 'Nota fiscal', acao: 'financeiro.notaFiscal' },
   { id: 'graficos', rotulo: 'Gráficos', acao: 'financeiro.ver' },
   // Gráficos 2 (a versão antiga, livre: adicionar, favoritar, remover): desligada.
   // Para voltar, descomente esta linha e a da renderização abaixo.
@@ -41,7 +45,15 @@ export function Financeiro() {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const abas = ABAS.filter((a) => pode(eu.perfis, a.acao))
   const aba = (abas.find((a) => a.id === daUrl)?.id ?? 'abertos') as Aba
-  const ir = (a: Aba) => navegar({ search: { aba: a === 'abertos' ? undefined : a } })
+  const ir = (a: Aba) =>
+    navegar({ search: { aba: a === 'abertos' ? undefined : a }, replace: true })
+  // As duas listas já vêm juntas: trocar entre elas não passa pelo "Carregando…".
+  const qc = useQueryClient()
+  const confere = abas.some((a) => a.id === 'aprovacoes')
+  useEffect(() => {
+    qc.prefetchQuery(consultaAbertos())
+    if (confere) qc.prefetchQuery(consultaAprovacoes)
+  }, [qc, confere])
 
   return (
     <div className="space-y-5">
@@ -52,6 +64,7 @@ export function Financeiro() {
       {aba === 'aprovacoes' && <Aprovacoes />}
       {aba === 'controle' && <ControleFinanceiro />}
       {aba === 'graficos' && <Graficos fixo />}
+      {aba === 'nota-fiscal' && <NotaFiscalBusca />}
       {/* {aba === 'graficos2' && <Graficos />} */}
     </div>
   )
@@ -101,13 +114,6 @@ function Indicador(props: { rotulo: string; valor: string; cor?: string; childre
       <div className="mt-auto">{props.children}</div>
     </div>
   )
-}
-
-/** "Segunda, 02 nov" ou "Hoje, quarta, 04 nov". */
-const diaDaSemana = (iso: string, hoje: string) => {
-  const t = meio(iso).toLocaleDateString('pt-BR', { weekday: 'long' }).replace('-feira', '')
-  const s = `${t}, ${iso.slice(8)} ${MESES[Number(iso.slice(5, 7)) - 1]}`
-  return iso === hoje ? `Hoje, ${s}` : s.charAt(0).toUpperCase() + s.slice(1)
 }
 
 function LinkPaciente({ o }: { o: Orc }) {
@@ -166,6 +172,35 @@ function ControleFinanceiro() {
   const soma = (os: Orc[], f: (o: Orc) => number) => os.reduce((s, o) => s + f(o), 0)
   const carregando = atual.isFetching ? 'opacity-60' : ''
 
+  // Tirar um aprovado e devolver para Orçamentos abertos (só administrador, com senha).
+  const { data: eu } = useSuspenseQuery(consultaEu)
+  const podeReabrir = pode(eu.perfis, 'orcamento.confirmar')
+  const qc = useQueryClient()
+  const [reabrindo, setReabrindo] = useState<Orc | null>(null)
+  const reabrir = useMutation({
+    mutationFn: async (d: { id: number; senha: string }) =>
+      (await api.post(`/orcamentos/${d.id}/reabrir`, { senha: d.senha })).data,
+    onSuccess: () => {
+      avisar('O orçamento voltou para Orçamentos abertos')
+      setReabrindo(null)
+      for (const k of ['aprovacoes', 'abertos', 'analise', 'orcamentos'])
+        qc.invalidateQueries({ queryKey: [k] })
+    },
+    onError: (e) => avisar(mensagemDeErro(e), true),
+  })
+  const botaoReabrir = (o: Orc) =>
+    podeReabrir ? (
+      <button
+        type="button"
+        className="grid min-h-11 min-w-11 place-items-center rounded text-suave hover:bg-perigo/10 hover:text-perigo md:min-h-8 md:min-w-8"
+        onClick={() => setReabrindo(o)}
+        title="Voltar para abertos"
+        aria-label="Voltar para abertos"
+      >
+        <Icone nome="girar" className="h-4 w-4" />
+      </button>
+    ) : null
+
   return (
     <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-4 lg:h-[calc(100dvh-6.5rem)] print:h-auto">
       <header className="shrink-0 space-y-4">
@@ -177,7 +212,7 @@ function ControleFinanceiro() {
         </div>
         {/* Filtros (modelo de Orçamentos abertos): ficam fixos, só o conteúdo rola. */}
         <div className="cartao flex flex-wrap items-center gap-2 py-2">
-          <PeriodoSuspenso p={p} />
+          <PeriodoSuspenso p={p} comAno />
           <ProfissionaisSuspenso
             ocultos={ocultos}
             aoMudar={setOcultos}
@@ -263,7 +298,7 @@ function ControleFinanceiro() {
                     </tr>
                     {g.os.map((o) => (
                       <tr key={o.id} className="hover:bg-primaria-clara">
-                        <td className="px-4 py-2.5 align-top">
+                        <td className="px-4 py-2.5 align-middle">
                           <span className="flex gap-2.5">
                             <span
                               aria-hidden="true"
@@ -278,7 +313,7 @@ function ControleFinanceiro() {
                             </span>
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 align-top">
+                        <td className="px-4 py-2.5 align-middle">
                           <span className="flex flex-wrap gap-1">
                             {o.itens.map((i, k) => (
                               <span
@@ -290,8 +325,11 @@ function ControleFinanceiro() {
                             ))}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-right align-top font-extrabold whitespace-nowrap tabular-nums">
-                          {reais(o.totalCentavos)}
+                        <td className="px-4 py-2.5 align-middle font-extrabold whitespace-nowrap tabular-nums">
+                          <span className="flex items-center justify-end gap-1">
+                            {reais(o.totalCentavos)}
+                            {botaoReabrir(o)}
+                          </span>
                         </td>
                       </tr>
                     ))}
@@ -303,7 +341,9 @@ function ControleFinanceiro() {
                       <td colSpan={2} className="px-4 py-3 text-suave">
                         Total do período
                       </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">
+                      <td
+                        className={`py-3 pl-4 text-right whitespace-nowrap tabular-nums ${podeReabrir ? 'pr-[3.25rem]' : 'pr-4'}`}
+                      >
                         {reais(soma(lista, (o) => o.totalCentavos))}
                       </td>
                     </tr>
@@ -343,7 +383,10 @@ function ControleFinanceiro() {
                           <p className="truncate text-sm text-suave">
                             {o.itens.map((i) => i.nome).join(', ')}
                           </p>
-                          <p className="text-xs text-suave">{o.profissional.nome}</p>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs text-suave">{o.profissional.nome}</p>
+                            {botaoReabrir(o)}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -364,6 +407,50 @@ function ControleFinanceiro() {
           </section>
         </div>
       </div>
+
+      <Dialogo
+        aberto={!!reabrindo}
+        titulo="Voltar para Orçamentos abertos"
+        aoFechar={() => setReabrindo(null)}
+      >
+        {reabrindo && (
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const senha = String(new FormData(e.currentTarget).get('senha'))
+              reabrir.mutate({ id: reabrindo.id, senha })
+            }}
+          >
+            <p>
+              O orçamento nº {reabrindo.id} de <strong>{reabrindo.paciente.nome}</strong> sai dos
+              aprovados e volta para Orçamentos abertos. O pagamento de{' '}
+              {reais(reabrindo.totalCentavos)} sai do caixa. Confirme com a sua senha.
+            </p>
+            <input
+              name="senha"
+              type="password"
+              className="campo"
+              aria-label="Sua senha"
+              autoComplete="current-password"
+              autoFocus
+              required
+            />
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="botao-leve min-h-11 md:min-h-0"
+                onClick={() => setReabrindo(null)}
+              >
+                Cancelar
+              </button>
+              <button className="botao-perigo min-h-11 md:min-h-0" disabled={reabrir.isPending}>
+                Voltar para abertos
+              </button>
+            </div>
+          </form>
+        )}
+      </Dialogo>
     </div>
   )
 }

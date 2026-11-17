@@ -1,7 +1,13 @@
 // Odontograma e a aba Plano e Ficha Clínica: evolução clínica e planejamentos
 // (R-019, R-061, R-068, R-069, R-078).
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from '@tanstack/react-query'
 import {
   api,
   consultaEu,
@@ -45,9 +51,11 @@ import {
 import { CampoData } from './CampoData'
 import { CampoReais } from './CampoReais'
 import { CampoSelect } from './CampoSelect'
-import { confirmar } from './Confirmar'
+import { confirmar, confirmarDigitando } from './Confirmar'
 import { CampoSugestoes } from './CampoSugestoes'
 import { Passo } from './NovoAgendamento'
+import { useDesconto } from './Orcamentos'
+import { SeloTipoProcedimento } from '../paginas/Configuracoes'
 import { Link } from '@tanstack/react-router'
 import { whatsapp } from '../paginas/Pacientes'
 import { CampoEspecialidade } from '../paginas/Profissionais'
@@ -66,9 +74,11 @@ interface ItemClinico {
   data: string
   profissional: { id: number; nome: string }
   observacao: string | null
-  observacaoPaciente: string | null
   orcamentoId: number | null
   orcamentoStatus: string | null
+  orcamentoDescontoCentavos: number
+  /** Do cadastro do procedimento: falso = procedimento completo (boca toda). */
+  porDente: boolean
   /** Valor do item no orçamento (só origem ORCAMENTO). */
   valorCentavos: number | null
   /** Pedido para o paciente assinar; com assinadoEm, está autorizado. */
@@ -85,7 +95,7 @@ const STATUS: Record<Status, { rotulo: string; cor: string }> = {
 const PRIORIDADE: Status[] = ['A_REALIZAR', 'EXECUTADO', 'EXISTENTE']
 const vence = (a: Status | undefined, b: Status) =>
   a && PRIORIDADE.indexOf(a) < PRIORIDADE.indexOf(b) ? a : b
-/** Extração: "a realizar" marca um X; executada ou existente, o dente some do desenho. */
+/** Extração: "a realizar" marca um X; executada ou existente, o dente fica apagado. */
 const EXTRACAO = /exodontia|extra[çc][ãa]o|ausente/i
 
 const chaveProcedimentos = (id: number) => ['procedimentos', id]
@@ -161,6 +171,20 @@ interface Denticao {
   /** Última dentição mista aplicada: dá para voltar a ela pelo seletor. */
   anterior?: { tipo: TipoDenticao; mista: string[] }
 }
+/**
+ * O que o paciente assinou não muda: só o administrador altera, depois de digitar "editar".
+ * A alteração vira retificação, que vai de novo para o paciente assinar.
+ */
+const ehAdmin = (perfis: readonly string[]) => perfis.includes('ADMINISTRADOR')
+const RETIFICAR = '?retificar=1'
+const SO_ADMIN = 'Assinado pelo paciente: só o administrador altera (como retificação).'
+export const liberarAssinado = (oque = 'Este procedimento') =>
+  confirmarDigitando(
+    'editar',
+    `${oque} foi assinado pelo paciente. Alterar gera uma retificação: depois, envie o documento novo para o paciente assinar de novo.`,
+    { titulo: 'Alterar o que o paciente assinou', botao: 'Editar' },
+  )
+
 const NOME_TIPO: Record<TipoDenticao, string> = { PERMANENTE: 'Permanente', DECIDUA: 'Decídua' }
 
 /** Tipo de dentição e dentes da mista ficam neste navegador, por paciente. */
@@ -341,6 +365,13 @@ export function Odontograma({ paciente }: { paciente: Paciente }) {
     const marcarX = !removido && !!ext?.has('A_REALIZAR')
     const xNaCoroa = !removido && !marcarX && semCoroa.has(d)
     const faces = facesDoDente(d)
+    // Extraído (executado/existente): apagado como o removido, sem faces para marcar.
+    if (removido && !removidos.has(d))
+      return (
+        <div key={v} className="opacity-15" title={`${d} · extraído`}>
+          <VistaDente d={d} v={v} z={z} altura={ALTURAS[v] * z} />
+        </div>
+      )
     // Removido pelo botão: fica bem apagado; clicar marca o dente para "Repor dente".
     if (removidos.has(d))
       return (
@@ -363,7 +394,7 @@ export function Odontograma({ paciente }: { paciente: Paciente }) {
           v={v}
           z={z}
           altura={ALTURAS[v] * z}
-          oculto={removido || ((marcarX || xNaCoroa) && v === 1)}
+          oculto={(marcarX || xNaCoroa) && v === 1}
         >
           {/* Sem coroa: não há face para marcar; o dente inteiro vai pelo número. */}
           {!xNaCoroa &&
@@ -801,7 +832,13 @@ function TabelaProcedimentos(props: {
   // ponytail: um pedido por dente, sem transação; uma rota de lote se falha parcial virar problema.
   const excluir = useMutation({
     mutationFn: async (g: ItemClinico[]) =>
-      Promise.all(g.map((i) => api.delete(`/prontuario/procedimentos/${i.id}`))),
+      Promise.all(
+        g.map((i) =>
+          api.delete(
+            `/prontuario/procedimentos/${i.id}${i.autorizacao?.assinadoEm ? RETIFICAR : ''}`,
+          ),
+        ),
+      ),
     onSuccess: () => {
       avisar('Procedimento excluído')
       atualizar()
@@ -831,7 +868,6 @@ function TabelaProcedimentos(props: {
             faces: i.faces ?? '',
             data: i.data,
             observacao: i.observacao,
-            observacaoPaciente: i.observacaoPaciente,
           }),
         ),
       ),
@@ -866,14 +902,8 @@ function TabelaProcedimentos(props: {
         )}
         {props.comObservacoes && i.observacao && (
           <p className="mt-2 rounded-lg bg-superficie-2 px-2.5 py-1.5 text-xs">
-            <span className="font-bold text-suave">Interna: </span>
+            <span className="font-bold text-suave">Detalhamento: </span>
             {i.observacao}
-          </p>
-        )}
-        {props.comObservacoes && i.observacaoPaciente && (
-          <p className="mt-2 rounded-lg bg-superficie-2 px-2.5 py-1.5 text-xs">
-            <span className="font-bold text-suave">Ao paciente: </span>
-            {i.observacaoPaciente}
           </p>
         )}
       </>
@@ -881,6 +911,7 @@ function TabelaProcedimentos(props: {
   }
   const acoes = (g: ItemClinico[]) => {
     const i = g[0]
+    const assinado = !!i.autorizacao?.assinadoEm
     return (
       <>
         {i.origem === 'CLINICO' && podeEditar && (
@@ -892,22 +923,36 @@ function TabelaProcedimentos(props: {
               aoEscolher={(status) => mudarSituacao.mutate({ g, status })}
             />
             <hr className="my-1 border-borda" />
-            <button role="menuitem" className={ITEM_MENU} onClick={() => props.aoEditar(g)}>
-              Editar
-            </button>
-            <hr className="my-1 border-borda" />
-            <button
-              role="menuitem"
-              className={`${ITEM_MENU} text-perigo`}
-              disabled={excluir.isPending}
-              onClick={async () =>
-                (await confirmar(
-                  `Excluir "${i.nome}"${g.length > 1 ? ` dos ${g.length} dentes` : ''} do prontuário? Ele sai da lista, mas fica no histórico.`,
-                )) && excluir.mutate(g)
-              }
-            >
-              Excluir
-            </button>
+            {assinado && !ehAdmin(eu.perfis) ? (
+              <p className="max-w-56 px-3 py-1 text-xs text-suave">{SO_ADMIN}</p>
+            ) : (
+              <>
+                <button
+                  role="menuitem"
+                  className={ITEM_MENU}
+                  onClick={async () =>
+                    (!assinado || (await liberarAssinado())) && props.aoEditar(g)
+                  }
+                >
+                  Editar
+                </button>
+                <hr className="my-1 border-borda" />
+                <button
+                  role="menuitem"
+                  className={`${ITEM_MENU} text-perigo`}
+                  disabled={excluir.isPending}
+                  onClick={async () =>
+                    (assinado
+                      ? await liberarAssinado()
+                      : await confirmar(
+                          `Excluir "${i.nome}"${g.length > 1 ? ` dos ${g.length} dentes` : ''} do prontuário? Ele sai da lista, mas fica no histórico.`,
+                        )) && excluir.mutate(g)
+                  }
+                >
+                  Excluir
+                </button>
+              </>
+            )}
           </MenuAcoes>
         )}
         {i.origem === 'ORCAMENTO' && (podeExecutar || podeOrcar) && (
@@ -938,84 +983,145 @@ function TabelaProcedimentos(props: {
     )
   }
 
+  // Vários procedimentos do mesmo orçamento ficam juntos num bloco (como os dentes num cartão).
+  const blocos: ItemClinico[][][] = []
+  const porOrcamento = new Map<number, ItemClinico[][]>()
+  for (const g of props.grupos) {
+    const o = g[0].orcamentoId
+    const b = o != null && porOrcamento.get(o)
+    if (b) b.push(g)
+    else {
+      blocos.push([g])
+      if (o != null) porOrcamento.set(o, blocos.at(-1)!)
+    }
+  }
+
   // Um cartão por lançamento: os dentes em destaque à esquerda, na cor da situação.
   // Serve tanto na coluna estreita ao lado do odontograma quanto na largura toda.
   return (
     <ul className="-mx-1 space-y-2 overflow-x-hidden overflow-y-auto px-1 pb-1">
-      {props.grupos.map((g) => {
-        const i = g[0]
-        const cor = STATUS[i.status].cor
-        const dentes = g
-          .filter((x) => x.dente)
-          .map((x) => denteComFaces(x.dente, x.faces))
-          .sort()
+      {blocos.map((b) => {
+        if (b.length === 1) return cartao(b[0])
+        const i = b[0][0]
+        const todos = b.flat()
+        const subtotal = todos.reduce((s, x) => s + (x.valorCentavos ?? 0), 0)
         return (
           <li
-            key={`${i.origem}-${i.id}`}
-            className="flex items-start gap-3 rounded-xl border border-borda bg-superficie p-3 hover:border-primaria/40 hover:shadow-sm"
+            key={`orcamento-${i.orcamentoId}`}
+            className="space-y-2 rounded-2xl border-2 border-primaria/30 bg-primaria-clara/30 p-2"
           >
-            {/* Já enviado ou assinado: sem caixa (espera a assinatura ou o cancelamento). */}
-            {props.selecao && !i.autorizacao && (
-              <input
-                type="checkbox"
-                className="mt-3.5"
-                aria-label={`Escolher ${i.nome} para assinar`}
-                checked={props.selecao.marcado(g)}
-                onChange={() => props.selecao!.alternar(g)}
-              />
-            )}
-            {/* Vários dentes: a caixa só conta; os dentes vão em fichas abaixo do nome. */}
-            <div
-              className="flex size-12 shrink-0 flex-col items-center justify-center rounded-xl border text-center leading-none font-extrabold text-titulo"
-              style={{ background: `${cor}14`, borderColor: `${cor}59` }}
-              title={dentes.join(', ') || 'Sem dente'}
-            >
-              {dentes.length > 1 ? (
-                <>
-                  <span className="text-lg">{dentes.length}</span>
-                  <span className="mt-0.5 text-[10px] font-bold text-suave">dentes</span>
-                </>
-              ) : dentes.length ? (
-                <span className="text-base">{dentes[0]}</span>
-              ) : (
-                <Icone nome="dente" className="h-5 w-5 text-suave" />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-sm">
+              {props.selecao && !todos.some((x) => x.autorizacao) && (
+                <input
+                  type="checkbox"
+                  aria-label={`Escolher os ${b.length} procedimentos do orçamento nº ${i.orcamentoId} para assinar`}
+                  checked={props.selecao.marcado(todos)}
+                  onChange={() => props.selecao!.alternar(todos)}
+                />
               )}
-            </div>
-            <div className="min-w-0 flex-1 break-words">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <p className="font-bold text-titulo">{i.nome}</p>
-                <Selo status={i.status} />
-              </div>
-              {dentes.length > 1 && (
-                <p className="mt-2 flex flex-wrap gap-1">
-                  {dentes.map((d) => (
-                    <span
-                      key={d}
-                      className="rounded-md bg-superficie-2 px-1.5 text-[11px] font-extrabold text-titulo"
-                    >
-                      {d}
-                    </span>
-                  ))}
-                </p>
-              )}
-              <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-suave">
-                <span className="inline-flex items-center gap-1">
-                  <Icone nome="agenda" className="h-3.5 w-3.5" />
-                  {dataBR(i.data)}
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  <Icone nome="profissionais" className="h-3.5 w-3.5" />
-                  {i.profissional.nome}
-                </span>
+              <p className="font-bold text-titulo">
+                Orçamento nº {i.orcamentoId} · {b.length} procedimentos
               </p>
-              {detalhes(g)}
+              <p className="ml-auto text-suave tabular-nums">
+                {i.orcamentoDescontoCentavos > 0 && (
+                  <span className="mr-2">
+                    {reais(subtotal)} − {reais(i.orcamentoDescontoCentavos)} =
+                  </span>
+                )}
+                <strong className="text-texto">
+                  {reais(Math.max(0, subtotal - i.orcamentoDescontoCentavos))}
+                </strong>
+              </p>
             </div>
-            <div className="shrink-0">{acoes(g)}</div>
+            <ul className="space-y-2">{b.map(cartao)}</ul>
           </li>
         )
       })}
     </ul>
   )
+
+  function cartao(g: ItemClinico[]) {
+    const i = g[0]
+    const cor = STATUS[i.status].cor
+    const dentes = g
+      .filter((x) => x.dente)
+      .map((x) => denteComFaces(x.dente, x.faces))
+      .sort()
+    return (
+      <li
+        key={`${i.origem}-${i.id}`}
+        className="flex items-start gap-3 rounded-xl border border-borda bg-superficie p-3 hover:border-primaria/40 hover:shadow-sm"
+      >
+        {/* Já enviado ou assinado: sem caixa (espera a assinatura ou o cancelamento). */}
+        {props.selecao && !i.autorizacao && (
+          <input
+            type="checkbox"
+            className="mt-3.5"
+            aria-label={`Escolher ${i.nome} para assinar`}
+            checked={props.selecao.marcado(g)}
+            onChange={() => props.selecao!.alternar(g)}
+          />
+        )}
+        {/* Vários dentes: a caixa só conta; os dentes vão em fichas abaixo do nome. */}
+        <div
+          className="flex size-12 shrink-0 flex-col items-center justify-center rounded-xl border text-center leading-none font-extrabold text-titulo"
+          style={{ background: `${cor}14`, borderColor: `${cor}59` }}
+          title={dentes.join(', ') || 'Sem dente'}
+        >
+          {!i.porDente ? (
+            <>
+              <Icone nome="dente" className="h-4 w-4 text-primaria" />
+              <span className="mt-0.5 text-[9px] font-bold text-suave">boca toda</span>
+            </>
+          ) : dentes.length > 1 ? (
+            <>
+              <span className="text-lg">{dentes.length}</span>
+              <span className="mt-0.5 text-[10px] font-bold text-suave">dentes</span>
+            </>
+          ) : dentes.length ? (
+            <span className="text-base">{dentes[0]}</span>
+          ) : (
+            <Icone nome="dente" className="h-5 w-5 text-suave" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1 break-words">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <p className="font-bold text-titulo">{i.nome}</p>
+            <Selo status={i.status} />
+          </div>
+          {!i.porDente && (
+            <p className="mt-1 text-xs font-bold text-primaria">
+              Procedimento completo · boca toda ({dentes.length} dentes)
+            </p>
+          )}
+          {i.porDente && dentes.length > 1 && (
+            <p className="mt-2 flex flex-wrap gap-1">
+              {dentes.map((d) => (
+                <span
+                  key={d}
+                  className="rounded-md bg-superficie-2 px-1.5 text-[11px] font-extrabold text-titulo"
+                >
+                  {d}
+                </span>
+              ))}
+            </p>
+          )}
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-suave">
+            <span className="inline-flex items-center gap-1">
+              <Icone nome="agenda" className="h-3.5 w-3.5" />
+              {dataBR(i.data)}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Icone nome="profissionais" className="h-3.5 w-3.5" />
+              {i.profissional.nome}
+            </span>
+          </p>
+          {detalhes(g)}
+        </div>
+        <div className="shrink-0">{acoes(g)}</div>
+      </li>
+    )
+  }
 }
 
 const ITEM_MENU =
@@ -1150,6 +1256,92 @@ interface Procedimento {
   id: number
   nome: string
   valorCentavos: number
+  /** Por dente: valor × dentes marcados; senão, procedimento completo (boca toda, cobra uma vez). */
+  porDente: boolean
+}
+
+/** Acha na tabela os procedimentos escritos (mesma chave da LinhaProcedimento: vem do cache). */
+function useTabelaNomes(nomes: string[], ativo: boolean) {
+  const tabelas = useQueries({
+    queries: nomes.map((n) => ({
+      queryKey: ['procedimentos-tabela', n],
+      queryFn: async () =>
+        (await api.get<Procedimento[]>('/procedimentos', { params: { busca: n } })).data,
+      enabled: ativo,
+    })),
+  })
+  const daTabela = (n: string) => tabelas.flatMap((t) => t.data ?? []).find((t) => t.nome === n)
+  return { tabelas, daTabela }
+}
+
+const rotuloDenticao = (tipo: EscolhaDenticao) =>
+  tipo === 'MISTA' ? 'mista' : tipo === 'DECIDUA' ? 'decídua' : 'permanente'
+
+/**
+ * Procedimento completo (boca toda): mostra a dentição com todos os dentes marcados, arcada
+ * superior e inferior. Dente removido no odontograma fica de fora (riscado).
+ */
+function PainelBocaToda(props: {
+  nomes: string[]
+  superior: string[]
+  inferior: string[]
+  removidos: Set<string>
+  denticao: EscolhaDenticao
+  /** Escolha da dentição (nos planejamentos), acima dos dentes. */
+  extra?: React.ReactNode
+}) {
+  const n = [...props.superior, ...props.inferior].filter((d) => !props.removidos.has(d)).length
+  return (
+    <section
+      aria-label="Dentes do procedimento completo"
+      className="space-y-3 rounded-xl border-2 border-primaria/40 bg-primaria-clara/30 p-3"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="grid size-7 place-items-center rounded-full bg-primaria text-sobre-primaria">
+          <Icone nome="dente" className="h-4 w-4" />
+        </span>
+        <p className="font-bold text-titulo">Procedimento completo · boca toda</p>
+        <span className="etiqueta etiqueta-primaria">
+          {n} dentes · dentição {rotuloDenticao(props.denticao)}
+        </span>
+      </div>
+      <p className="text-sm text-suave">
+        <strong className="text-texto">{props.nomes.join(', ')}</strong>{' '}
+        {props.nomes.length > 1 ? 'vão' : 'vai'} em todos os dentes marcados abaixo, sem escolher
+        dente a dente.
+      </p>
+      {props.extra}
+      {[props.superior, props.inferior].map((linha, k) => (
+        <div key={k}>
+          <p className="mb-1 text-xs font-bold text-suave">{k ? 'Inferior' : 'Superior'}</p>
+          <ul
+            className="flex flex-wrap gap-1"
+            aria-label={k ? 'Arcada inferior' : 'Arcada superior'}
+          >
+            {linha.map((d) =>
+              props.removidos.has(d) ? (
+                <li
+                  key={d}
+                  title={`${d}: removido no odontograma, fica de fora`}
+                  className="min-w-8 rounded-md border border-dashed border-borda px-1.5 py-1 text-center text-xs font-bold text-suave line-through"
+                >
+                  {d}
+                </li>
+              ) : (
+                <li
+                  key={d}
+                  aria-label={`Dente ${d} marcado`}
+                  className="min-w-8 rounded-md bg-primaria px-1.5 py-1 text-center text-xs font-extrabold text-sobre-primaria"
+                >
+                  {d}
+                </li>
+              ),
+            )}
+          </ul>
+        </div>
+      ))}
+    </section>
+  )
 }
 
 type PropsForm = Parameters<typeof FormProcedimento>[0]
@@ -1304,7 +1496,11 @@ function FormProcedimento(props: {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const { data: prof } = useQuery(consultaProfissionais)
   const i = props.itens?.[0]
-  const [nome, setNome] = useState(i?.nome ?? '')
+  // Lançamento novo aceita vários procedimentos de uma vez; editar é sempre um só.
+  const [nomes, setNomes] = useState([i?.nome ?? ''])
+  const nome = nomes[0]
+  const setNome = (v: string) => setNomes([v])
+  const escolhidos = [...new Set(nomes.map((n) => n.trim()).filter(Boolean))]
   const [profissionalId, setProfissionalId] = useState<number | ''>(
     i?.profissional.id ?? prof?.meuId ?? '',
   )
@@ -1322,6 +1518,12 @@ function FormProcedimento(props: {
   const ativas = linhas.filter((l) => !l.sai)
   // Lançamento novo não vai em dente removido, nem nas faces de dente sem coroa.
   const { semCoroa, removidos } = useEstadoDentes(props.paciente.id)
+  // Procedimento completo: todos os dentes da dentição do paciente (a mista do odontograma).
+  const [den] = useDenticao(props.paciente.id)
+  const [supBoca, infBoca] = arcada(den.tipo, den.mista)
+  const dentesBoca = [...supBoca, ...infBoca]
+    .filter((d) => !removidos.has(d))
+    .map((d) => ({ dente: d, faces: '' }))
   const bloqueado = (l: Linha) => !l.id && removidos.has(l.dente)
   const semFaces = (l: Linha) => !l.id && semCoroa.has(l.dente)
   const denteInvalido = ativas.some(
@@ -1329,14 +1531,8 @@ function FormProcedimento(props: {
   )
   const [data, setData] = useState(i?.data ?? isoLocal(new Date()))
   const [observacao, setObservacao] = useState(i?.observacao ?? '')
-  const [observacaoPaciente, setObservacaoPaciente] = useState(i?.observacaoPaciente ?? '')
-  const tabela = useQuery({
-    queryKey: ['procedimentos-tabela', nome],
-    queryFn: async () =>
-      (await api.get<Procedimento[]>('/procedimentos', { params: { busca: nome } })).data,
-    enabled: !i,
-  })
-  const achado = tabela.data?.find((t) => t.nome === nome)
+  const { tabelas, daTabela } = useTabelaNomes(nomes, !i)
+  const achado = daTabela(nome)
   // Só as faces que existem no dente (trocar o dente pode deixar sobra).
   const normal = (l: Linha) => ({
     dente: l.dente,
@@ -1350,23 +1546,37 @@ function FormProcedimento(props: {
   const dentes = ativas.filter((l) => DENTES_VALIDOS.has(l.dente)).map(normal)
   // "A realizar" novo vira orçamento em aberto: precisa de preço, então só procedimento da tabela.
   const orcar = !i && status === 'A_REALIZAR'
-  const [valorEditado, setValorEditado] = useState<{ nome: string; v: number } | null>(null)
-  const valor = valorEditado?.nome === nome ? valorEditado.v : (achado?.valorCentavos ?? 0)
+  const [valores, setValores] = useState<Record<string, number>>({})
+  const valorDe = (n: string) => valores[n] ?? daTabela(n)?.valorCentavos ?? 0
   const quantidade = Math.max(1, dentes.length)
+  // Completo (boca toda) só no lançamento novo; editar mexe nos dentes um a um.
+  const completo = (n: string) => !i && daTabela(n)?.porDente === false
+  const porDente = (n: string) => !completo(n)
+  const qtd = (n: string) => (porDente(n) ? quantidade : 1)
+  const completos = escolhidos.filter(completo)
+  const soCompletos = !!escolhidos.length && completos.length === escolhidos.length
+  const dentesDe = (n: string) => (completo(n) ? dentesBoca : dentes)
+  const foraDaTabela = escolhidos.filter((n) => !daTabela(n))
+  const subtotal = escolhidos.reduce((s, n) => s + valorDe(n) * qtd(n), 0)
+  const { desconto, campoDesconto } = useDesconto(subtotal)
   const salvar = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<{ id?: number }> => {
+      // Todos os procedimentos num orçamento só: aparecem juntos no plano, com um desconto.
       if (orcar)
         return (
           await api.post<{ id: number }>('/orcamentos', {
             pacienteId: props.paciente.id,
             profissionalId,
-            itens: (dentes.length ? dentes : [{ dente: null, faces: null }]).map((d) => ({
-              procedimentoId: achado!.id,
-              ...d,
-              valorCentavos: valor,
-              observacao,
-              observacaoPaciente,
-            })),
+            itens: escolhidos.flatMap((n) =>
+              (dentesDe(n).length ? dentesDe(n) : [{ dente: null, faces: null }]).map((d, k) => ({
+                procedimentoId: daTabela(n)!.id,
+                ...d,
+                // Completo: cobra uma vez (no primeiro dente); os outros dentes vão sem valor.
+                valorCentavos: porDente(n) || k === 0 ? valorDe(n) : 0,
+                observacao,
+              })),
+            ),
+            descontoCentavos: desconto,
             observacoes: observacao,
           })
         ).data
@@ -1377,19 +1587,30 @@ function FormProcedimento(props: {
         status,
         data,
         observacao,
-        observacaoPaciente,
       }
       const criar = async (ds: typeof dentes) =>
         (await api.post(`/pacientes/${props.paciente.id}/procedimentos`, { ...corpo, dentes: ds }))
           .data
-      if (!props.itens) return criar(dentes)
+      if (!props.itens) {
+        // ponytail: um pedido por procedimento, em sequência, sem transação.
+        for (const n of escolhidos)
+          await api.post(`/pacientes/${props.paciente.id}/procedimentos`, {
+            ...corpo,
+            procedimentoId: daTabela(n)?.id ?? null,
+            nome: n,
+            dentes: dentesDe(n),
+          })
+        return {}
+      }
       // Editar o lançamento: um registro por dente; os tirados saem (ficam no histórico)
       // e os dentes novos são criados. ponytail: pedidos em sequência, sem transação.
+      // Assinado: o administrador já confirmou ao abrir (vira retificação).
+      const ret = i?.autorizacao?.assinadoEm ? RETIFICAR : ''
       for (const l of linhas)
         if (l.id)
           await (l.sai
-            ? api.delete(`/prontuario/procedimentos/${l.id}`)
-            : api.put(`/prontuario/procedimentos/${l.id}`, { ...corpo, ...normal(l) }))
+            ? api.delete(`/prontuario/procedimentos/${l.id}${ret}`)
+            : api.put(`/prontuario/procedimentos/${l.id}${ret}`, { ...corpo, ...normal(l) }))
       const novas = ativas.filter((l) => !l.id && DENTES_VALIDOS.has(l.dente)).map(normal)
       if (novas.length) await criar(novas)
       return {}
@@ -1400,7 +1621,9 @@ function FormProcedimento(props: {
           ? `Adicionado ao plano (orçamento nº ${r.id} em aberto)`
           : i
             ? 'Procedimento atualizado'
-            : 'Procedimento adicionado ao prontuário',
+            : escolhidos.length > 1
+              ? `${escolhidos.length} procedimentos adicionados ao prontuário`
+              : 'Procedimento adicionado ao prontuário',
       )
       qc.invalidateQueries({ queryKey: chaveProcedimentos(props.paciente.id) })
       qc.invalidateQueries({ queryKey: ['orcamentos', props.paciente.id] })
@@ -1411,7 +1634,13 @@ function FormProcedimento(props: {
   // Excluir o lançamento inteiro: todos os dentes saem da lista (ficam no histórico).
   const excluirTudo = useMutation({
     mutationFn: async () =>
-      Promise.all(props.itens!.map((x) => api.delete(`/prontuario/procedimentos/${x.id}`))),
+      Promise.all(
+        props.itens!.map((x) =>
+          api.delete(
+            `/prontuario/procedimentos/${x.id}${x.autorizacao?.assinadoEm ? RETIFICAR : ''}`,
+          ),
+        ),
+      ),
     onSuccess: () => {
       avisar('Procedimento excluído')
       qc.invalidateQueries({ queryKey: chaveProcedimentos(props.paciente.id) })
@@ -1431,18 +1660,69 @@ function FormProcedimento(props: {
       }}
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <label>
-          <span className="rotulo">Procedimento *</span>
-          <CampoSugestoes
-            sugestoes={tabela.data?.map((t) => t.nome) ?? []}
-            value={nome}
-            onChange={setNome}
-            placeholder="Busque na tabela ou escreva"
-            autoFocus
-            required
-          />
-          {erro('procedimentoId')}
-        </label>
+        {i ? (
+          <label>
+            <span className="rotulo">Procedimento *</span>
+            <CampoSugestoes
+              sugestoes={tabelas[0]?.data?.map((t) => t.nome) ?? []}
+              value={nome}
+              onChange={setNome}
+              placeholder="Busque na tabela ou escreva"
+              autoFocus
+              required
+            />
+            {erro('procedimentoId')}
+          </label>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="rotulo mb-0">
+                {escolhidos.length > 1
+                  ? `Procedimentos (${escolhidos.length}) *`
+                  : 'Procedimento *'}
+              </span>
+              <button
+                type="button"
+                className="botao-fantasma botao-pequeno"
+                onClick={() => setNomes([...nomes, ''])}
+              >
+                + Outro procedimento
+              </button>
+            </div>
+            {nomes.map((n, k) => (
+              <div key={k} className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <LinhaProcedimento
+                    rotulo={`Procedimento ${k + 1}`}
+                    valor={n}
+                    autoFocus={k === nomes.length - 1}
+                    aoMudar={(v) => setNomes(nomes.map((x, j) => (j === k ? v : x)))}
+                  />
+                </div>
+                {daTabela(n.trim()) && <SeloTipoProcedimento porDente={porDente(n.trim())} />}
+                {nomes.length > 1 && (
+                  <button
+                    type="button"
+                    className="botao-leve botao-icone inline-grid place-items-center text-perigo"
+                    aria-label={`Tirar ${n || `o procedimento ${k + 1}`}`}
+                    title="Tirar"
+                    onClick={() => setNomes(nomes.filter((_, j) => j !== k))}
+                  >
+                    <Icone nome="fechar" className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+            {escolhidos.length > 1 && (
+              <p className="ajuda">
+                {completos.length
+                  ? 'Os por dente vão nos dentes marcados; os completos, na boca toda.'
+                  : 'Cada procedimento vai em todos os dentes marcados.'}
+              </p>
+            )}
+            {erro('procedimentoId')}
+          </div>
+        )}
         <label>
           <span className="rotulo">Profissional *</span>
           <CampoSelect
@@ -1467,40 +1747,105 @@ function FormProcedimento(props: {
           ))}
       </fieldset>
 
-      <LinhasDentes
-        pacienteId={props.paciente.id}
-        rotulo="Dentes e faces (opcional)"
-        linhas={linhas}
-        aoMudar={setLinhas}
-      />
+      {!soCompletos && (
+        <LinhasDentes
+          pacienteId={props.paciente.id}
+          rotulo={
+            completos.length
+              ? 'Dentes e faces dos procedimentos por dente (opcional)'
+              : 'Dentes e faces (opcional)'
+          }
+          linhas={linhas}
+          aoMudar={setLinhas}
+        />
+      )}
+      {!!completos.length && (
+        <PainelBocaToda
+          nomes={completos}
+          superior={supBoca}
+          inferior={infBoca}
+          removidos={removidos}
+          denticao={den.mista.length ? 'MISTA' : den.tipo}
+        />
+      )}
       {erro('dente')}
 
       {orcar ? (
         <div className="alerta-info space-y-2">
-          {!achado && (
+          {(!escolhidos.length || !!foraDaTabela.length) && (
             <p className="font-bold text-perigo">
-              Escolha um procedimento da tabela para ver o preço e gerar o orçamento.
+              {foraDaTabela.length && escolhidos.length > 1
+                ? `Escolha da tabela: ${foraDaTabela.join(', ')}. Só assim tem preço para o orçamento.`
+                : 'Escolha um procedimento da tabela para ver o preço e gerar o orçamento.'}
             </p>
           )}
-          {achado && (
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div className="w-44">
-                <CampoReais
-                  id="valor-a-realizar"
-                  rotulo="Valor por dente"
-                  valor={valor}
-                  aoMudar={(v) => setValorEditado({ nome, v })}
-                />
-              </div>
-              <p className="text-lg">
-                {quantidade > 1 && (
-                  <span className="text-suave">
-                    {quantidade} × {reais(valor)} ={' '}
-                  </span>
+          {!!escolhidos.length && !foraDaTabela.length && (
+            <>
+              <ul className="space-y-2">
+                {escolhidos.map((n, k) => {
+                  const tipo = porDente(n) ? 'por dente' : 'procedimento completo'
+                  return (
+                    <li key={n} className="flex flex-wrap items-end gap-3">
+                      <div className="w-56 max-w-full">
+                        <CampoReais
+                          id={`valor-a-realizar-${k}`}
+                          rotulo={escolhidos.length > 1 ? `${n} · ${tipo}` : `Valor ${tipo}`}
+                          valor={valorDe(n)}
+                          aoMudar={(v) => setValores({ ...valores, [n]: v })}
+                        />
+                      </div>
+                      {/* Quantidade = dentes marcados (só no "por dente"); muda ao marcar dentes. */}
+                      <div className="w-28">
+                        <span className="rotulo" id={`qtd-${k}`}>
+                          Qtd. dentes
+                        </span>
+                        <output
+                          aria-labelledby={`qtd-${k}`}
+                          className="campo block text-center tabular-nums"
+                          title={
+                            porDente(n)
+                              ? 'Dentes marcados'
+                              : `Procedimento completo: ${dentesBoca.length} dentes, cobra uma vez`
+                          }
+                        >
+                          {porDente(n) ? dentes.length || 1 : 'Boca toda'}
+                        </output>
+                      </div>
+                      <p className="ml-auto pb-2 tabular-nums">
+                        {qtd(n) > 1 && (
+                          <span className="text-suave">
+                            {qtd(n)} dentes × {reais(valorDe(n))} ={' '}
+                          </span>
+                        )}
+                        <strong>{reais(valorDe(n) * qtd(n))}</strong>
+                      </p>
+                    </li>
+                  )
+                })}
+              </ul>
+              {campoDesconto}
+              {erro('descontoCentavos')}
+              <dl className="space-y-0.5 border-t border-borda pt-2">
+                {desconto > 0 && (
+                  <>
+                    <div className="flex justify-between text-suave">
+                      <dt>Subtotal</dt>
+                      <dd className="tabular-nums">{reais(subtotal)}</dd>
+                    </div>
+                    <div className="flex justify-between text-suave">
+                      <dt>Desconto</dt>
+                      <dd className="tabular-nums">− {reais(desconto)}</dd>
+                    </div>
+                  </>
                 )}
-                Total: <strong>{reais(valor * quantidade)}</strong>
-              </p>
-            </div>
+                <div className="flex justify-between text-lg">
+                  <dt>Total do orçamento</dt>
+                  <dd className="font-bold tabular-nums">
+                    {reais(Math.max(0, subtotal - desconto))}
+                  </dd>
+                </div>
+              </dl>
+            </>
           )}
           <p className="text-suave">
             Entra no plano de tratamento na hora, para o paciente autorizar. O orçamento fica em
@@ -1515,22 +1860,13 @@ function FormProcedimento(props: {
         </label>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <CampoObservacao
-          rotulo="Observação interna"
-          ajuda="Não sai no documento do paciente."
-          valor={observacao}
-          aoMudar={setObservacao}
-          erro={erros.observacao}
-        />
-        <CampoObservacao
-          rotulo="Observação para o paciente"
-          ajuda="Sai no documento que o paciente assina."
-          valor={observacaoPaciente}
-          aoMudar={setObservacaoPaciente}
-          erro={erros.observacaoPaciente}
-        />
-      </div>
+      <CampoObservacao
+        rotulo="Detalhamento"
+        ajuda="Vem preenchido no documento que o paciente assina; dá para mudar ao enviar."
+        valor={observacao}
+        aoMudar={setObservacao}
+        erro={erros.observacao}
+      />
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         {props.itens && (
@@ -1556,10 +1892,10 @@ function FormProcedimento(props: {
           className="botao"
           disabled={
             excluirTudo.isPending ||
-            !nome.trim() ||
+            !escolhidos.length ||
             !profissionalId ||
             denteInvalido ||
-            (orcar && !achado) ||
+            (orcar && !!foraDaTabela.length) ||
             salvar.isPending
           }
         >
@@ -1757,6 +2093,14 @@ interface Pedido {
   pdf: string
   /** Com ficha: pedido de um planejamento. */
   fichaId: number | null
+  /** Avulso assinado: o que mudou nos procedimentos depois da assinatura. */
+  alteracoes: string[]
+  /** O administrador mudou o que o paciente assinou (falta mandar a retificação). */
+  alteradoEm: string | null
+  /** Este pedido é a retificação daquele (assinado). */
+  retificaId: number | null
+  /** Assinado e já retificado: a retificação que vale agora. */
+  retificadoPor: { id: number; assinadoEm: string | null } | null
   /** Texto pronto para mandar ao paciente, com o link. */
   mensagem: string
   /** O que o paciente lê (o que interessa aqui para reaproveitar ao enviar de novo). */
@@ -1841,7 +2185,7 @@ export function PlanoFichaClinica({ paciente }: { paciente: Paciente }) {
       aoMudar={atualizar}
       aoEditar={(itens) => setDialogo({ itens })}
       marcar={
-        podeEditar && !a.assinadoEm && pendentes.length > 1
+        podeEditar && !a.assinadoEm && !a.retificaId && pendentes.length > 1
           ? {
               marcado: juntar.has(a.id),
               alternar: () => {
@@ -1862,8 +2206,8 @@ export function PlanoFichaClinica({ paciente }: { paciente: Paciente }) {
         <div>
           <h2 className="text-xl">Evolução clínica</h2>
           <p className="subtitulo">
-            Registre os procedimentos avulsos feitos ou a fazer e envie ao paciente para confirmar
-            e assinar pelo celular. O tratamento completo fica em Planejamentos.
+            Registre os procedimentos avulsos feitos ou a fazer e envie ao paciente para confirmar e
+            assinar pelo celular. O tratamento completo fica em Planejamentos.
           </p>
         </div>
         {podeEditar && (
@@ -2034,8 +2378,8 @@ function EnviarParaAssinar(props: {
   aoTerminar: (ok?: boolean) => void
 }) {
   const [plano, setPlano] = useState('')
-  // Começa com a observação para o paciente já gravada; o que mudar aqui vale só no documento.
-  const [textos, setTextos] = useState(props.grupos.map((g) => g[0].observacaoPaciente ?? ''))
+  // Começa com o detalhamento gravado; o que mudar aqui vale só no documento.
+  const [textos, setTextos] = useState(props.grupos.map((g) => g[0].observacao ?? ''))
   const criar = useMutation({
     mutationFn: async () =>
       (
@@ -2082,8 +2426,8 @@ function EnviarParaAssinar(props: {
                 </span>
               </p>
               <CampoObservacao
-                rotulo="Sobre este procedimento, para o paciente"
-                ajuda="Sai no documento que o paciente assina."
+                rotulo="Detalhamento"
+                ajuda="Vem do procedimento; o que mudar aqui vale só neste documento."
                 valor={textos[k]}
                 aoMudar={(v) => setTextos(textos.map((t, j) => (j === k ? v : t)))}
               />
@@ -2125,6 +2469,7 @@ function CartaoPedido(props: {
   return (
     <div className="px-4 py-3">
       <LinhaPedido {...props} />
+      <ListaAlteracoes itens={props.pedido.alteracoes} />
       {/* Assinado: sempre fechado numa lista que abre, mesmo com um procedimento só. */}
       {props.grupos.length > 1 || (props.pedido.assinadoEm && props.grupos.length) ? (
         <details className="group mt-2">
@@ -2139,6 +2484,24 @@ function CartaoPedido(props: {
       ) : (
         !!props.grupos.length && <div className="mt-2">{tabela}</div>
       )}
+    </div>
+  )
+}
+
+/** O que mudou depois que o paciente assinou (comparado com o documento assinado). */
+function ListaAlteracoes({ itens }: { itens: string[] }) {
+  if (!itens?.length) return null
+  return (
+    <div className="mt-2 rounded-xl border border-borda px-3 py-2 text-sm">
+      <p className="flex flex-wrap items-center gap-2 font-semibold">
+        <span className={APROVACAO.ALTERADO.classe}>{APROVACAO.ALTERADO.rotulo}</span>O que mudou
+        desde a assinatura:
+      </p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5 break-words">
+        {itens.map((t) => (
+          <li key={t}>{t}</li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -2160,6 +2523,15 @@ function LinhaPedido(props: {
     mutationFn: async () => api.post(`/autorizacoes/${a.id}/cancelar`),
     onSuccess: () => {
       avisar('Pedido cancelado')
+      props.aoMudar()
+    },
+    onError: (e) => avisar(mensagemDeErro(e), true),
+  })
+  // Documento novo com o que está hoje: aparece em "Aguardando assinatura" para enviar.
+  const retificar = useMutation({
+    mutationFn: async () => api.post(`/autorizacoes/${a.id}/retificar`),
+    onSuccess: () => {
+      avisar('Retificação criada: envie o link para o paciente assinar de novo')
       props.aoMudar()
     },
     onError: (e) => avisar(mensagemDeErro(e), true),
@@ -2193,6 +2565,17 @@ function LinhaPedido(props: {
       )}
       <p className="mr-auto">
         <strong className="text-titulo">Pedido nº {a.id}</strong>
+        {a.retificaId && (
+          <span className="etiqueta etiqueta-perigo ml-2">
+            Retificação do pedido nº {a.retificaId}
+          </span>
+        )}
+        {a.retificadoPor && (
+          <span className="etiqueta etiqueta-aviso ml-2">
+            Retificado pelo pedido nº {a.retificadoPor.id}
+            {!a.retificadoPor.assinadoEm && ' (aguardando assinatura)'}
+          </span>
+        )}
         <span className="text-suave">
           {' '}
           · {n} procedimento{n > 1 ? 's' : ''} ·{' '}
@@ -2211,6 +2594,21 @@ function LinhaPedido(props: {
             Abrir PDF
           </a>
           {mensagens}
+          {props.podeEditar && a.alteradoEm && !a.retificadoPor && !a.fichaId && (
+            <button
+              className="botao-perigo botao-pequeno"
+              disabled={retificar.isPending}
+              onClick={async () =>
+                (await confirmar(
+                  'Criar a retificação? O paciente recebe um documento novo, marcado como retificação, com o que mudou, e assina de novo. Este continua guardado como foi assinado.',
+                  { titulo: 'Retificação do plano', botao: 'Criar retificação' },
+                )) && retificar.mutate()
+              }
+            >
+              <Icone nome="enviar" className="h-3.5 w-3.5" />
+              Enviar retificação
+            </button>
+          )}
         </>
       ) : (
         <>
@@ -2250,7 +2648,9 @@ function LinhaPedido(props: {
           disabled={cancelar.isPending}
           onClick={async () =>
             (await confirmar(
-              'Cancelar o pedido? O link deixa de valer e os procedimentos voltam para a Ficha clínica.',
+              a.retificaId && !a.fichaId
+                ? 'Cancelar a retificação? O link deixa de valer e os procedimentos voltam para o pedido assinado (ainda alterado).'
+                : 'Cancelar o pedido? O link deixa de valer e os procedimentos voltam para a Ficha clínica.',
               { botao: 'Cancelar pedido' },
             )) && cancelar.mutate()
           }
@@ -2303,7 +2703,13 @@ interface Ficha {
   criadoEm: string
   profissional: { id: number; nome: string }
   itens: ItemFicha[]
-  aprovacao: { situacao: SituacaoAprovacao; assinadoEm: string | null }
+  aprovacao: {
+    situacao: SituacaoAprovacao
+    assinadoEm: string | null
+    alteracoes: string[]
+    /** O administrador mudou o que foi assinado: o próximo envio é uma retificação. */
+    retificacao: boolean
+  }
 }
 
 const ETIQUETA_FICHA: Record<Ficha['status'], string> = {
@@ -2333,7 +2739,7 @@ const APROVACAO: Record<
     classe: 'etiqueta etiqueta-sucesso',
     cor: 'var(--sucesso)',
     ajuda:
-      'O que foi assinado não muda, só o andamento. O que você acrescentar vai num novo pedido.',
+      'O que foi assinado não muda, só o andamento (o administrador altera, como retificação). O que você acrescentar vai num novo pedido.',
   },
   ALTERADO: {
     rotulo: 'Alterado após assinar',
@@ -2341,6 +2747,14 @@ const APROVACAO: Record<
     cor: 'var(--info)',
     ajuda: 'Há procedimentos ou etapas novos desde a assinatura: envie para assinar novamente.',
   },
+}
+/** Alterado pelo administrador depois de assinado: o envio vai como retificação. */
+const RETIFICACAO = {
+  rotulo: 'Retificação a enviar',
+  classe: 'etiqueta etiqueta-perigo',
+  cor: 'var(--perigo)',
+  ajuda:
+    'O administrador alterou o que o paciente assinou: envie a retificação para ele assinar de novo.',
 }
 
 /** Cor de cada situação do dente na ficha, das variáveis do tema. */
@@ -2380,7 +2794,7 @@ function SeloDenteFicha({ status }: { status: string }) {
   )
 }
 
-/** Um lançamento = mesmo procedimento, data, situação, observação e pedido de assinatura. */
+/** Um lançamento = mesmo procedimento, data, situação, detalhamento e pedido de assinatura. */
 function agruparItensFicha(itens: ItemFicha[]) {
   const porChave = new Map<string, ItemFicha[]>()
   for (const i of itens) {
@@ -2776,16 +3190,19 @@ function FichaDetalhe({
   voltar: () => void
 }) {
   const qc = useQueryClient()
+  const { data: eu } = useSuspenseQuery(consultaEu)
   const { data: prof } = useQuery(consultaProfissionais)
   // As etapas mudam aqui na hora; o servidor recebe a lista inteira a cada mudança.
   const [etapas, setEtapas] = useState(f.etapas)
+  // Administrador confirmou ("editar"): as etapas assinadas mudam, como retificação.
+  const [liberadas, setLiberadas] = useState(false)
   // A ficha veio de novo do servidor (salvou, o paciente assinou): as etapas acompanham.
   const [doServidor, setDoServidor] = useState(f.etapas)
   if (doServidor !== f.etapas) {
     setDoServidor(f.etapas)
     setEtapas(f.etapas)
   }
-  const [dialogo, setDialogo] = useState<{ grupo?: ItemFicha[] } | null>(null)
+  const [dialogo, setDialogo] = useState<{ grupo?: ItemFicha[]; retificar?: boolean } | null>(null)
   const [enviando, setEnviando] = useState(false)
   const atualizar = () => qc.invalidateQueries({ queryKey: chaveFichas(paciente.id) })
   const trocar = (nova: Ficha) =>
@@ -2818,7 +3235,7 @@ function FichaDetalhe({
 
   const salvar = useMutation({
     mutationFn: async (d: Record<string, unknown>) =>
-      (await api.patch<Ficha>(`/prontuario/fichas/${f.id}`, d)).data,
+      (await api.patch<Ficha>(`/prontuario/fichas/${f.id}${liberadas ? RETIFICAR : ''}`, d)).data,
     onSuccess: trocar,
     onError: (e) => {
       avisar(mensagemDeErro(e), true)
@@ -2844,7 +3261,8 @@ function FichaDetalhe({
   const [alvo, setAlvo] = useState<number | null>(null)
   const feitas = etapas.filter((e) => e.executado).length
   const atual = etapas.findIndex((e) => !e.executado)
-  const ap = APROVACAO[f.aprovacao.situacao]
+  const retificacao = f.aprovacao.situacao === 'ALTERADO' && f.aprovacao.retificacao
+  const ap = retificacao ? RETIFICACAO : APROVACAO[f.aprovacao.situacao]
   const podeEnviar = ['NAO_ENVIADO', 'ALTERADO'].includes(f.aprovacao.situacao)
 
   return (
@@ -2912,12 +3330,15 @@ function FichaDetalhe({
               onClick={() => setEnviando(true)}
             >
               <Icone nome="celular" className="h-4 w-4" />
-              {f.aprovacao.situacao === 'ALTERADO'
-                ? 'Enviar para assinar de novo'
-                : 'Enviar para o paciente assinar'}
+              {retificacao
+                ? 'Enviar retificação ao paciente'
+                : f.aprovacao.situacao === 'ALTERADO'
+                  ? 'Enviar para assinar de novo'
+                  : 'Enviar para o paciente assinar'}
             </button>
           )}
         </div>
+        {f.aprovacao.situacao === 'ALTERADO' && <ListaAlteracoes itens={f.aprovacao.alteracoes} />}
         {!!pedidos.data?.length && (
           <div className="divide-y divide-borda rounded-xl border border-borda">
             {pedidos.data.map((a) => (
@@ -3024,7 +3445,7 @@ function FichaDetalhe({
           {etapas.map((e, i) => {
             const cor = e.tipo ? COR_ETAPA[e.tipo] : 'var(--suave)'
             const aprovacao = e.tipo === 'APROVACAO'
-            const fixo = !podeEditar || e.travada
+            const fixo = !podeEditar || (e.travada && !liberadas)
             const ultima = i === etapas.length - 1
             return (
               <li
@@ -3153,7 +3574,7 @@ function FichaDetalhe({
                     Executado
                   </label>
                 )}
-                {podeEditar && !e.tipo && !e.travada && (
+                {podeEditar && !e.tipo && (!e.travada || liberadas) && (
                   <button
                     type="button"
                     className="absolute -top-2 -right-2 rounded-full border border-borda bg-superficie p-1 text-suave opacity-0 shadow-sm transition group-hover:opacity-100 hover:border-perigo hover:bg-perigo hover:text-superficie focus-visible:opacity-100"
@@ -3174,7 +3595,30 @@ function FichaDetalhe({
         <p className="text-xs text-suave">
           Avaliação, planejamento, aprovação do caso e finalização não saem (o nome pode mudar).
           Arraste pela alça ⠿ ou use as setas para mudar a ordem. Etapa assinada pelo paciente só
-          muda o executado e a posição.
+          muda o executado e a posição
+          {podeEditar && ehAdmin(eu.perfis) && etapas.some((e) => e.travada) && !liberadas && (
+            <>
+              {' '}
+              (
+              <button
+                type="button"
+                className="font-bold text-perigo underline"
+                onClick={async () =>
+                  (await liberarAssinado('O planejamento')) && setLiberadas(true)
+                }
+              >
+                alterar etapas assinadas
+              </button>
+              )
+            </>
+          )}
+          .
+          {liberadas && (
+            <strong className="text-perigo">
+              {' '}
+              Etapas assinadas liberadas: o que mudar vai como retificação.
+            </strong>
+          )}
         </p>
       </section>
 
@@ -3182,7 +3626,7 @@ function FichaDetalhe({
         ficha={f}
         podeEditar={podeEditar}
         aoAdicionar={() => setDialogo({})}
-        aoEditar={(grupo) => setDialogo({ grupo })}
+        aoEditar={(grupo, retificar) => setDialogo({ grupo, retificar })}
         atualizar={atualizar}
       />
 
@@ -3201,6 +3645,7 @@ function FichaDetalhe({
             paciente={paciente}
             ficha={f}
             grupo={dialogo.grupo}
+            retificar={dialogo.retificar}
             aoTerminar={(salvo) => {
               setDialogo(null)
               if (salvo) atualizar()
@@ -3338,8 +3783,8 @@ function ObservacoesFicha(props: {
 }
 
 /**
- * Antes de enviar o planejamento: o texto geral, um comentário por procedimento e um por
- * etapa (sobre as datas). Começa com o que foi escrito no último pedido.
+ * Antes de enviar o planejamento: o texto geral e um comentário por procedimento; as etapas
+ * aparecem só com as datas. Começa com o que foi escrito no último pedido.
  */
 function EnviarPlanejamento(props: {
   ficha: Ficha
@@ -3355,13 +3800,11 @@ function EnviarPlanejamento(props: {
     Object.fromEntries(
       [...grupos.keys()].map((n) => [
         n,
-        ant?.itens.find((i) => i.nome === n)?.observacaoPaciente ?? '',
+        // O último pedido vale mais; sem ele, o detalhamento do procedimento.
+        ant?.itens.find((i) => i.nome === n)?.observacaoPaciente ??
+          grupos.get(n)!.find((i) => i.observacao)?.observacao ??
+          '',
       ]),
-    ),
-  )
-  const [etapas, setEtapas] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      f.etapas.map((e) => [e.id, ant?.etapas?.find((x) => x.id === e.id)?.comentario ?? '']),
     ),
   )
   const criar = useMutation({
@@ -3371,7 +3814,6 @@ function EnviarPlanejamento(props: {
           fichaId: f.id,
           plano,
           procedimentos,
-          etapas,
         })
       ).data,
     onSuccess: (a) => {
@@ -3409,26 +3851,11 @@ function EnviarPlanejamento(props: {
         )}
         <ol className="divide-y divide-borda rounded-xl border border-borda">
           {f.etapas.map((e, k) => (
-            <li
-              key={e.id}
-              className="grid gap-2 px-3 py-2 sm:grid-cols-[14rem_1fr] sm:items-center"
-            >
-              <p className="text-sm">
-                <strong className="text-titulo">
-                  {k + 1}. {e.nome}
-                </strong>
-                <span className="block text-xs text-suave">
-                  {e.data ? `Previsto para ${dataBR(e.data)}` : 'Data a definir'}
-                </span>
-              </p>
-              <input
-                className="campo"
-                aria-label={`Comentário sobre a etapa ${e.nome}`}
-                placeholder="Comentário para o paciente (opcional)"
-                maxLength={LIMITE_OBSERVACAO}
-                value={etapas[e.id] ?? ''}
-                onChange={(ev) => setEtapas({ ...etapas, [e.id]: ev.target.value })}
-              />
+            <li key={e.id} className="flex flex-wrap justify-between gap-x-3 px-3 py-2 text-sm">
+              <strong className="text-titulo">
+                {k + 1}. {e.nome}
+              </strong>
+              <span className="text-suave">{e.data ? dataBR(e.data) : 'A definir'}</span>
             </li>
           ))}
         </ol>
@@ -3448,8 +3875,8 @@ function EnviarPlanejamento(props: {
                 </span>
               </p>
               <CampoObservacao
-                rotulo="Sobre este procedimento, para o paciente"
-                ajuda="Sai no documento que o paciente assina."
+                rotulo="Detalhamento"
+                ajuda="Vem do procedimento; o que mudar aqui vale só neste documento."
                 valor={procedimentos[nome] ?? ''}
                 aoMudar={(v) => setProcedimentos({ ...procedimentos, [nome]: v })}
               />
@@ -3474,9 +3901,11 @@ function ProcedimentosFicha(props: {
   ficha: Ficha
   podeEditar: boolean
   aoAdicionar: () => void
-  aoEditar: (g: ItemFicha[]) => void
+  /** retificar: o administrador confirmou mudar o que o paciente assinou. */
+  aoEditar: (g: ItemFicha[], retificar?: boolean) => void
   atualizar: () => void
 }) {
+  const { data: eu } = useSuspenseQuery(consultaEu)
   const [filtro, setFiltro] = useState<string | null>(null)
   const aoErrar = (e: unknown) => avisar(mensagemDeErro(e), true)
   const mudarSituacao = useMutation({
@@ -3490,7 +3919,13 @@ function ProcedimentosFicha(props: {
   })
   const remover = useMutation({
     mutationFn: async (g: ItemFicha[]) =>
-      Promise.all(g.map((i) => api.delete(`/prontuario/fichas/itens/${i.id}`))),
+      Promise.all(
+        g.map((i) =>
+          api.delete(
+            `/prontuario/fichas/itens/${i.id}${i.autorizacao?.assinadoEm ? RETIFICAR : ''}`,
+          ),
+        ),
+      ),
     onSuccess: () => {
       avisar('Procedimento excluído')
       props.atualizar()
@@ -3642,6 +4077,26 @@ function ProcedimentosFicha(props: {
                   <button role="menuitem" className={ITEM_MENU} onClick={() => props.aoEditar(g)}>
                     {i.autorizacao ? 'Acrescentar dentes' : 'Editar dentes e faces'}
                   </button>
+                  {/* Assinado: só o administrador muda ou exclui, confirmando (retificação). */}
+                  {i.autorizacao?.assinadoEm && ehAdmin(eu.perfis) && (
+                    <>
+                      <button
+                        role="menuitem"
+                        className={`${ITEM_MENU} text-perigo`}
+                        onClick={async () => (await liberarAssinado()) && props.aoEditar(g, true)}
+                      >
+                        Alterar o assinado (retificação)
+                      </button>
+                      <button
+                        role="menuitem"
+                        className={`${ITEM_MENU} text-perigo`}
+                        disabled={remover.isPending}
+                        onClick={async () => (await liberarAssinado()) && remover.mutate(g)}
+                      >
+                        Excluir (retificação)
+                      </button>
+                    </>
+                  )}
                   {!i.autorizacao && (
                     <button
                       role="menuitem"
@@ -3881,10 +4336,13 @@ function FormProcedimentoFicha(props: {
   paciente: Paciente
   ficha: Ficha
   grupo?: ItemFicha[]
+  /** O administrador confirmou: os dentes assinados também mudam (retificação). */
+  retificar?: boolean
   aoTerminar: (salvo?: boolean) => void
 }) {
   const g = props.grupo
-  const enviado = !!g?.[0].autorizacao
+  const enviado = !!g?.[0].autorizacao && !props.retificar
+  const ret = props.retificar ? RETIFICAR : ''
   const [procedimentos, setProcedimentos] = useState(g ? [g[0].procedimento] : [''])
   const [status, setStatus] = useState<string>(g?.[0].status ?? STATUS_DENTE_FICHA[0])
   const [linhas, setLinhas] = useState<Linha[]>(
@@ -3904,6 +4362,12 @@ function FormProcedimentoFicha(props: {
 
   const ativas = linhas.filter((l) => !l.sai)
   const nomes = [...new Set(procedimentos.map((p) => p.trim()).filter(Boolean))]
+  // Completo (boca toda): vai em todos os dentes da dentição escolhida, sem marcar um a um.
+  const { daTabela } = useTabelaNomes(procedimentos, !g)
+  const completo = (n: string) => !g && daTabela(n)?.porDente === false
+  const completos = nomes.filter(completo)
+  const porDenteNomes = nomes.filter((n) => !completo(n))
+  const soCompletos = !!nomes.length && !porDenteNomes.length
   const novas = ativas.filter((l) => !l.id && DENTES_VALIDOS.has(l.dente))
   const temDente = ativas.some((l) => DENTES_VALIDOS.has(l.dente))
   const denteInvalido = ativas.some(
@@ -3920,7 +4384,17 @@ function FormProcedimentoFicha(props: {
   const nDentes = (ds: { dente: string }[]) => new Set(ds.map((d) => d.dente)).size
   // Só trouxe do odontograma (que já vem com os dentes): o passo dos dentes já está feito.
   const soTrazidos = !g && !!trazidos.length && !nomes.length && !temDente
-  const total = nomes.length * nDentes(novas) + trazidos.reduce((s, t) => s + nDentes(t.dentes), 0)
+  // Dentes da dentição escolhida: sugestões, atalhos (arcadas e quadrantes) e a boca toda.
+  const [superior, inferior] =
+    denticao === 'MISTA' ? arcada(den.tipo, den.mista) : arcada(denticao, [])
+  const dentesDaDenticao = [...superior, ...inferior]
+  const dentesBoca = dentesDaDenticao
+    .filter((d) => !removidos.has(d))
+    .map((d) => ({ dente: d, faces: '' }))
+  const total =
+    porDenteNomes.length * nDentes(novas) +
+    completos.length * dentesBoca.length +
+    trazidos.reduce((s, t) => s + nDentes(t.dentes), 0)
   const pendencia = denteInvalido
     ? 'Corrija os dentes marcados em vermelho.'
     : g
@@ -3929,7 +4403,7 @@ function FormProcedimentoFicha(props: {
         : 'Deixe ao menos um dente.'
       : trazidos.some((t) => !t.dentes.length)
         ? 'Um procedimento do odontograma ficou sem dentes.'
-        : nomes.length && !temDente
+        : porDenteNomes.length && !temDente
           ? 'Marque os dentes do procedimento.'
           : !nomes.length && temDente
             ? 'Escreva o procedimento dos dentes marcados.'
@@ -3937,10 +4411,6 @@ function FormProcedimentoFicha(props: {
               ? 'Escreva o procedimento ou traga um do odontograma.'
               : ''
 
-  // Dentes da dentição escolhida: sugestões e atalhos (arcadas e quadrantes).
-  const [superior, inferior] =
-    denticao === 'MISTA' ? arcada(den.tipo, den.mista) : arcada(denticao, [])
-  const dentesDaDenticao = [...superior, ...inferior]
   const semRemovidos = (gs: [string, string[]][]) =>
     gs.map(([r, ds]): [string, string[]] => [r, ds.filter((d) => !removidos.has(d))])
   const atalhos = gruposDeDentes(superior, inferior)
@@ -3971,23 +4441,26 @@ function FormProcedimentoFicha(props: {
       </button>
     ))
 
-  // Já cadastrados no odontograma (só os que têm dente: a ficha é por dente).
+  // Já cadastrados no odontograma: os que têm dente (a ficha é por dente) e os de boca toda,
+  // que podem vir sem dente (do orçamento) e entram com os dentes da dentição escolhida.
   const doOdontograma = agruparProcedimentos(odontograma.data ?? []).filter((x) =>
-    x.some((i) => i.dente),
+    x.some((i) => i.dente || !i.porDente),
   )
   const chaveDe = (x: ItemClinico[]) => x.map(chaveItem).join(',')
-  const trazer = (x: ItemClinico[]) =>
+  const trazer = (x: ItemClinico[]) => {
+    const comDente = x
+      .filter((i) => i.dente && !removidos.has(i.dente))
+      .map((i) => ({ dente: i.dente!, faces: i.faces ?? '' }))
     setTrazidos([
       ...trazidos,
       {
         chave: chaveDe(x),
         nome: x[0].nome,
         status,
-        dentes: x
-          .filter((i) => i.dente && !removidos.has(i.dente))
-          .map((i) => ({ dente: i.dente!, faces: i.faces ?? '' })),
+        dentes: comDente.length || x[0].porDente ? comDente : dentesBoca,
       },
     ])
+  }
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -4005,9 +4478,9 @@ function FormProcedimentoFicha(props: {
           if (!l.id) continue
           const antes = g.find((i) => i.id === l.id)!
           const n = normal(l)
-          if (l.sai) await api.delete(`/prontuario/fichas/itens/${l.id}`)
+          if (l.sai) await api.delete(`/prontuario/fichas/itens/${l.id}${ret}`)
           else if (!l.travada && (n.dente !== antes.dente || n.faces !== antes.faces))
-            await api.patch(`/prontuario/fichas/itens/${l.id}`, { ...n, status })
+            await api.patch(`/prontuario/fichas/itens/${l.id}${ret}`, { ...n, status })
           else if (status !== antes.status)
             await api.patch(`/prontuario/fichas/itens/${l.id}`, { status })
         }
@@ -4017,7 +4490,8 @@ function FormProcedimentoFicha(props: {
       // ponytail: um pedido por grupo, sem transação; se um falhar, o que já foi salvo sai da tela.
       let n = 0
       if (nomes.length) {
-        n += (await lote(nomes, novas, status)).data.criados
+        if (porDenteNomes.length) n += (await lote(porDenteNomes, novas, status)).data.criados
+        if (completos.length) n += (await lote(completos, dentesBoca, status)).data.criados
         setParcial(true)
         setProcedimentos([''])
         setLinhas([{ dente: '', faces: '' }])
@@ -4047,6 +4521,33 @@ function FormProcedimentoFicha(props: {
     },
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
+
+  const escolhaDenticao = (
+    <LinhaAtalhos rotulo="Dentição">
+      <div role="radiogroup" aria-label="Dentição" className="contents">
+        {(
+          [
+            ['PERMANENTE', 'Permanente'],
+            ['DECIDUA', 'Decídua'],
+            ['MISTA', 'Mista (odontograma)'],
+          ] as const
+        )
+          .filter(([v]) => v !== 'MISTA' || den.mista.length)
+          .map(([v, rotulo]) => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={denticao === v}
+              onClick={() => setDenticao(v)}
+              className={PILULA}
+            >
+              {rotulo}
+            </button>
+          ))}
+      </div>
+    </LinhaAtalhos>
+  )
 
   const colunaPrincipal = (
     <div className="min-w-0 space-y-6">
@@ -4086,7 +4587,7 @@ function FormProcedimentoFicha(props: {
           <div className="space-y-2">
             {procedimentos.map((p, k) => (
               <div key={k} className="flex items-center gap-2">
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <LinhaProcedimento
                     rotulo={`Procedimento ${k + 1}`}
                     valor={p}
@@ -4096,6 +4597,7 @@ function FormProcedimentoFicha(props: {
                     }
                   />
                 </div>
+                {daTabela(p.trim()) && <SeloTipoProcedimento porDente={!completo(p.trim())} />}
                 {procedimentos.length > 1 && (
                   <button
                     type="button"
@@ -4110,9 +4612,11 @@ function FormProcedimentoFicha(props: {
               </div>
             ))}
             <p className="ajuda">
-              {nomes.length > 1
-                ? 'Cada procedimento vai em todos os dentes marcados abaixo.'
-                : 'Escreva livremente ou escolha um procedimento já cadastrado na tabela da clínica. Opcional se trouxer do odontograma.'}
+              {completos.length && nomes.length > 1
+                ? 'Os por dente vão nos dentes marcados; os completos, na boca toda.'
+                : nomes.length > 1
+                  ? 'Cada procedimento vai em todos os dentes marcados abaixo.'
+                  : 'Escreva livremente ou escolha um procedimento já cadastrado na tabela da clínica. Opcional se trouxer do odontograma.'}
             </p>
           </div>
         )}
@@ -4125,55 +4629,50 @@ function FormProcedimentoFicha(props: {
       <Passo
         n={3}
         id="passo-dentes"
-        titulo="Dentes e faces"
-        feito={(temDente && !denteInvalido) || soTrazidos}
+        titulo={soCompletos ? 'Dentes (boca toda)' : 'Dentes e faces'}
+        feito={(temDente && !denteInvalido) || soTrazidos || soCompletos}
       >
-        <LinhasDentes
-          pacienteId={props.paciente.id}
-          rotulo={
-            marcados.size
-              ? `${marcados.size} ${marcados.size === 1 ? 'dente marcado' : 'dentes marcados'}`
-              : 'Nenhum dente marcado'
-          }
-          linhas={linhas}
-          aoMudar={setLinhas}
-          dentes={dentesDaDenticao}
-          atalhos={
-            <div className="my-2 space-y-2 rounded-xl bg-superficie-2 p-3">
-              <LinhaAtalhos rotulo="Dentição">
-                <div role="radiogroup" aria-label="Dentição" className="contents">
-                  {(
-                    [
-                      ['PERMANENTE', 'Permanente'],
-                      ['DECIDUA', 'Decídua'],
-                      ['MISTA', 'Mista (odontograma)'],
-                    ] as const
-                  )
-                    .filter(([v]) => v !== 'MISTA' || den.mista.length)
-                    .map(([v, rotulo]) => (
-                      <button
-                        key={v}
-                        type="button"
-                        role="radio"
-                        aria-checked={denticao === v}
-                        onClick={() => setDenticao(v)}
-                        className={PILULA}
-                      >
-                        {rotulo}
-                      </button>
-                    ))}
-                </div>
-              </LinhaAtalhos>
-              <LinhaAtalhos rotulo="Marcar">{pilulasMarcar(atalhos.marcas)}</LinhaAtalhos>
-              <LinhaAtalhos rotulo="Quadrantes">
-                {/* Os quatro numa linha só (tela cheia). */}
-                <div className="grid flex-1 grid-cols-2 gap-1.5 md:grid-cols-4 [&>button]:justify-center [&>button]:px-2 [&>button]:whitespace-nowrap">
-                  {pilulasMarcar(atalhos.quadrantes)}
-                </div>
-              </LinhaAtalhos>
-            </div>
-          }
-        />
+        {!soCompletos && (
+          <LinhasDentes
+            pacienteId={props.paciente.id}
+            rotulo={
+              marcados.size
+                ? `${marcados.size} ${marcados.size === 1 ? 'dente marcado' : 'dentes marcados'}`
+                : 'Nenhum dente marcado'
+            }
+            linhas={linhas}
+            aoMudar={setLinhas}
+            dentes={dentesDaDenticao}
+            atalhos={
+              <div className="my-2 space-y-2 rounded-xl bg-superficie-2 p-3">
+                {escolhaDenticao}
+                <LinhaAtalhos rotulo="Marcar">{pilulasMarcar(atalhos.marcas)}</LinhaAtalhos>
+                <LinhaAtalhos rotulo="Quadrantes">
+                  {/* Os quatro numa linha só (tela cheia). */}
+                  <div className="grid flex-1 grid-cols-2 gap-1.5 md:grid-cols-4 [&>button]:justify-center [&>button]:px-2 [&>button]:whitespace-nowrap">
+                    {pilulasMarcar(atalhos.quadrantes)}
+                  </div>
+                </LinhaAtalhos>
+              </div>
+            }
+          />
+        )}
+        {!!completos.length && (
+          <div className={soCompletos ? '' : 'mt-4'}>
+            <PainelBocaToda
+              nomes={completos}
+              superior={superior}
+              inferior={inferior}
+              removidos={removidos}
+              denticao={denticao}
+              extra={
+                soCompletos && (
+                  <div className="rounded-xl bg-superficie-2 p-3">{escolhaDenticao}</div>
+                )
+              }
+            />
+          </div>
+        )}
       </Passo>
     </div>
   )
@@ -4264,7 +4763,8 @@ function FormProcedimentoFicha(props: {
                                 style={{ background: cor }}
                               />
                               <span className="truncate">
-                                {rotulo} · {dentesDoGrupo(x).join(', ')}
+                                {rotulo} ·{' '}
+                                {x[0].porDente ? dentesDoGrupo(x).join(', ') : 'boca toda'}
                               </span>
                             </span>
                           </span>
@@ -4285,17 +4785,17 @@ function FormProcedimentoFicha(props: {
       <Passo
         n={4}
         id="passo-data"
-        titulo={g ? 'Data e observação' : 'Data e observação (para todos)'}
+        titulo={g ? 'Data e detalhamento' : 'Data e detalhamento (para todos)'}
         feito={!!data}
       >
         {g ? (
-          // Os dentes novos entram no mesmo lançamento: mesma data e observação.
+          // Os dentes novos entram no mesmo lançamento: mesma data e detalhamento.
           <p className="text-sm text-suave">
             Data: <strong className="text-texto">{dataBR(g[0].data) || 'sem data'}</strong>
             {g[0].observacao && (
               <>
                 {' '}
-                · Observação: <span className="text-texto">{g[0].observacao}</span>
+                · Detalhamento: <span className="text-texto">{g[0].observacao}</span>
               </>
             )}
           </p>
@@ -4306,8 +4806,8 @@ function FormProcedimentoFicha(props: {
               <CampoData value={data} onChange={setData} />
             </label>
             <CampoObservacao
-              rotulo="Observação"
-              ajuda="Vale para todos os procedimentos e dentes adicionados agora."
+              rotulo="Detalhamento"
+              ajuda="Vale para todos os procedimentos e dentes adicionados agora; vem preenchido no documento que o paciente assina."
               valor={observacao}
               aoMudar={setObservacao}
             />

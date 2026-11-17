@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { cpfValido, dataValida, idade, normalizar, podeCadastrar } from '../../shared/regras'
+import {
+  cadastroDesatualizado,
+  cpfValido,
+  dataValida,
+  idade,
+  normalizar,
+  podeCadastrar,
+} from '../../shared/regras'
 import { pode } from '../../shared/permissoes'
 import { clicarHorario, ladoALado, paraHora } from '../../shared/agenda'
 import { agruparProcedimentos, facesDoDente, normalizarFaces } from '../../shared/prontuario'
@@ -83,11 +90,17 @@ describe('regras de apoio', () => {
     for (const a of [
       'painel.ver',
       'usuario.gerenciar',
-      'configuracao.editar',
+      'configuracao.horarios',
+      'configuracao.permissoes',
       'dados.importar',
       'lixeira.restaurar',
     ] as const)
       for (const p of [R, F, P]) expect(pode(p, a)).toBe(false)
+    // Configurações: o Financeiro entra só na aba Clínica.
+    for (const a of ['configuracao.editar', 'configuracao.clinica'] as const) {
+      expect(pode(F, a)).toBe(true)
+      for (const p of [R, P]) expect(pode(p, a)).toBe(false)
+    }
   })
 })
 
@@ -171,7 +184,6 @@ describe('faces do dente no odontograma', () => {
       data: '2026-10-30',
       profissional: { id: 1 },
       observacao: null,
-      observacaoPaciente: null,
       orcamentoId: null,
     }
     const grupos = agruparProcedimentos([
@@ -190,5 +202,17 @@ describe('desconto do orçamento em R$ ou %', () => {
     expect(percentualDoDesconto(30000, 3000)).toBe(10)
     expect(percentualDoDesconto(30000, 1000)).toBe(3.33)
     expect(percentualDoDesconto(0, 1000)).toBe(0)
+  })
+})
+
+describe('cadastro desatualizado (aviso anual)', () => {
+  const hoje = new Date('2026-11-16T12:00:00Z')
+  it('avisa a partir de 1 ano da última atualização', () => {
+    expect(cadastroDesatualizado('2025-11-16T12:00:00Z', hoje)).toBe(true)
+    expect(cadastroDesatualizado('2024-03-01T00:00:00Z', hoje)).toBe(true)
+  })
+  it('não avisa antes de completar 1 ano', () => {
+    expect(cadastroDesatualizado('2025-11-17T12:00:00Z', hoje)).toBe(false)
+    expect(cadastroDesatualizado('2026-11-16T09:00:00Z', hoje)).toBe(false)
   })
 })

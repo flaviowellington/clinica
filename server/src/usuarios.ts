@@ -6,6 +6,7 @@ import { db } from './db'
 import { abrirSessao, conferirSenha, exigir, gerarHash, usuarioDe } from './auth'
 import { emailConfigurado, enviarEmail } from './mensagens'
 import { lerConfig } from './configuracoes'
+import { podeDarDesconto } from '../../shared/permissoes'
 import type { Usuario } from './generated/prisma/client'
 import {
   MinhaSenhaDto,
@@ -18,6 +19,7 @@ import {
   type Preferencias,
 } from '../../shared/dtos'
 import { lerCorpo } from './dto'
+import { mandarFoto, receberFoto, tratarFoto } from './foto'
 import { normalizar } from '../../shared/regras'
 
 const id = (req: Request) => Number(req.params.id) || 0
@@ -29,6 +31,7 @@ const campos = {
   email: true,
   perfis: true,
   ativo: true,
+  fotoEm: true,
   criadoEm: true,
   pessoa: { select: { id: true, nome: true } },
 } as const
@@ -145,6 +148,38 @@ rotasUsuarios.post('/:id/senha', exigir('usuario.gerenciar'), async (req, res) =
   res.json({ mensagem: 'Senha alterada.' })
 })
 
+// Foto do usuário: só o administrador coloca ou tira (mesmo tratamento da do profissional).
+rotasUsuarios.post('/:id/foto', exigir('usuario.gerenciar'), receberFoto, async (req, res) => {
+  if (!(await db.usuario.findUnique({ where: { id: id(req) } })))
+    return res.status(404).json({ erro: 'Usuário não encontrado.' })
+  const foto = await tratarFoto(req, res)
+  if (!foto) return
+  res.json(
+    await db.usuario.update({
+      where: { id: id(req) },
+      data: { foto, fotoEm: new Date() },
+      select: campos,
+    }),
+  )
+})
+
+rotasUsuarios.get('/:id/foto', exigir('usuario.gerenciar'), async (req, res) => {
+  const u = await db.usuario.findUnique({ where: { id: id(req) }, select: { foto: true } })
+  mandarFoto(res, u?.foto)
+})
+
+rotasUsuarios.delete('/:id/foto', exigir('usuario.gerenciar'), async (req, res) => {
+  if (!(await db.usuario.findUnique({ where: { id: id(req) } })))
+    return res.status(404).json({ erro: 'Usuário não encontrado.' })
+  res.json(
+    await db.usuario.update({
+      where: { id: id(req) },
+      data: { foto: null, fotoEm: null },
+      select: campos,
+    }),
+  )
+})
+
 /** Qualquer usuário troca a própria senha, informando a atual. Montada em /api/eu. */
 export const rotasEu = Router()
 
@@ -242,11 +277,18 @@ rotasRecuperarSenha.post('/redefinir', async (req, res) => {
 })
 
 /** O login e o /eu devolvem o mesmo formato: a tela de entrar grava a resposta como o "eu". */
-export const dadosDoEu = async ({ id, nome, login, perfis, preferencias }: Usuario) => ({
+export const dadosDoEu = async ({
+  id,
+  nome,
+  login,
+  perfis,
+  preferencias,
+}: Omit<Usuario, 'foto'>) => ({
   id,
   nome,
   login,
   perfis,
   preferencias: preferencias ?? {},
   permissoes: await lerConfig('permissoes'),
+  podeDesconto: podeDarDesconto({ id, perfis }, await lerConfig('desconto')),
 })

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Icone } from './Icones'
 
 /** Quadrado escolhido, em pixels da imagem original (o servidor corta e reduz para 400x400). */
 export interface Recorte {
@@ -56,21 +57,50 @@ export function RecorteFoto(props: {
   aoConfirmar: (f: FotoNova) => void
   aoCancelar: () => void
 }) {
+  // Girar troca o arquivo pelo girado; o servidor recebe a foto já em pé.
+  const [arquivo, setArquivo] = useState(props.arquivo)
   const [url, setUrl] = useState('')
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const [zoom, setZoom] = useState(1)
+  const [girando, setGirando] = useState(false)
   // Posição do canto da imagem em relação ao canto do quadro (sempre <= 0).
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const arrasto = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
+  const imagem = useRef<HTMLImageElement>(null)
   const usada = useRef(false)
   // URL local da foto; solta se não foi usada (a usada fica viva para a prévia no formulário).
   useEffect(() => {
-    const u = URL.createObjectURL(props.arquivo)
+    const u = URL.createObjectURL(arquivo)
     setUrl(u)
     return () => {
       if (!usada.current) URL.revokeObjectURL(u)
     }
-  }, [props.arquivo])
+  }, [arquivo])
+
+  // 90° no sentido horário: desenha num canvas com largura e altura trocadas.
+  const girar = () => {
+    const img = imagem.current
+    if (!img || !natural) return
+    setGirando(true)
+    const c = document.createElement('canvas')
+    c.width = natural.h
+    c.height = natural.w
+    const g = c.getContext('2d')!
+    g.translate(c.width, 0)
+    g.rotate(Math.PI / 2)
+    g.drawImage(img, 0, 0)
+    c.toBlob(
+      (b) => {
+        setGirando(false)
+        if (!b) return
+        setNatural(null)
+        setZoom(1)
+        setArquivo(new File([b], `foto.${b.type.split('/')[1] ?? 'jpg'}`, { type: b.type }))
+      },
+      'image/webp', // sem suporte (Safari) o navegador gera PNG, que o servidor também aceita
+      0.92,
+    )
+  }
 
   // Escala mínima: a imagem cobre o quadro inteiro.
   const base = natural ? QUADRO / Math.min(natural.w, natural.h) : 1
@@ -102,7 +132,7 @@ export function RecorteFoto(props: {
     }
   }
   const atual: FotoNova | null = natural
-    ? { arquivo: props.arquivo, url, largura: natural.w, altura: natural.h, recorte: recorte() }
+    ? { arquivo, url, largura: natural.w, altura: natural.h, recorte: recorte() }
     : null
 
   return (
@@ -135,6 +165,7 @@ export function RecorteFoto(props: {
           }}
         >
           <img
+            ref={imagem}
             src={url || undefined}
             alt=""
             draggable={false}
@@ -207,6 +238,16 @@ export function RecorteFoto(props: {
           disabled={zoom >= ZOOM_MAXIMO}
         >
           +
+        </button>
+        <button
+          type="button"
+          className="botao-leve botao-icone"
+          aria-label="Girar 90° para a direita"
+          title="Girar 90° para a direita"
+          onClick={girar}
+          disabled={!natural || girando}
+        >
+          <Icone nome="girar" className="size-5" />
         </button>
       </div>
       <p className="ajuda mt-0">

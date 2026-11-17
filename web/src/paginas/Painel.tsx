@@ -49,7 +49,7 @@ interface DadosPainel extends Resumo {
     porDia: { data: string; valor: number }[]
     tendencia: { mes: string; faturamento: number }[]
   }
-  inadimplencia: { valor: number; parcelas: number; pacientes: number; porAtraso: Item[] }
+  inadimplencia: { porAtraso: Item[] }
   orcamentos: Resumo['orcamentos'] & {
     funil: Item[]
     porEspecialidade: Item[]
@@ -225,7 +225,7 @@ export function Painel() {
         {d && graficos && (
           <div className={`flex flex-col gap-4 ${r.isFetching ? 'opacity-60' : ''}`}>
             {/* ---------- Cartões principais ---------- */}
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <Cartao
                 rotulo="Faturamento"
                 valor={reais(d.financeiro.faturamento)}
@@ -237,12 +237,6 @@ export function Painel() {
                 nota={`Ticket médio ${reais(d.financeiro.ticketMedio)} · ${d.financeiro.faturados} orçamento(s)`}
                 tendencia={d.financeiro.tendencia.map((x) => x.faturamento)}
                 cor="var(--serie-3)"
-              />
-              <Cartao
-                rotulo="Inadimplência hoje"
-                valor={reais(d.inadimplencia.valor)}
-                tom={d.inadimplencia.valor ? 'perigo' : 'sucesso'}
-                nota={`${d.inadimplencia.parcelas} parcela(s) de ${d.inadimplencia.pacientes} paciente(s)`}
               />
               <Medidor
                 rotulo="Conversão de orçamentos"

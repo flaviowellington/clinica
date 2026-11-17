@@ -21,6 +21,12 @@ export const MESES = [
 export const dataCurta = (iso: string) =>
   `${iso.slice(8)} ${MESES[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`
 export const meio = (iso: string) => new Date(`${iso}T12:00:00`)
+/** "Segunda, 02 nov" ou "Hoje, quarta, 04 nov". */
+export const diaDaSemana = (iso: string, hoje: string) => {
+  const t = meio(iso).toLocaleDateString('pt-BR', { weekday: 'long' }).replace('-feira', '')
+  const s = `${t}, ${iso.slice(8)} ${MESES[Number(iso.slice(5, 7)) - 1]}`
+  return iso === hoje ? `Hoje, ${s}` : s.charAt(0).toUpperCase() + s.slice(1)
+}
 /**
  * Calendário de intervalo: dois cliques em dias quaisquer escolhem De e Até.
  * Trocar o mês exibido não muda o intervalo.
@@ -33,7 +39,11 @@ export function CalendarioIntervalo(props: {
   hoje: string
   aoClicar: (dia: string) => void
   aoVerTudo: () => void
+  /** Mostra "Nesse ano" (1º de janeiro a 31 de dezembro do ano de hoje). */
+  aoVerAno?: () => void
 }) {
+  const ano = props.hoje.slice(0, 4)
+  const noAno = !props.tudo && props.de === `${ano}-01-01` && props.ate === `${ano}-12-31`
   const [mes, setMes] = useState(props.de.slice(0, 7))
   const primeiro = `${mes}-01`
   const inicio = somarDias(primeiro, -meio(primeiro).getDay()) // começa no domingo, como na Agenda
@@ -145,6 +155,16 @@ export function CalendarioIntervalo(props: {
       >
         Ver todo o período
       </button>
+      {props.aoVerAno && (
+        <button
+          type="button"
+          aria-pressed={noAno}
+          onClick={props.aoVerAno}
+          className={`h-10 w-full rounded-xl border-2 font-bold ${noAno ? 'border-primaria bg-primaria-clara text-titulo' : 'border-borda bg-superficie hover:border-primaria/50 hover:bg-primaria-clara'}`}
+        >
+          Nesse ano
+        </button>
+      )}
     </div>
   )
 }

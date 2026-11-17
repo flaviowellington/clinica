@@ -60,7 +60,6 @@ export function agruparProcedimentos<
     data: string
     profissional: { id: number }
     observacao: string | null
-    observacaoPaciente: string | null
     orcamentoId: number | null
   },
 >(itens: T[]) {
@@ -73,7 +72,6 @@ export function agruparProcedimentos<
       i.data,
       i.profissional.id,
       i.observacao,
-      i.observacaoPaciente,
       i.orcamentoId,
     ])
     grupos.set(k, [...(grupos.get(k) ?? []), i])

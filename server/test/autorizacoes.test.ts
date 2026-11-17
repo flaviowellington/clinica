@@ -7,6 +7,7 @@ import { cliente, entrarComo, PACIENTE, urlBase, usarServidor, type Cliente } fr
 usarServidor()
 
 const ASSINATURA = 'data:image/png;base64,iVBORw0KGgo='
+const tokenDe = (r: { corpo: { link: string } }) => r.corpo.link.split('/autorizar/')[1]
 
 async function base(api: Cliente) {
   const dentista = await db.pessoa.create({
@@ -28,8 +29,7 @@ async function base(api: Cliente) {
       procedimentoId: resina.id,
       dente,
       faces: 'O',
-      observacao: 'Só a equipe vê',
-      observacaoPaciente: 'Evite mastigar do lado por 2 horas',
+      observacao: 'Evite mastigar do lado por 2 horas',
     })),
   })
   expect(o.status).toBe(201)
@@ -48,17 +48,17 @@ describe('autorização do plano de tratamento', () => {
     const api = await entrarComo('PROFISSIONAL')
     const { paciente, itens, orcamentoId } = await base(api)
 
-    // Antes: a realizar, com as duas observações, sem pedido.
+    // Antes: a realizar, com o detalhamento, sem pedido.
     expect(await plano(api, paciente.id)).toMatchObject([
-      { observacao: 'Só a equipe vê', autorizacao: null },
-      { observacao: 'Só a equipe vê', autorizacao: null },
+      { observacao: 'Evite mastigar do lado por 2 horas', autorizacao: null },
+      { observacao: 'Evite mastigar do lado por 2 horas', autorizacao: null },
     ])
 
     const r = await api('POST', '/api/autorizacoes', { pacienteId: paciente.id, itens })
     expect(r.status).toBe(201)
     const token = r.corpo.link.split('/autorizar/')[1]
 
-    // Mesmo procedimento em dois dentes vira uma linha só; a observação interna não vai.
+    // Mesmo procedimento em dois dentes vira uma linha só; sem texto, vai o detalhamento.
     const publico = cliente()
     const pagina = await publico('GET', `/api/publico/autorizacao/${token}`)
     expect(pagina.corpo).toMatchObject({
@@ -74,7 +74,6 @@ describe('autorização do plano de tratamento', () => {
         ],
       },
     })
-    expect(JSON.stringify(pagina.corpo)).not.toContain('Só a equipe vê')
 
     // Item já enviado não entra em outro pedido.
     const dobro = await api('POST', '/api/autorizacoes', { pacienteId: paciente.id, itens })
@@ -225,6 +224,92 @@ describe('autorização do plano de tratamento', () => {
     )
   })
 
+  it('assinado, só a situação muda; o administrador altera confirmando e reenvia como retificação', async () => {
+    const api = await entrarComo('PROFISSIONAL')
+    const dentista = await db.pessoa.create({
+      data: { tipo: 'PROFISSIONAL', nome: 'Dra. Muda', nomeBusca: 'dra. muda' },
+    })
+    const { corpo: paciente } = await api('POST', '/api/pacientes', PACIENTE)
+    const novo = (dente: string) =>
+      api('POST', `/api/pacientes/${paciente.id}/procedimentos`, {
+        nome: 'Limpeza',
+        profissionalId: dentista.id,
+        status: 'A_REALIZAR',
+        dente,
+      })
+    const [a, b] = [(await novo('11')).corpo, (await novo('12')).corpo]
+    const r = await api('POST', '/api/autorizacoes', {
+      pacienteId: paciente.id,
+      itens: [a, b].map((c) => ({ origem: 'CLINICO', id: c.id })),
+    })
+    await cliente()('POST', `/api/publico/autorizacao/${tokenDe(r)}`, {
+      nome: 'Fulano de Teste',
+      assinatura: ASSINATURA,
+    })
+    const pedido = async () =>
+      (await api('GET', `/api/autorizacoes?pacienteId=${paciente.id}`)).corpo.find(
+        (x: { id: number }) => x.id === r.corpo.id,
+      )
+    expect((await pedido()).alteracoes).toEqual([])
+
+    const mudar = {
+      nome: 'Limpeza',
+      profissionalId: dentista.id,
+      status: 'A_REALIZAR',
+      dente: '21',
+    }
+    const url = (id: number, retificar = false) =>
+      `/api/prontuario/procedimentos/${id}${retificar ? '?retificar=1' : ''}`
+    // Andamento muda; o resto e a exclusão, não.
+    expect(
+      (await api('PUT', url(a.id), { ...mudar, dente: '11', status: 'EXECUTADO' })).status,
+    ).toBe(200)
+    expect((await api('PUT', url(a.id), mudar)).status).toBe(409)
+    expect((await api('DELETE', url(b.id))).status).toBe(409)
+    // Confirmar não adianta para quem não é administrador.
+    expect((await api('PUT', url(a.id, true), mudar)).status).toBe(403)
+    // O administrador precisa confirmar.
+    const adm = await entrarComo('ADMINISTRADOR')
+    expect((await adm('PUT', url(a.id), mudar)).status).toBe(409)
+    expect((await adm('PUT', url(a.id, true), { ...mudar, observacao: 'Sem dor.' })).status).toBe(
+      200,
+    )
+    expect((await adm('DELETE', url(b.id, true))).status).toBe(200)
+    const alterado = await pedido()
+    expect(alterado.alteradoEm).toBeTruthy()
+    const mudou = [
+      'Incluído: Limpeza — 21',
+      'Retirado: Limpeza — 11, 12',
+      'Detalhamento alterado: Limpeza',
+    ]
+    expect(alterado.alteracoes).toEqual(mudou)
+
+    // Retificação: documento novo com o que está hoje, marcado e com o que mudou.
+    const ret = await api('POST', `/api/autorizacoes/${r.corpo.id}/retificar`)
+    expect(ret.status).toBe(201)
+    expect((await api('POST', `/api/autorizacoes/${r.corpo.id}/retificar`)).status).toBe(409)
+    const doc = (await cliente()('GET', `/api/publico/autorizacao/${tokenDe(ret)}`)).corpo
+    expect(doc.conteudo).toMatchObject({
+      itens: [{ nome: 'Limpeza', dentes: ['21'], observacaoPaciente: 'Sem dor.' }],
+      retificacao: { de: r.corpo.id, alteracoes: mudou },
+    })
+    expect(doc.conteudo.retificacao.assinadoEm).toBeTruthy()
+    const lista = (await api('GET', `/api/autorizacoes?pacienteId=${paciente.id}`)).corpo
+    const nova = lista.find((x: { id: number }) => x.id === ret.corpo.id)
+    expect(nova).toMatchObject({ retificaId: r.corpo.id, assinadoEm: null })
+    expect(nova.mensagem).toContain('retificação')
+    // O assinado fica guardado como estava, apontando para a retificação.
+    expect(await pedido()).toMatchObject({ alteracoes: [], retificadoPor: { id: ret.corpo.id } })
+    const pdf = await cliente()('GET', `/api/publico/autorizacao/${tokenDe(ret)}/pdf`)
+    expect(pdf.status).toBe(200)
+
+    // Cancelar a retificação devolve o procedimento ao pedido assinado.
+    expect((await api('POST', `/api/autorizacoes/${ret.corpo.id}/cancelar`)).status).toBe(200)
+    const [proc] = await plano(api, paciente.id)
+    expect(proc.autorizacao?.id).toBe(r.corpo.id)
+    expect((await pedido()).retificadoPor).toBeNull()
+  })
+
   it('recepção não cria pedido (é prontuário)', async () => {
     const dono = await entrarComo('PROFISSIONAL')
     const { paciente, itens } = await base(dono)
@@ -269,7 +354,6 @@ describe('planejamento (ficha de especialidade) para o paciente assinar', () => 
       )
     return { paciente, f: await ficha(), url, ficha }
   }
-  const tokenDe = (r: { corpo: { link: string } }) => r.corpo.link.split('/autorizar/')[1]
 
   it('o documento traz etapas com datas e comentários; assinado, só muda o andamento', async () => {
     const api = await entrarComo('PROFISSIONAL')
@@ -352,8 +436,13 @@ describe('planejamento (ficha de especialidade) para o paciente assinar', () => 
     // Dá para acrescentar e mandar assinar de novo: o documento novo traz o plano inteiro.
     const lote = { procedimentos: ['Coroa sobre implante'], dentes: [{ dente: '36', faces: '' }] }
     await api('POST', `${url}/itens/lote`, lote)
+    await api('PATCH', url, { etapas: [...salvo.corpo.etapas, { nome: 'Moldagem', data: null }] })
     const alterada = await ficha()
     expect(alterada.aprovacao.situacao).toBe('ALTERADO')
+    expect(alterada.aprovacao.alteracoes).toEqual([
+      'Etapa incluída: Moldagem',
+      'Incluído: Coroa sobre implante — 36',
+    ])
     const nova = alterada.itens.find((i: { procedimento: string }) => i.procedimento !== 'Implante')
     expect((await api('DELETE', `/api/prontuario/fichas/itens/${nova.id}`)).status).toBe(200)
     await api('POST', `${url}/itens/lote`, lote)
@@ -380,6 +469,49 @@ describe('planejamento (ficha de especialidade) para o paciente assinar', () => 
       ['Implante', true],
       ['Coroa sobre implante', false],
     ])
+  })
+
+  it('planejamento assinado: só o administrador muda, confirmando; o novo envio é retificação', async () => {
+    const api = await entrarComo('PROFISSIONAL')
+    const { url, f, ficha } = await planejamento(api)
+    const cirurgia = f.etapas.find((e: { nome: string }) => e.nome === 'Cirurgia')
+    const r = await api('POST', '/api/autorizacoes/ficha', { fichaId: f.id })
+    const assinar = (token: string) =>
+      cliente()('POST', `/api/publico/autorizacao/${token}`, {
+        nome: 'Fulano de Teste',
+        assinatura: ASSINATURA,
+      })
+    await assinar(tokenDe(r))
+    const assinada = await ficha()
+    const item = `/api/prontuario/fichas/itens/${assinada.itens[0].id}`
+
+    expect((await api('PATCH', `${item}?retificar=1`, { dente: '37' })).status).toBe(403)
+    const adm = await entrarComo('ADMINISTRADOR')
+    expect((await adm('PATCH', item, { dente: '37' })).status).toBe(409)
+    expect((await adm('PATCH', `${item}?retificar=1`, { dente: '37' })).status).toBe(200)
+    const mexida = assinada.etapas.map((e: { id: string }) =>
+      e.id === cirurgia.id ? { ...e, data: '2027-01-01' } : e,
+    )
+    const salvo = await adm('PATCH', `${url}?retificar=1`, { etapas: mexida })
+    expect(salvo.status).toBe(200)
+    expect(salvo.corpo.etapas.find((e: { id: string }) => e.id === cirurgia.id).data).toBe(
+      '2027-01-01',
+    )
+    const alterada = await ficha()
+    expect(alterada.aprovacao).toMatchObject({ situacao: 'ALTERADO', retificacao: true })
+    expect(alterada.aprovacao.alteracoes).toEqual([
+      'Etapa alterada: Cirurgia (previsto para 01/01/2027)',
+      'Incluído: Implante — 37 (previsto para 15/12/2026)',
+      'Retirado: Implante — 36 (previsto para 15/12/2026)',
+    ])
+
+    const nova = await api('POST', '/api/autorizacoes/ficha', { fichaId: f.id })
+    expect(nova.status).toBe(201)
+    const doc = (await cliente()('GET', `/api/publico/autorizacao/${tokenDe(nova)}`)).corpo
+    expect(doc.conteudo.retificacao).toMatchObject({ de: r.corpo.id })
+    expect(doc.conteudo.itens[0].dentes).toEqual(['37', '46'])
+    await assinar(tokenDe(nova))
+    expect((await ficha()).aprovacao).toMatchObject({ situacao: 'APROVADO', retificacao: false })
   })
 
   it('planejamento sem procedimento não vai para assinar', async () => {

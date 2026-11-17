@@ -6,6 +6,7 @@ import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import { Dialogo } from './Dialogo'
 import { FormPaciente } from './FormPaciente'
+import { salvarFotoDoNovo, type FotoPendente } from './FotoPerfil'
 import { Icone } from './Icones'
 import { navegarLista } from './navegarLista'
 
@@ -106,8 +107,10 @@ export function BuscaPaciente(props: {
   const podeCadastrar = !!eu && pode(eu.perfis, 'paciente.editar')
   const [cadastrando, setCadastrando] = useState(false)
   const cadastrar = useMutation({
-    mutationFn: async (dados: Record<string, string>) =>
-      (await api.post<Paciente>('/pacientes', dados)).data,
+    mutationFn: async ([dados, foto]: [Record<string, string>, FotoPendente]) => {
+      const p = (await api.post<Paciente>('/pacientes', dados)).data
+      return (await salvarFotoDoNovo(`/pacientes/${p.id}`, foto)) ?? p
+    },
     onSuccess: (p) => {
       avisar('Paciente cadastrado com sucesso')
       qc.invalidateQueries({ queryKey: ['pacientes'] })
@@ -232,7 +235,7 @@ export function BuscaPaciente(props: {
               textoBotao="Cadastrar e usar"
               enviando={cadastrar.isPending}
               erros={errosDosCampos(cadastrar.error)}
-              aoEnviar={(d) => cadastrar.mutate(d)}
+              aoEnviar={(d, foto) => cadastrar.mutate([d, foto])}
             />
           </Dialogo>
         </div>,

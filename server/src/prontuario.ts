@@ -9,6 +9,7 @@ import { hojeNaClinica, normalizar } from '../../shared/regras'
 import {
   DENTES_VALIDOS,
   comEtapasFixas,
+  denteComFaces,
   etapasDaFicha,
   type EtapaFicha,
   MODELOS_DOCUMENTO,
@@ -19,7 +20,7 @@ import {
   type Pergunta,
 } from '../../shared/prontuario'
 import type { CategoriaArquivo, Prisma } from './generated/prisma/client'
-import type { ConteudoAutorizacao } from './autorizacoes'
+import { alteracoesDesde, type ConteudoAutorizacao } from './autorizacoes'
 import {
   AnamneseDto,
   ArquivoDto,
@@ -57,6 +58,32 @@ const diaIso = (iso: string) => new Date(`${iso}T00:00:00Z`)
 const pessoaCurta = { select: { id: true, nome: true } } as const
 /** Pedido de assinatura do paciente (plano de tratamento). */
 const comAutorizacao = { select: { id: true, assinadoEm: true, assinanteNome: true } } as const
+
+/**
+ * O que o paciente assinou não muda. Só o Administrador altera, e confirmando (?retificar=1):
+ * o pedido fica marcado como alterado e a clínica manda a retificação para o paciente assinar.
+ * Devolve o que gravar junto (a marca), ou null quando já respondeu o erro.
+ */
+async function liberarAssinado(autorizacaoId: number | null, req: Request, res: Response) {
+  const a =
+    autorizacaoId &&
+    (await db.autorizacao.findFirst({
+      where: { id: autorizacaoId, canceladoEm: null, assinadoEm: { not: null } },
+      select: { id: true },
+    }))
+  if (!a) return []
+  if (req.query.retificar !== '1') {
+    res.status(409).json({
+      erro: 'Assinado pelo paciente: não pode ser alterado. Só o administrador altera, como retificação.',
+    })
+    return null
+  }
+  if (!usuarioDe(res).perfis.includes('ADMINISTRADOR')) {
+    res.status(403).json({ erro: 'Só o administrador altera o que o paciente assinou.' })
+    return null
+  }
+  return [db.autorizacao.update({ where: { id: a.id }, data: { alteradoEm: new Date() } })]
+}
 
 // ── Rotas por paciente: /api/pacientes/:id/... ──────────────────────────────
 export const rotasFichaPaciente = Router()
@@ -192,7 +219,11 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
   const [clinicos, itens] = await Promise.all([
     db.procedimentoClinico.findMany({
       where: { pacienteId, excluidoEm: null },
-      include: { profissional: pessoaCurta, autorizacao: comAutorizacao },
+      include: {
+        profissional: pessoaCurta,
+        autorizacao: comAutorizacao,
+        procedimento: { select: { porDente: true } },
+      },
     }),
     // Em aberto ou aprovado: tudo; cancelado: só o que chegou a ser feito; excluído: nada.
     db.itemOrcamento.findMany({
@@ -206,6 +237,7 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       include: {
         orcamento: { include: { profissional: pessoaCurta } },
         autorizacao: comAutorizacao,
+        procedimento: { select: { porDente: true } },
       },
     }),
   ])
@@ -221,11 +253,13 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       data: isoDe(c.data),
       profissional: c.profissional,
       observacao: c.observacao,
-      observacaoPaciente: c.observacaoPaciente,
       autorizacao: c.autorizacao,
       orcamentoId: null as number | null,
       orcamentoStatus: null as string | null,
+      orcamentoDescontoCentavos: 0,
       valorCentavos: null as number | null,
+      // Escrito à mão (sem tabela) conta como por dente.
+      porDente: c.procedimento?.porDente ?? true,
     })),
     ...itens.map((i) => ({
       origem: 'ORCAMENTO' as const,
@@ -238,11 +272,12 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       data: isoDe(i.executadoEm ?? i.orcamento.aprovadoEm ?? i.orcamento.criadoEm),
       profissional: i.orcamento.profissional,
       observacao: i.observacao,
-      observacaoPaciente: i.observacaoPaciente,
       autorizacao: i.autorizacao,
       orcamentoId: i.orcamentoId,
       orcamentoStatus: i.orcamento.status as string | null,
+      orcamentoDescontoCentavos: i.orcamento.descontoCentavos,
       valorCentavos: i.valorCentavos as number | null,
+      porDente: i.procedimento?.porDente ?? true,
     })),
   ]
   lista.sort((a, b) => b.data.localeCompare(a.data) || b.id - a.id)
@@ -318,7 +353,7 @@ const comItens = {
   profissional: pessoaCurta,
   autorizacoes: {
     where: { canceladoEm: null },
-    select: { assinadoEm: true, conteudo: true },
+    select: { id: true, assinadoEm: true, alteradoEm: true, conteudo: true },
     orderBy: { id: 'asc' },
   },
 } as const
@@ -339,7 +374,8 @@ function etapasAssinadas(pedidos: { assinadoEm: Date | null; conteudo: unknown }
  */
 function montarFicha({ autorizacoes, etapas, ...f }: FichaDoBanco) {
   const assinadas = etapasAssinadas(autorizacoes)
-  const ultima = autorizacoes.findLast((a) => a.assinadoEm)?.assinadoEm
+  const ultimoPedido = autorizacoes.findLast((a) => a.assinadoEm)
+  const ultima = ultimoPedido?.assinadoEm
   const lista = comEtapasFixas(etapas as Partial<EtapaFicha>[]).map((e) => ({
     ...e,
     ...(e.tipo === 'APROVACAO' && {
@@ -348,15 +384,33 @@ function montarFicha({ autorizacoes, etapas, ...f }: FichaDoBanco) {
     }),
     travada: assinadas.has(e.id),
   }))
+  // O administrador mudou o que foi assinado e o paciente ainda não assinou a retificação.
+  const retificacao = !!ultima && autorizacoes.some((a) => a.alteradoEm && a.alteradoEm > ultima)
   const novo = f.itens.some((i) => !i.autorizacao) || lista.some((e) => !e.travada)
   const situacao = autorizacoes.some((a) => !a.assinadoEm)
     ? 'AGUARDANDO'
     : !ultima
       ? 'NAO_ENVIADO'
-      : novo
+      : novo || retificacao
         ? 'ALTERADO'
         : 'APROVADO'
-  return { ...f, etapas: lista, aprovacao: { situacao, assinadoEm: ultima ?? null } }
+  // O último documento assinado traz o plano inteiro: a comparação é com ele.
+  const alteracoes = ultimoPedido
+    ? alteracoesDesde(
+        ultimoPedido.conteudo as unknown as ConteudoAutorizacao,
+        f.itens.map((i) => ({
+          nome: i.procedimento,
+          dente: denteComFaces(i.dente, i.faces),
+          data: i.data?.toISOString().slice(0, 10) ?? null,
+        })),
+        lista,
+      )
+    : []
+  return {
+    ...f,
+    etapas: lista,
+    aprovacao: { situacao, assinadoEm: ultima ?? null, alteracoes, retificacao },
+  }
 }
 
 const novoId = () => randomBytes(4).toString('hex')
@@ -628,9 +682,18 @@ rotasProntuario.put('/procedimentos/:id', exigir('prontuario.editar'), async (re
   if (!dados) return
   // Editar é sempre um dente só.
   delete dados.dentes
+  // Assinado: a situação (andamento) muda livre; o resto é retificação.
+  const igual = (['procedimentoId', 'nome', 'profissionalId', 'dente', 'faces'] as const).every(
+    (k) => (dados[k] ?? null) === (c[k] ?? null),
+  )
+  const soAndamento =
+    igual && isoDe(dados.data) === isoDe(c.data) && (dados.observacao ?? null) === c.observacao
+  const marca = soAndamento ? [] : await liberarAssinado(c.autorizacaoId, req, res)
+  if (!marca) return
   const [, novo] = await db.$transaction([
     guardarAntes('ProcedimentoClinico', c, usuarioDe(res).id),
     db.procedimentoClinico.update({ where: { id: c.id }, data: dados }),
+    ...marca,
   ])
   res.json({ ...novo, data: isoDe(novo.data) })
 })
@@ -638,6 +701,8 @@ rotasProntuario.put('/procedimentos/:id', exigir('prontuario.editar'), async (re
 rotasProntuario.delete('/procedimentos/:id', exigir('prontuario.editar'), async (req, res) => {
   const c = await db.procedimentoClinico.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!c) return res.status(404).json(NAO_ACHOU)
+  const marca = await liberarAssinado(c.autorizacaoId, req, res)
+  if (!marca) return
   const u = usuarioDe(res)
   await db.$transaction([
     guardarAntes('ProcedimentoClinico', c, u.id),
@@ -645,6 +710,7 @@ rotasProntuario.delete('/procedimentos/:id', exigir('prontuario.editar'), async 
       where: { id: c.id },
       data: { excluidoEm: new Date(), excluidoPorId: u.id },
     }),
+    ...marca,
   ])
   res.json({ ok: true })
 })
@@ -663,11 +729,13 @@ rotasProntuario.patch('/fichas/:id', exigir('prontuario.editar'), async (req, re
       .json({ erro: ERRO_CAMPOS, erros: { profissionalId: 'Escolha o profissional.' } })
   const { inicio, fim, etapas, ...resto } = b
   let novas: EtapaFicha[] | undefined
+  let marca: Awaited<ReturnType<typeof liberarAssinado>> = []
   const lerAssinadas = async () =>
     etapasAssinadas(
       await db.autorizacao.findMany({
         where: { fichaId: f.id, canceladoEm: null, assinadoEm: { not: null } },
         select: { assinadoEm: true, conteudo: true },
+        orderBy: { id: 'asc' },
       }),
     )
   if (etapas) {
@@ -676,14 +744,33 @@ rotasProntuario.patch('/fichas/:id', exigir('prontuario.editar'), async (req, re
     const enviadas: Partial<EtapaFicha>[] = etapas.map((e) => ({ ...e, id: e.id || novoId() }))
     novas = comEtapasFixas(enviadas, atuais)
     // Etapa que o paciente assinou não sai e guarda nome e data; só o executado muda.
-    for (const [eid, antes] of await lerAssinadas()) {
-      const e = novas.find((x) => x.id === eid)
-      if (!e)
-        return res
-          .status(409)
-          .json({ erro: 'Etapa aprovada pelo paciente não pode sair do planejamento.' })
-      Object.assign(e, { nome: antes.nome, data: antes.data })
-    }
+    // O administrador muda confirmando: vira retificação do último documento assinado.
+    const assinadas = await lerAssinadas()
+    const mexeu = [...assinadas].some(([eid, antes]) => {
+      const e = novas!.find((x) => x.id === eid)
+      return (
+        !e ||
+        (e.tipo !== 'APROVACAO' &&
+          (e.nome !== antes.nome || (e.data ?? null) !== (antes.data ?? null)))
+      )
+    })
+    if (mexeu && req.query.retificar === '1') {
+      const ultimo = await db.autorizacao.findFirst({
+        where: { fichaId: f.id, canceladoEm: null, assinadoEm: { not: null } },
+        orderBy: { id: 'desc' },
+        select: { id: true },
+      })
+      marca = await liberarAssinado(ultimo!.id, req, res)
+      if (!marca) return
+    } else
+      for (const [eid, antes] of assinadas) {
+        const e = novas.find((x) => x.id === eid)
+        if (!e)
+          return res
+            .status(409)
+            .json({ erro: 'Etapa aprovada pelo paciente não pode sair do planejamento.' })
+        Object.assign(e, { nome: antes.nome, data: antes.data })
+      }
     // A aprovação se marca pela assinatura (montarFicha).
     for (const e of novas) if (e.tipo === 'APROVACAO') e.executado = false
   }
@@ -709,6 +796,7 @@ rotasProntuario.patch('/fichas/:id', exigir('prontuario.editar'), async (req, re
       },
       include: comItens,
     }),
+    ...marca,
   ])
   res.json(montarFicha(nova))
 })
@@ -814,16 +902,33 @@ rotasProntuario.post('/fichas/:id/itens/lote', exigir('prontuario.editar'), asyn
   res.status(201).json({ criados: count })
 })
 
-/** Enviado ao paciente (esperando ou assinado): não sai nem muda de dente, só de situação. */
+/**
+ * Enviado ao paciente: não sai nem muda de dente, só de situação. Esperando a assinatura,
+ * cancele o pedido antes; assinado, só o administrador muda (retificação).
+ */
 const ENVIADO = { erro: 'Procedimento enviado ao paciente: só a situação pode mudar.' }
+const liberarItem = async (autorizacaoId: number | null, req: Request, res: Response) => {
+  if (!autorizacaoId) return []
+  const esperando = await db.autorizacao.count({
+    where: { id: autorizacaoId, canceladoEm: null, assinadoEm: null },
+  })
+  if (esperando) {
+    res.status(409).json(ENVIADO)
+    return null
+  }
+  return liberarAssinado(autorizacaoId, req, res)
+}
 
 rotasProntuario.patch('/fichas/itens/:id', exigir('prontuario.editar'), async (req, res) => {
   const i = await db.itemFichaEspecialidade.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!i) return res.status(404).json(NAO_ACHOU)
   const b = lerCorpo(StatusItemFichaDto, req.body, res, null)
   if (!b) return
-  if ((b.dente !== undefined || b.faces !== undefined) && i.autorizacaoId)
-    return res.status(409).json(ENVIADO)
+  const marca =
+    b.dente !== undefined || b.faces !== undefined
+      ? await liberarItem(i.autorizacaoId, req, res)
+      : []
+  if (!marca) return
   const [, novo] = await db.$transaction([
     guardarAntes('ItemFichaEspecialidade', i, usuarioDe(res).id),
     db.itemFichaEspecialidade.update({
@@ -834,6 +939,7 @@ rotasProntuario.patch('/fichas/itens/:id', exigir('prontuario.editar'), async (r
         ...(b.faces !== undefined && { faces: normalizarFaces(b.faces) }),
       },
     }),
+    ...marca,
   ])
   res.json(novo)
 })
@@ -841,10 +947,12 @@ rotasProntuario.patch('/fichas/itens/:id', exigir('prontuario.editar'), async (r
 rotasProntuario.delete('/fichas/itens/:id', exigir('prontuario.editar'), async (req, res) => {
   const i = await db.itemFichaEspecialidade.findFirst({ where: { id: id(req), excluidoEm: null } })
   if (!i) return res.status(404).json(NAO_ACHOU)
-  if (i.autorizacaoId) return res.status(409).json(ENVIADO)
+  const marca = await liberarItem(i.autorizacaoId, req, res)
+  if (!marca) return
   await db.$transaction([
     guardarAntes('ItemFichaEspecialidade', i, usuarioDe(res).id),
     db.itemFichaEspecialidade.update({ where: { id: i.id }, data: { excluidoEm: new Date() } }),
+    ...marca,
   ])
   res.json({ ok: true })
 })

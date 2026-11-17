@@ -6,7 +6,7 @@ import { isAxiosError } from 'axios'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, dataBR, mensagemDeErro } from '../api'
-import { avisar } from '../estado'
+import { avisar, useVoltar } from '../estado'
 import { BuscaPaciente } from '../componentes/BuscaPaciente'
 import { confirmar } from '../componentes/Confirmar'
 import { Icone, type NomeIcone } from '../componentes/Icones'
@@ -114,14 +114,20 @@ const escolha = (marcado: boolean) =>
   `rounded-xl border-2 ${marcado ? 'border-primaria bg-primaria-clara text-titulo font-extrabold' : 'border-borda bg-superficie font-bold hover:border-primaria/50'}`
 
 export function Mensagens() {
-  const { paciente: pacienteId, envio: vindo, pedido } = useSearch({ from: '/logado/mensagens' })
+  const {
+    paciente: pacienteId,
+    envio: vindo,
+    pedido,
+    consulta: consultaVinda,
+  } = useSearch({ from: '/logado/mensagens' })
   const navegar = useNavigate({ from: '/mensagens' })
+  const voltar = useVoltar()
   const qc = useQueryClient()
   const [canal, setCanal] = useState<Canal>('EMAIL')
   const [modelo, setModelo] = useState<Modelo>(
     vindo === 'pdf' ? 'pdf' : vindo ? 'assinatura' : 'confirmacao',
   )
-  const [consultaId, setConsultaId] = useState<number | null>(null)
+  const [consultaId, setConsultaId] = useState<number | null>(consultaVinda ?? null)
   const [autorizacaoId, setAutorizacaoId] = useState<number | null>(pedido ?? null)
   const [assunto, setAssunto] = useState('')
   const [texto, setTexto] = useState('')
@@ -279,9 +285,10 @@ export function Mensagens() {
           className="grid size-11 shrink-0 place-items-center rounded-xl hover:bg-white/10"
           aria-label="Voltar"
           title="Voltar"
-          onClick={() =>
-            window.history.length > 1 ? window.history.back() : navegar({ to: '/pacientes' })
-          }
+          onClick={(e) => {
+            voltar(e)
+            if (!e.defaultPrevented) navegar({ to: '/pacientes' })
+          }}
         >
           <Icone nome="esquerda" className="h-5 w-5" />
         </button>

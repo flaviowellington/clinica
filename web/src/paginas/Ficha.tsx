@@ -10,12 +10,13 @@ import {
   mensagemDeErro,
   type Paciente,
 } from '../api'
-import { avisar } from '../estado'
+import { avisar, useVoltar } from '../estado'
 import { pode, type Acao } from '../../../shared/permissoes'
-import { idade, MOTIVOS_INATIVACAO } from '../../../shared/regras'
+import { cadastroDesatualizado, idade, MOTIVOS_INATIVACAO } from '../../../shared/regras'
 import type { Pergunta } from '../../../shared/prontuario'
 import { Dialogo } from '../componentes/Dialogo'
 import { FormPaciente } from '../componentes/FormPaciente'
+import { FotoPerfil, salvarFoto, urlFoto, type FotoPendente } from '../componentes/FotoPerfil'
 import { NovoRetorno } from '../componentes/Retornos'
 import { Situacao } from './Pacientes'
 import { Icone, type NomeIcone } from '../componentes/Icones'
@@ -25,12 +26,14 @@ import { Anamneses } from '../componentes/Anamnese'
 import { Arquivos } from '../componentes/Arquivos'
 import { Documentos } from '../componentes/Documentos'
 import { AgendamentosPaciente, Indicacoes } from '../componentes/FichaConsultas'
+import { NotaFiscalPaciente } from '../componentes/NotaFiscal'
 
 type Janela = 'editar' | 'excluir' | null
 
 /** As 11 seções da ficha (S-003), em grupos no menu lateral. Cada uma só aparece com a permissão. */
 const ABAS_FICHA = [
   { id: 'visao-geral', rotulo: 'Visão Geral', acao: 'paciente.ver', grupo: 'Paciente' },
+  { id: 'nota-fiscal', rotulo: 'Nota Fiscal', acao: 'paciente.notaFiscal', grupo: 'Paciente' },
   // Dentro de cada grupo, em ordem alfabética.
   { id: 'agendamentos', rotulo: 'Agendamentos', acao: 'agenda.ver', grupo: 'Atendimento' },
   { id: 'orcamentos', rotulo: 'Orçamentos', acao: 'orcamento.ver', grupo: 'Atendimento' },
@@ -66,6 +69,7 @@ export function Ficha() {
 
   const abas = ABAS_FICHA.filter((a) => pode(eu.perfis, a.acao))
   const { aba: daUrl } = useSearch({ from: '/logado/pacientes/$id' })
+  const voltar = useVoltar()
   // O antigo ?aba=plano agora fica dentro de Plano e Ficha Clínica.
   const aba: AbaFicha =
     abas.find((a) => a.id === (daUrl === 'plano' ? 'especialidades' : daUrl))?.id ?? 'visao-geral'
@@ -74,6 +78,7 @@ export function Ficha() {
       to: '/pacientes/$id',
       params: { id },
       search: { aba: a === 'visao-geral' ? undefined : a },
+      replace: true,
     })
 
   // Cada abertura da ficha grava um registro de acesso no servidor (R-003)...
@@ -102,11 +107,23 @@ export function Ficha() {
   }
 
   const salvar = useMutation({
-    mutationFn: async (d: Record<string, string>) =>
-      (await api.put<Paciente>(`/pacientes/${id}`, d)).data,
+    mutationFn: async ([d, foto]: [Record<string, string>, FotoPendente]) => {
+      const p = (await api.put<Paciente>(`/pacientes/${id}`, d)).data
+      return ((await salvarFoto(`/pacientes/${id}`, foto)) as Paciente | undefined) ?? p
+    },
     onSuccess: (p) => {
       atualizar(p)
       avisar('Cadastro atualizado')
+    },
+    onError: (e) => avisar(mensagemDeErro(e), true),
+  })
+  // Foto pelo cabeçalho da ficha: grava na hora.
+  const trocarFoto = useMutation({
+    mutationFn: async (foto: FotoPendente) =>
+      (await salvarFoto(`/pacientes/${id}`, foto)) as Paciente,
+    onSuccess: (p, foto) => {
+      atualizar(p)
+      avisar(foto === 'remover' ? 'Foto removida' : 'Foto atualizada')
     },
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
@@ -170,19 +187,51 @@ export function Ficha() {
         <div className="flex flex-wrap items-center gap-4 p-4">
           <Link
             to="/pacientes"
+            onClick={voltar}
             className="botao-leve botao-icone size-10 shrink-0"
             aria-label="Voltar para pacientes"
             title="Voltar para pacientes"
           >
             <Icone nome="esquerda" />
           </Link>
-          <div className="grid size-13 shrink-0 place-items-center rounded-full bg-primaria-clara text-lg font-extrabold text-primaria">
-            {iniciais}
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
+          <FotoPerfil
+            lado={52}
+            src={urlFoto(`/pacientes/${p.id}`, p.fotoEm)}
+            vazio={
+              <span className="grid size-13 shrink-0 place-items-center rounded-full bg-primaria-clara text-lg font-extrabold text-primaria">
+                {iniciais}
+              </span>
+            }
+            podeEditar={pode(eu.perfis, 'paciente.editar') && !trocarFoto.isPending}
+            aoEscolher={(f) => trocarFoto.mutate(f)}
+            aoRemover={() => trocarFoto.mutate('remover')}
+          />
+          {/* Nome e idade/sexo numa coluna; as etiquetas ao lado, em duas linhas alinhadas a eles. Só a partir da terceira linha o cabeçalho cresce. */}
+          <div className="flex min-w-0 flex-1 basis-60 flex-wrap items-start gap-x-3 gap-y-1 sm:flex-nowrap">
+            <div className="min-w-0">
               <h1 className="text-xl">{p.nome}</h1>
+              <p className="text-suave">
+                {[p.nascimento && `${idade(p.nascimento)} anos`, p.sexo]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 pt-0.5">
               <Situacao ativo={p.ativo} />
+              {!p.fotoEm && (
+                <span className="etiqueta etiqueta-aviso" title="Clique na foto para adicionar">
+                  Sem foto
+                </span>
+              )}
+              {cadastroDesatualizado(p.alteradoEm) && (
+                <button
+                  className="etiqueta etiqueta-aviso"
+                  title={`Última atualização em ${dataBR(p.alteradoEm)}. Confira os dados e a foto com o paciente.`}
+                  onClick={() => pode(eu.perfis, 'paciente.editar') && setJanela('editar')}
+                >
+                  Cadastro desatualizado
+                </button>
+              )}
               {!!alertas.data?.length && (
                 <div role="alert" className="contents">
                   {alertas.data.map((a) => (
@@ -199,9 +248,6 @@ export function Ficha() {
                 </div>
               )}
             </div>
-            <p className="text-suave">
-              {[p.nascimento && `${idade(p.nascimento)} anos`, p.sexo].filter(Boolean).join(' · ')}
-            </p>
           </div>
           <div className="ml-auto flex flex-wrap gap-2">
             {/* Abre o módulo Mensagens já com este paciente (e-mail ou WhatsApp). */}
@@ -278,6 +324,10 @@ export function Ficha() {
         {aba === 'exames' && <Arquivos paciente={p} categoria="EXAME" />}
         {aba === 'agendamentos' && <AgendamentosPaciente paciente={p} />}
         {aba === 'indicacoes' && <Indicacoes paciente={p} />}
+        {/* key: a ficha abre com o cache e depois atualiza; o formulário recomeça com o que veio do servidor. */}
+        {aba === 'nota-fiscal' && (
+          <NotaFiscalPaciente key={JSON.stringify(p.notaFiscal)} paciente={p} />
+        )}
       </div>
 
       <Dialogo
@@ -290,7 +340,7 @@ export function Ficha() {
           textoBotao="Salvar"
           enviando={salvar.isPending}
           erros={errosDosCampos(salvar.error)}
-          aoEnviar={(d) => salvar.mutate(d)}
+          aoEnviar={(d, foto) => salvar.mutate([d, foto])}
         />
       </Dialogo>
 
@@ -360,8 +410,8 @@ function VisaoGeral({
   )
   // Só o que foi preenchido aparece no Cadastro.
   const familia = [
-    { rotulo: 'Mãe', valor: p.nomeMae },
-    { rotulo: 'Pai', valor: p.nomePai },
+    { rotulo: 'Mãe', valor: [p.nomeMae, cpfBR(p.cpfMae)].filter(Boolean).join(' · ') },
+    { rotulo: 'Pai', valor: [p.nomePai, cpfBR(p.cpfPai)].filter(Boolean).join(' · ') },
     {
       rotulo: 'Responsável legal',
       valor: [p.responsavelNome, p.responsavelParentesco, cpfBR(p.responsavelCpf)]

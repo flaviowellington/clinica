@@ -272,7 +272,10 @@ function Layout() {
       texto: a.descricao,
     })),
     ...(lixeira ? [{ para: '/lixeira', rotulo: 'Lixeira', icone: 'lixeira' as NomeIcone }] : []),
-    ...abasDe('/configuracoes', ABAS_CONFIGURACOES),
+    ...abasDe(
+      '/configuracoes',
+      ABAS_CONFIGURACOES.filter((a) => pode(eu.perfis, a.acao)),
+    ),
     ...abasDe(
       '/financeiro',
       ABAS_FINANCEIRO.filter((a) => pode(eu.perfis, a.acao)),
@@ -700,8 +703,10 @@ const mensagens = createRoute({
   // envio + pedido: vem da ficha com o pedido de assinatura (ou o PDF assinado) já escolhido.
   validateSearch: (
     s: Record<string, unknown>,
-  ): { paciente?: number; envio?: EnvioMensagem; pedido?: number } => ({
+  ): { paciente?: number; envio?: EnvioMensagem; pedido?: number; consulta?: number } => ({
     paciente: Number(s.paciente) > 0 ? Number(s.paciente) : undefined,
+    // consulta: vem das Confirmações com a consulta já escolhida.
+    consulta: Number(s.consulta) > 0 ? Number(s.consulta) : undefined,
     envio: ENVIOS.find((e) => e === s.envio),
     pedido: Number(s.pedido) > 0 ? Number(s.pedido) : undefined,
   }),
@@ -758,6 +763,7 @@ const router = createRouter({
     ]),
   ]),
   context: { queryClient },
+  scrollRestoration: true,
   defaultNotFoundComponent: () => <p className="p-4">Página não encontrada.</p>,
 })
 

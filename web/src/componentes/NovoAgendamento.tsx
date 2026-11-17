@@ -11,7 +11,7 @@ import {
   type Agendamento,
   type Paciente,
 } from '../api'
-import { avisar } from '../estado'
+import { avisar, useSalvo } from '../estado'
 import {
   AVISO_MESMO_DIA,
   CANAIS,
@@ -29,6 +29,9 @@ import { MiniCalendario } from './MiniCalendario'
 import { COR_PADRAO } from '../paginas/Profissionais'
 import { CampoSelect } from './CampoSelect'
 
+/** Prefixo do rascunho no sessionStorage; quem fecha o diálogo chama esquecer(RASCUNHO). */
+export const RASCUNHO = 'rascunho:agendamento.'
+
 export interface Inicial {
   tipo: 'CONSULTA' | 'COMPROMISSO'
   data: string
@@ -40,8 +43,7 @@ export interface Inicial {
 
 const PERIODOS = [
   { nome: 'Manhã', ate: 12 * 60 },
-  { nome: 'Tarde', ate: 18 * 60 },
-  { nome: 'Noite', ate: 24 * 60 },
+  { nome: 'Tarde', ate: 24 * 60 },
 ]
 
 type Estado = 'livre' | 'ocupado' | 'passou'
@@ -99,9 +101,13 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
   const { data: cats = CATEGORIAS as Record<string, string> } = useQuery(
     consultaConfig('categorias'),
   )
-  const [tipo, setTipo] = useState(props.inicial.tipo)
+  // Rascunho guardado: sair para outra tela e voltar reabre com tudo como estava.
+  // A chave inclui de onde foi aberto, para um rascunho não aparecer em outro agendamento.
+  const ini = props.inicial
+  const r = `${RASCUNHO}${ini.tipo}.${ini.data}.${ini.inicio ?? ''}.${ini.profissionalId ?? ''}.${ini.paciente?.id ?? ''}`
+  const [tipo, setTipo] = useSalvo(`${r}.tipo`, props.inicial.tipo)
   // Uma ou várias marcações para o mesmo paciente; a tela edita sempre a "ativa".
-  const [marcacoes, setMarcacoes] = useState<Marcacao[]>([
+  const [marcacoes, setMarcacoes] = useSalvo<Marcacao[]>(`${r}.marcacoes`, [
     {
       data: props.inicial.data,
       inicio: props.inicial.inicio ?? '',
@@ -111,19 +117,25 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
       categoria: '',
     },
   ])
-  const [ativa, setAtiva] = useState(0)
-  const [multiplos, setMultiplos] = useState(false)
+  const [ativa, setAtiva] = useSalvo(`${r}.ativa`, 0)
+  const [multiplos, setMultiplos] = useSalvo(`${r}.multiplos`, false)
   const { data, inicio, ultimo, profissionalId, categoria } = marcacoes[ativa]
   const alterar = (p: Partial<Marcacao>) =>
     setMarcacoes((ms) => ms.map((m, i) => (i === ativa ? { ...m, ...p } : m)))
   const [sobre, setSobre] = useState('') // horário sob o mouse, para a prévia da faixa
-  const [encaixe, setEncaixe] = useState(false)
+  const [encaixe, setEncaixe] = useSalvo(`${r}.encaixe`, false)
   const [calendario, setCalendario] = useState(false)
   const [buscaProf, setBuscaProf] = useState('')
-  const [paciente, setPaciente] = useState<Paciente | null>(props.inicial.paciente ?? null)
-  const [titulo, setTitulo] = useState('')
+  const [paciente, setPaciente] = useSalvo<Paciente | null>(
+    `${r}.paciente`,
+    props.inicial.paciente ?? null,
+  )
+  const [titulo, setTitulo] = useSalvo(`${r}.titulo`, '')
   // Decisão da clínica: confirmação e lembrete por WhatsApp de saída (o estudo, R-027, vinha desligado).
-  const [avisos, setAvisos] = useState({ confirmacao: 'WHATSAPP', alerta: 'WHATSAPP' })
+  const [avisos, setAvisos] = useSalvo(`${r}.avisos`, {
+    confirmacao: 'WHATSAPP',
+    alerta: 'WHATSAPP',
+  })
 
   // A semana de todos os profissionais numa chamada: trocar de profissional não busca de novo.
   const semana = segundaDe(data)

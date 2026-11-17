@@ -10,6 +10,26 @@ A especificação completa está em `docs/re-clinicorp/`, um estudo do Clinicorp
 - As regras de comportamento estão em `docs/re-clinicorp/rules/`, e os testes de aceitação em `docs/re-clinicorp/clone/parity.md`.
 - `docs/` é material de referência: não edite. O código fica fora de `docs/`.
 
+## Tecnologia e pastas
+
+Monorepo npm (workspaces `server` e `web`), Node 22 (`.nvmrc`), TypeScript em tudo.
+- `server/`: API Express 5 + Prisma 7 sobre PostgreSQL. Um arquivo por módulo em `server/src/` (agenda, pacientes, prontuario, financeiro…), montados em `app.ts`. Schema e migrações em `server/prisma/`. O cliente gerado (`server/src/generated/`) não vai para o git: sai do `postinstall`.
+- `web/`: React 19 + Vite + Tailwind 4, TanStack Router/Query e Zustand. Telas em `web/src/paginas/`, peças reutilizáveis em `web/src/componentes/`.
+- `shared/`: regras, validações (zod), máscaras e permissões usadas pelo servidor e pelo front. Regra de negócio que os dois precisam fica aqui, não duplicada.
+- `server/test/`: testes Vitest da API (rodam no banco de teste). `e2e/`: testes Playwright.
+
+## Comandos (na raiz)
+
+- `npm run dev`: sobe API (porta 3001) e front (5173) juntos.
+- `npm test`: testes da API. `npm run test:permissoes`: conferência de permissões por perfil.
+- `npm run e2e`: Playwright; sobe sozinho API na 3101 e front na 5199 com o banco de teste.
+- `npm run lint` e `npm run format` (ESLint + Prettier).
+- Banco (`-w server`): `db:migrar` (nova migração), `db:seed` (dados fictícios), `db:seed:logins` (um login por perfil), `db:reset` (apaga e recria com seed).
+
+## Configuração
+
+Tudo em `server/.env` (modelo em `server/.env.example`, fora do git). `DATABASE_URL` é o banco de desenvolvimento; `DATABASE_URL_TESTE` é o dos testes e é apagado a cada rodada, então nunca aponte os dois para o mesmo banco. A senha dos usuários do seed vem de `SEED_SENHA_ADMIN` e afins. E-mail (SMTP), WhatsApp, SMS e n8n também são configurados ali; o `LEIA-ME.md` explica o e-mail.
+
 ## Regras do projeto
 
 - Interface e mensagens em português do Brasil.

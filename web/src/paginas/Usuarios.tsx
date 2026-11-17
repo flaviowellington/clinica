@@ -11,6 +11,13 @@ import { CamposProfissional } from './Profissionais'
 import { CampoBusca } from '../componentes/BuscaPaciente'
 import { CampoEmail } from '../componentes/CampoMascara'
 import { normalizar } from '../../../shared/regras'
+import {
+  FotoPerfil,
+  salvarFoto,
+  salvarFotoDoNovo,
+  urlFoto,
+  type FotoPendente,
+} from '../componentes/FotoPerfil'
 
 interface Usuario {
   id: number
@@ -19,6 +26,7 @@ interface Usuario {
   email: string | null
   perfis: Perfil[]
   ativo: boolean
+  fotoEm: string | null
   criadoEm: string
   pessoa: { id: number; nome: string } | null
 }
@@ -112,12 +120,20 @@ export function Usuarios() {
                 >
                   <td className="px-4 py-2.5">
                     <span className="flex items-center gap-3 font-bold">
-                      <span
-                        aria-hidden
-                        className={`grid size-8 shrink-0 place-items-center rounded-full text-xs ${u.ativo ? 'bg-primaria/15 text-primaria' : 'bg-superficie-2'}`}
-                      >
-                        {iniciais(u.nome)}
-                      </span>
+                      {u.fotoEm ? (
+                        <img
+                          src={urlFoto(`/usuarios/${u.id}`, u.fotoEm)!}
+                          alt=""
+                          className={`size-8 shrink-0 rounded-full object-cover ${u.ativo ? '' : 'grayscale'}`}
+                        />
+                      ) : (
+                        <span
+                          aria-hidden
+                          className={`grid size-8 shrink-0 place-items-center rounded-full text-xs ${u.ativo ? 'bg-primaria/15 text-primaria' : 'bg-superficie-2'}`}
+                        >
+                          {iniciais(u.nome)}
+                        </span>
+                      )}
                       <span className={u.ativo ? 'text-titulo' : ''}>{u.nome}</span>
                     </span>
                   </td>
@@ -209,6 +225,7 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
   const u = props.usuario
   const [perfis, setPerfis] = useState<Perfil[]>(u?.perfis ?? [])
   const [pessoaId, setPessoaId] = useState(String(u?.pessoa?.id ?? ''))
+  const [foto, setFoto] = useState<FotoPendente>(null)
   const ehProfissional = perfis.includes('PROFISSIONAL')
   // Usuário novo com perfil Profissional e nenhum profissional escolhido: cadastra um junto.
   const criaProfissional = !u && ehProfissional && !pessoaId
@@ -218,8 +235,17 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
     queryFn: async () => (await api.get<Profissional[]>('/profissionais')).data,
   })
   const salvar = useMutation({
-    mutationFn: async (d: Record<string, unknown>) =>
-      u ? (await api.put(`/usuarios/${u.id}`, d)).data : (await api.post('/usuarios', d)).data,
+    mutationFn: async (d: Record<string, unknown>) => {
+      if (u) {
+        await api.put(`/usuarios/${u.id}`, d)
+        return salvarFoto(`/usuarios/${u.id}`, foto)
+      }
+      const novo = (await api.post<Usuario>('/usuarios', d)).data
+      await salvarFotoDoNovo(`/usuarios/${novo.id}`, foto)
+      // Profissional cadastrado junto: fica com a mesma foto.
+      if (criaProfissional && novo.pessoa)
+        await salvarFotoDoNovo(`/profissionais/${novo.pessoa.id}`, foto)
+    },
     onSuccess: () => {
       avisar(u ? 'Usuário atualizado' : 'Usuário criado')
       qc.invalidateQueries({ queryKey: ['usuarios'] })
@@ -256,19 +282,34 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
         }
       >
         <div className="space-y-4">
-          <div>
-            <label className="rotulo" htmlFor="u-nome">
-              Nome *
-            </label>
-            <input
-              id="u-nome"
-              name="nome"
-              className="campo"
-              defaultValue={u?.nome}
-              required
-              autoFocus
+          <div className="flex items-end gap-4">
+            <FotoPerfil
+              lado={64}
+              src={foto === 'remover' ? null : urlFoto(`/usuarios/${u?.id}`, u?.fotoEm)}
+              nova={foto === 'remover' ? null : foto}
+              vazio={
+                <span className="grid size-full place-items-center rounded-full bg-primaria/15 text-primaria">
+                  <Icone nome="foto" className="size-6" />
+                </span>
+              }
+              podeEditar
+              aoEscolher={setFoto}
+              aoRemover={() => setFoto('remover')}
             />
-            {erro('nome')}
+            <div className="min-w-0 flex-1">
+              <label className="rotulo" htmlFor="u-nome">
+                Nome *
+              </label>
+              <input
+                id="u-nome"
+                name="nome"
+                className="campo"
+                defaultValue={u?.nome}
+                required
+                autoFocus
+              />
+              {erro('nome')}
+            </div>
           </div>
           <div>
             <label className="rotulo" htmlFor="u-email">
@@ -376,8 +417,7 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
           <fieldset className="space-y-4 rounded-2xl bg-superficie-2 p-3">
             <legend className="sr-only">Dados do profissional</legend>
             <p className="text-sm text-suave">
-              O profissional é cadastrado com o nome acima. A foto você coloca depois, em
-              Profissionais.
+              O profissional é cadastrado com o nome e a foto acima.
             </p>
             {erro('profissional')}
             <CamposProfissional erros={erros} />

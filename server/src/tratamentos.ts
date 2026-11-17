@@ -1,5 +1,5 @@
 ﻿// Alerta de retorno, tabela de procedimentos e orçamentos (rules/orcamentos.md).
-import { Router, type Request } from 'express'
+import { Router, type Request, type Response } from 'express'
 import type { z } from 'zod'
 import { db } from './db'
 import { conferirSenha, exigir, usuarioDe } from './auth'
@@ -8,7 +8,8 @@ import { CATEGORIA_PADRAO_ENTRADA } from '../../shared/financeiro'
 import { totalOrcamento } from '../../shared/orcamentos'
 import { normalizarFaces } from '../../shared/prontuario'
 import type { Prisma } from './generated/prisma/client'
-import { pode } from '../../shared/permissoes'
+import { pode, podeDarDesconto } from '../../shared/permissoes'
+import { lerConfig } from './configuracoes'
 import {
   AprovarOrcamentoDto,
   CancelarOrcamentoDto,
@@ -102,6 +103,7 @@ rotasProcedimentos.get('/', exigir('orcamento.ver'), async (req, res) => {
         nome: true,
         especialidade: true,
         valorCentavos: true,
+        porDente: true,
         ativo: true,
       },
       orderBy: { nomeBusca: 'asc' },
@@ -143,8 +145,14 @@ const acharOrcamento = (req: Request) =>
   db.orcamento.findFirst({ where: { id: id(req), excluidoEm: null }, include: incluir })
 
 /** Orçamento lido pelo DTO; os itens ganham nome e valor da tabela (R-012: o valor pode ser editado). */
-async function lerOrcamento(b: z.output<typeof OrcamentoDto>) {
+async function lerOrcamento(b: z.output<typeof OrcamentoDto>, res: Response, descontoAntes = 0) {
   const erros: Record<string, string> = {}
+  // Desconto novo ou mudado só com a permissão; o que já estava fica como está.
+  if (
+    b.descontoCentavos !== descontoAntes &&
+    !podeDarDesconto(usuarioDe(res), await lerConfig('desconto'))
+  )
+    erros.descontoCentavos = 'Você não tem permissão para dar desconto.'
   const tabela = await db.procedimento.findMany({
     where: { id: { in: b.itens.map((i) => i.procedimentoId) } },
   })
@@ -158,7 +166,6 @@ async function lerOrcamento(b: z.output<typeof OrcamentoDto>) {
       faces: i.dente ? normalizarFaces(i.faces) || null : null,
       valorCentavos: i.valorCentavos ?? p?.valorCentavos ?? 0,
       observacao: i.observacao,
-      observacaoPaciente: i.observacaoPaciente,
     }
   })
   if (b.descontoCentavos > itens.reduce((s, i) => s + i.valorCentavos, 0))
@@ -186,7 +193,7 @@ rotasOrcamentos.get('/', exigir('orcamento.ver'), async (req, res) => {
 rotasOrcamentos.post('/', exigir('orcamento.editar'), async (req, res) => {
   const b = lerCorpo(OrcamentoDto, req.body, res)
   if (!b) return
-  const { erros, itens, dados } = await lerOrcamento(b)
+  const { erros, itens, dados } = await lerOrcamento(b, res)
   const pacienteId = b.pacienteId ?? 0
   const profissionalId = b.profissionalId ?? 0
   if (!(await existe(pacienteId, 'PACIENTE'))) erros.pacienteId = 'Paciente não encontrado.'
@@ -222,7 +229,7 @@ rotasOrcamentos.put('/:id', exigir('orcamento.editar'), async (req, res) => {
     })
   const b = lerCorpo(OrcamentoDto, req.body, res)
   if (!b) return
-  const { erros, itens, dados } = await lerOrcamento(b)
+  const { erros, itens, dados } = await lerOrcamento(b, res, o.descontoCentavos)
   const profissionalId = b.profissionalId ?? o.profissionalId
   if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
   const novo = await db.orcamento.update({
@@ -401,6 +408,28 @@ rotasOrcamentos.post('/:id/rejeitar', exigir('orcamento.confirmar'), async (req,
     return res
       .status(409)
       .json({ erro: 'Já há procedimento executado: cancele o orçamento em vez de rejeitar.' })
+  await voltarParaAberto(o.id, u.id, ['ABERTA', 'PAGA'])
+  res.json(paraTela((await acharOrcamento(req))!))
+})
+
+/**
+ * Financeiro → Controle Financeiro: o administrador tira um aprovado (mesmo já conferido) e o
+ * devolve para Orçamentos abertos, desfazendo o pagamento lançado. Pede a senha (R-037).
+ */
+rotasOrcamentos.post('/:id/reabrir', exigir('orcamento.confirmar'), async (req, res) => {
+  const o = await acharOrcamento(req)
+  if (!o) return res.status(404).json({ erro: 'Orçamento não encontrado.' })
+  if (o.status !== 'APROVADO')
+    return res.status(409).json({ erro: 'Este orçamento não está aprovado.' })
+  const u = usuarioDe(res)
+  const b = lerCorpo(DesaprovarOrcamentoDto, req.body, res)
+  if (!b) return
+  if (!(await conferirSenha(u.login, b.senha)))
+    return res.status(403).json({ erro: 'Senha incorreta.' }) // 403: a sessão continua; 401 tiraria do sistema
+  if (o.itens.some((i) => i.executadoEm))
+    return res
+      .status(409)
+      .json({ erro: 'Já há procedimento executado: cancele o orçamento em vez de reabrir.' })
   await voltarParaAberto(o.id, u.id, ['ABERTA', 'PAGA'])
   res.json(paraTela((await acharOrcamento(req))!))
 })

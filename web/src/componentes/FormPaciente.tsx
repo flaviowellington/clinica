@@ -5,6 +5,8 @@ import type { Paciente } from '../api'
 import { CampoData } from './CampoData'
 import { CampoCelular, CampoCpf, CampoEmail, CampoMascara } from './CampoMascara'
 import { CampoSelect } from './CampoSelect'
+import { Icone } from './Icones'
+import { FotoPerfil, urlFoto, type FotoPendente } from './FotoPerfil'
 
 /** Bloco do formulário com título; tudo fica numa página só, sem abas. */
 function Secao(props: { titulo: string; children: ReactNode }) {
@@ -27,12 +29,14 @@ export function FormPaciente(props: {
   textoBotao: string
   enviando: boolean
   erros: Record<string, string>
-  aoEnviar: (dados: Record<string, string>) => void
+  /** A foto vai à parte: quem chama grava depois do cadastro (salvarFoto). */
+  aoEnviar: (dados: Record<string, string>, foto: FotoPendente) => void
 }) {
   const p = props.inicial ?? {}
   const [nome, setNome] = useState(p.nome ?? '')
   const [nascimento, setNascimento] = useState(p.nascimento ?? '')
   const [comoConheceu, setComoConheceu] = useState(p.comoConheceu ?? '')
+  const [foto, setFoto] = useState<FotoPendente>(null)
 
   function enviar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -43,7 +47,7 @@ export function FormPaciente(props: {
       return
     }
     // Só o "+55 " no celular conta como vazio: o DTO da API trata.
-    props.aoEnviar(Object.fromEntries(new FormData(form)) as Record<string, string>)
+    props.aoEnviar(Object.fromEntries(new FormData(form)) as Record<string, string>, foto)
   }
 
   const erro = (c: string) => props.erros[c] && <span className="erro-campo">{props.erros[c]}</span>
@@ -62,21 +66,43 @@ export function FormPaciente(props: {
     </label>
   )
 
+  const cpf = (nomeCampo: 'cpfMae' | 'cpfPai' | 'responsavelCpf', rotulo: string) => (
+    <label className="block">
+      <span className="rotulo">{rotulo}</span>
+      <CampoCpf name={nomeCampo} defaultValue={p[nomeCampo] ?? ''} erro={props.erros[nomeCampo]} />
+    </label>
+  )
+
   return (
     <form onSubmit={enviar} className="space-y-6" noValidate>
       <Secao titulo="Dados pessoais">
-        <label className="block sm:col-span-2">
-          <span className="rotulo">Nome *</span>
-          <input
-            name="nome"
-            value={nome}
-            onChange={(e) => setNome(e.target.value)}
-            className="campo"
-            aria-invalid={!!props.erros.nome}
-            autoFocus
+        <div className="flex items-end gap-4 sm:col-span-2">
+          <FotoPerfil
+            lado={64}
+            src={foto === 'remover' ? null : urlFoto(`/pacientes/${p.id}`, p.fotoEm)}
+            nova={foto === 'remover' ? null : foto}
+            vazio={
+              <span className="grid size-full place-items-center rounded-full bg-primaria-clara text-primaria">
+                <Icone nome="foto" className="size-6" />
+              </span>
+            }
+            podeEditar
+            aoEscolher={setFoto}
+            aoRemover={() => setFoto('remover')}
           />
-          {erro('nome')}
-        </label>
+          <label className="block min-w-0 flex-1">
+            <span className="rotulo">Nome *</span>
+            <input
+              name="nome"
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              className="campo"
+              aria-invalid={!!props.erros.nome}
+              autoFocus
+            />
+            {erro('nome')}
+          </label>
+        </div>
         <label className="block">
           <span className="rotulo">Data de nascimento *</span>
           <CampoData name="nascimento" value={nascimento} onChange={setNascimento} />
@@ -140,18 +166,14 @@ export function FormPaciente(props: {
       </Secao>
 
       <Secao titulo="Família e responsável">
+        {/* Cada nome com o CPF ao lado; no celular, um embaixo do outro. */}
         {campo('nomeMae', 'Nome da mãe')}
+        {cpf('cpfMae', 'CPF da mãe')}
         {campo('nomePai', 'Nome do pai')}
+        {cpf('cpfPai', 'CPF do pai')}
         {campo('responsavelNome', 'Responsável legal')}
-        {campo('responsavelParentesco', 'Parentesco do responsável')}
-        <label className="block">
-          <span className="rotulo">CPF do responsável</span>
-          <CampoCpf
-            name="responsavelCpf"
-            defaultValue={p.responsavelCpf ?? ''}
-            erro={props.erros.responsavelCpf}
-          />
-        </label>
+        {cpf('responsavelCpf', 'CPF do responsável')}
+        {campo('responsavelParentesco', 'Parentesco do responsável legal')}
       </Secao>
 
       <Secao titulo="Observações">

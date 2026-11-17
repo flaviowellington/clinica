@@ -1,4 +1,5 @@
 import { Link, useParams } from '@tanstack/react-router'
+import { useVoltar } from '../estado'
 import { useQuery } from '@tanstack/react-query'
 import { api, dataBR, mensagemDeErro } from '../api'
 import type { Documento } from '../componentes/Documentos'
@@ -6,6 +7,7 @@ import type { Documento } from '../componentes/Documentos'
 /** Documento do prontuário (atestado, declaração, receita), pronto para imprimir. */
 export function DocumentoImpresso() {
   const { id } = useParams({ from: '/logado/documento/$id' })
+  const voltar = useVoltar()
   const r = useQuery({
     queryKey: ['documento', id],
     queryFn: async () => (await api.get<Documento>(`/prontuario/documentos/${id}`)).data,
@@ -20,6 +22,7 @@ export function DocumentoImpresso() {
           to="/pacientes/$id"
           params={{ id: String(d.paciente.id) }}
           search={{ aba: 'documentos' }}
+          onClick={voltar}
           className="text-primaria"
         >
           ‹ Voltar para a ficha de {d.paciente.nome}

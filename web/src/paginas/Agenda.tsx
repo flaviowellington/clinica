@@ -11,7 +11,7 @@ import {
   type Agendamento,
   useOcultos,
 } from '../api'
-import { avisar } from '../estado'
+import { avisar, esquecer, useSalvo } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import {
   CATEGORIAS,
@@ -24,7 +24,7 @@ import {
   paraMinutos,
 } from '../../../shared/agenda'
 import { Dialogo } from '../componentes/Dialogo'
-import { NovoAgendamento, type Inicial } from '../componentes/NovoAgendamento'
+import { NovoAgendamento, RASCUNHO, type Inicial } from '../componentes/NovoAgendamento'
 import { MiniCalendario } from '../componentes/MiniCalendario'
 import { CartaoConsulta } from '../componentes/CartaoConsulta'
 import { COR_PADRAO } from './Profissionais'
@@ -209,7 +209,8 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
   const qc = useQueryClient()
 
   const hoje = isoLocal(new Date())
-  const [data, setData] = useState(hoje)
+  // Dia e diálogo aberto ficam guardados: voltar para a Agenda reabre onde estava.
+  const [data, setData] = useSalvo('agenda.data', hoje)
   const [visao, setVisao] = useState<Visao>(lerVisao)
   // Padrão: todos visíveis; o profissional começa vendo só a própria agenda.
   const [ocultos, setOcultos] = useOcultos('agenda', () =>
@@ -219,7 +220,11 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
   )
   const [busca, setBusca] = useState<string | null>(null) // null = caixa de busca fechada
   const [janela, setJanela] = useState<'data' | 'profissionais' | 'retornos' | null>(null) // só com filtrosNoTopo
-  const [novo, setNovo] = useState<Inicial | null>(null)
+  const [novo, setNovo] = useSalvo<Inicial | null>('agenda.novo', null)
+  const fecharNovo = () => {
+    setNovo(null)
+    esquecer(RASCUNHO)
+  }
   const [menu, setMenu] = useState(false)
   const [retorno, setRetorno] = useState(false)
   // O bloco clicado: o balão do cartão abre ao lado dele.
@@ -665,11 +670,11 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
 
       <Dialogo
         aberto={!!novo}
-        aoFechar={() => setNovo(null)}
+        aoFechar={fecharNovo}
         titulo={novo?.tipo === 'COMPROMISSO' ? 'Novo compromisso' : 'Nova consulta'}
         largo
       >
-        {novo && <NovoAgendamento inicial={novo} aoTerminar={() => setNovo(null)} />}
+        {novo && <NovoAgendamento inicial={novo} aoTerminar={fecharNovo} />}
       </Dialogo>
 
       <Dialogo aberto={retorno} aoFechar={() => setRetorno(false)} titulo="Alerta de retorno">
@@ -814,6 +819,10 @@ function VisaoDia(props: {
               {h}
             </div>
           ))}
+          {/* Fim do expediente: só o rótulo, sem horário para marcar. */}
+          <div className="pt-0.5 pr-2 text-right text-xs font-bold tabular-nums text-titulo">
+            {paraHora(fimDia)}
+          </div>
         </div>
         {props.colunas.map((c) => {
           const doProf = props.itens.filter((a) => a.profissional.id === c.id)

@@ -1,10 +1,12 @@
-import { Router, type Request } from 'express'
+import { Router, type Request, type Response } from 'express'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
 import type { z } from 'zod'
 import { normalizar } from '../../shared/regras'
-import { InativarPacienteDto, PacienteDto } from '../../shared/dtos'
+import { podeNotaFiscal } from '../../shared/permissoes'
+import { InativarPacienteDto, NotaFiscalDto, PacienteDto } from '../../shared/dtos'
 import { lerCorpo } from './dto'
+import { mandarFoto, receberFoto, tratarFoto } from './foto'
 import type { Pessoa } from './generated/prisma/client'
 
 const POR_PAGINA = 10
@@ -19,9 +21,14 @@ function paraBanco(d: z.output<typeof PacienteDto>) {
   }
 }
 
-function paraTela(p: Pessoa) {
+function paraTela(p: Omit<Pessoa, 'foto'>, res: Response) {
   const { nomeBusca: _n, excluidoPorId: _e, ...resto } = p
-  return { ...resto, nascimento: p.nascimento?.toISOString().slice(0, 10) ?? null }
+  return {
+    ...resto,
+    nascimento: p.nascimento?.toISOString().slice(0, 10) ?? null,
+    // Dados da nota fiscal só vão para quem tem a permissão.
+    notaFiscal: podeNotaFiscal(usuarioDe(res).perfis) ? p.notaFiscal : null,
+  }
 }
 
 /** Paciente que não está na lixeira, ou null. */
@@ -76,7 +83,7 @@ rotasPacientes.get('/', exigir('paciente.ver'), async (req, res) => {
       skip,
       take: porPagina,
     })
-    return res.json({ total, porPagina, itens: itens.map(paraTela) })
+    return res.json({ total, porPagina, itens: itens.map((x) => paraTela(x, res)) })
   }
 
   // Padrão: fichas abertas por último (por qualquer usuário, pelo log de acesso) vêm primeiro; o resto em ordem alfabética.
@@ -95,7 +102,7 @@ rotasPacientes.get('/', exigir('paciente.ver'), async (req, res) => {
   const porId = new Map(
     (await db.pessoa.findMany({ where: { id: { in: idsDaPagina } } })).map((p) => [p.id, p]),
   )
-  res.json({ total, porPagina, itens: idsDaPagina.map((id) => paraTela(porId.get(id)!)) })
+  res.json({ total, porPagina, itens: idsDaPagina.map((id) => paraTela(porId.get(id)!, res)) })
 })
 
 rotasPacientes.post('/', exigir('paciente.editar'), async (req, res) => {
@@ -106,7 +113,7 @@ rotasPacientes.post('/', exigir('paciente.editar'), async (req, res) => {
   const p = await db.pessoa.create({
     data: { ...paraBanco(d), tipo: 'PACIENTE', criadoPorId: quem, alteradoPorId: quem },
   })
-  res.status(201).json(paraTela(p))
+  res.status(201).json(paraTela(p, res))
 })
 
 // R-003: abrir a ficha (ou uma aba dela) grava quem abriu.
@@ -120,7 +127,7 @@ rotasPacientes.get('/:id', exigir('paciente.ver'), async (req, res) => {
   await db.logAcesso.create({
     data: { usuarioId: usuarioDe(res).id, pessoaId: p.id, caminho: `/pacientes/${p.id}/${aba}` },
   })
-  res.json(paraTela(p))
+  res.json(paraTela(p, res))
 })
 
 // R-067: a edição recebe o cadastro inteiro.
@@ -135,7 +142,24 @@ rotasPacientes.put('/:id', exigir('paciente.editar'), async (req, res) => {
     where: { id: p.id },
     data: { ...paraBanco(d), alteradoPorId: usuarioDe(res).id },
   })
-  res.json(paraTela(novo))
+  res.json(paraTela(novo, res))
+})
+
+// Dados da nota fiscal: aba própria da ficha, gravada à parte do cadastro.
+rotasPacientes.put('/:id/nota-fiscal', async (req, res) => {
+  if (!podeNotaFiscal(usuarioDe(res).perfis))
+    return res.status(403).json({ erro: 'Você não tem permissão para esta ação.' })
+  const p = await acharPaciente(req)
+  if (!p) return res.status(404).json(NAO_ACHOU)
+
+  const d = lerCorpo(NotaFiscalDto, req.body, res)
+  if (!d) return
+
+  const novo = await db.pessoa.update({
+    where: { id: p.id },
+    data: { notaFiscal: d, alteradoPorId: usuarioDe(res).id },
+  })
+  res.json(paraTela(novo, res))
 })
 
 // R-071: inativar exige motivo; "Outros" exige descrição.
@@ -155,7 +179,7 @@ rotasPacientes.post('/:id/inativar', exigir('paciente.inativar'), async (req, re
       alteradoPorId: usuarioDe(res).id,
     },
   })
-  res.json(paraTela(novo))
+  res.json(paraTela(novo, res))
 })
 
 rotasPacientes.post('/:id/ativar', exigir('paciente.inativar'), async (req, res) => {
@@ -171,7 +195,38 @@ rotasPacientes.post('/:id/ativar', exigir('paciente.inativar'), async (req, res)
       alteradoPorId: usuarioDe(res).id,
     },
   })
-  res.json(paraTela(novo))
+  res.json(paraTela(novo, res))
+})
+
+// Foto do paciente: mesmo tratamento da do profissional (recorte + 400x400 WebP).
+rotasPacientes.post('/:id/foto', exigir('paciente.editar'), receberFoto, async (req, res) => {
+  const p = await acharPaciente(req)
+  if (!p) return res.status(404).json(NAO_ACHOU)
+  const foto = await tratarFoto(req, res)
+  if (!foto) return
+  const novo = await db.pessoa.update({
+    where: { id: p.id },
+    data: { foto, fotoEm: new Date(), alteradoPorId: usuarioDe(res).id },
+  })
+  res.json(paraTela(novo, res))
+})
+
+rotasPacientes.get('/:id/foto', exigir('paciente.ver'), async (req, res) => {
+  const p = await db.pessoa.findFirst({
+    where: { id: Number(req.params.id) || 0, tipo: 'PACIENTE', excluidoEm: null },
+    select: { foto: true },
+  })
+  mandarFoto(res, p?.foto)
+})
+
+rotasPacientes.delete('/:id/foto', exigir('paciente.editar'), async (req, res) => {
+  const p = await acharPaciente(req)
+  if (!p) return res.status(404).json(NAO_ACHOU)
+  const novo = await db.pessoa.update({
+    where: { id: p.id },
+    data: { foto: null, fotoEm: null, alteradoPorId: usuarioDe(res).id },
+  })
+  res.json(paraTela(novo, res))
 })
 
 // R-057: exclusão lógica; o paciente vai para a lixeira.

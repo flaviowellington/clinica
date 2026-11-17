@@ -1,6 +1,6 @@
 import { useState, type InputHTMLAttributes } from 'react'
-import { cpfValido } from '../../../shared/regras'
-import { mascaraCelular, mascaraCpf } from '../../../shared/mascaras'
+import { cnpjValido, cpfValido } from '../../../shared/regras'
+import { mascaraCelular, mascaraCnpj, mascaraCpf } from '../../../shared/mascaras'
 import { celular, celularObrigatorio, email, emailObrigatorio, erroDe } from '../../../shared/dtos'
 
 type Atributos = Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'defaultValue' | 'onChange'>
@@ -61,6 +61,20 @@ export function CampoCpf(props: Atributos & { erro?: string; defaultValue?: stri
       {...props}
       mascara={mascaraCpf}
       validar={(v) => (v && !cpfValido(v) ? 'CPF inválido.' : '')}
+    />
+  )
+}
+
+/** CNPJ 00.000.000/0000-00 (aceita o alfanumérico) com dígitos verificadores válidos. */
+export function CampoCnpj(props: Atributos & { erro?: string; defaultValue?: string }) {
+  return (
+    <CampoMascara
+      placeholder="00.000.000/0000-00"
+      maxLength={18}
+      autoCapitalize="characters"
+      {...props}
+      mascara={mascaraCnpj}
+      validar={(v) => (v && !cnpjValido(v) ? 'CNPJ inválido.' : '')}
     />
   )
 }

@@ -1,5 +1,6 @@
-// Confirmação e Alertas (F-002): consultas do dia, envio por e-mail e confirmação à mão.
+// Confirmação e Alertas (F-002): consultas do dia, envio (Mensagens ou WhatsApp) e confirmação à mão.
 import { useState } from 'react'
+import { isAxiosError } from 'axios'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import { api, consultaEu, dataBR, isoLocal, mensagemDeErro, somarDias, useOcultos } from '../api'
@@ -8,7 +9,16 @@ import { avisar } from '../estado'
 import { STATUS, type StatusAgenda } from '../../../shared/agenda'
 import { MiniCalendario } from '../componentes/MiniCalendario'
 import { Icone } from '../componentes/Icones'
+import { Dialogo } from '../componentes/Dialogo'
+import { confirmar as perguntarConfirmar } from '../componentes/Confirmar'
 import { ProfissionaisSuspenso, Suspenso } from './FinanceiroAbas'
+
+type Canal = 'EMAIL' | 'WHATSAPP'
+const NOME_CANAL: Record<Canal, string> = { EMAIL: 'E-mail', WHATSAPP: 'WhatsApp' }
+const PALAVRA = 'confirmo'
+/** Sem a API do WhatsApp o servidor responde 501 com o link do WhatsApp Web pronto. */
+const linkWhatsApp = (e: unknown): string | undefined =>
+  isAxiosError(e) ? e.response?.data?.whatsappWeb : undefined
 
 interface Mensagem {
   id: number
@@ -50,11 +60,22 @@ export function Confirmacoes() {
     enabled: !!data,
   })
   const atualizar = () => qc.invalidateQueries({ queryKey: chave })
-  const enviar = useMutation({
-    mutationFn: async (id: number) =>
-      (await api.post(`/confirmacoes/${id}/enviar`, { canal: 'EMAIL' })).data,
-    onSuccess: () => avisar('E-mail de confirmação enviado'),
-    onError: (e) => avisar(mensagemDeErro(e), true),
+  // WhatsApp direto: abre a aba antes do pedido (senão o navegador bloqueia o pop-up depois do await).
+  const whatsapp = useMutation({
+    mutationFn: async ({ id }: { id: number; aba: Window | null }) =>
+      (await api.post(`/confirmacoes/${id}/enviar`, { canal: 'WHATSAPP' })).data,
+    onSuccess: (_d, { aba }) => {
+      aba?.close()
+      avisar('Confirmação enviada pelo WhatsApp')
+    },
+    onError: (e, { aba }) => {
+      const link = linkWhatsApp(e)
+      if (link && aba) aba.location.href = link
+      else {
+        aba?.close()
+        avisar(mensagemDeErro(e), true)
+      }
+    },
     onSettled: atualizar,
   })
   const confirmar = useMutation({
@@ -66,6 +87,13 @@ export function Confirmacoes() {
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
   const [enviandoTodos, setEnviandoTodos] = useState(false)
+  const [todos, setTodos] = useState(false)
+  const [canalTodos, setCanalTodos] = useState<Canal>('EMAIL')
+  const [palavra, setPalavra] = useState('')
+  const fecharTodos = () => {
+    setTodos(false)
+    setPalavra('')
+  }
   const [filtro, setFiltro] = useState<Situacao>('todas')
   const { data: eu } = useSuspenseQuery(consultaEu)
   // O profissional só vê as consultas dele (o servidor já filtra): sem filtro de profissionais.
@@ -77,24 +105,32 @@ export function Confirmacoes() {
   const porProf = new Map<number, number>()
   for (const c of lista.data ?? [])
     porProf.set(c.profissional.id, (porProf.get(c.profissional.id) ?? 0) + 1)
-  const pendentesComEmail =
-    consultas.filter(
-      (c) =>
-        !c.confirmadoEm && c.paciente?.email && !c.mensagens.some((m) => m.status === 'ENVIADA'),
-    ) ?? []
+  const pendentes = consultas.filter(
+    (c) => !c.confirmadoEm && c.paciente && !c.mensagens.some((m) => m.status === 'ENVIADA'),
+  )
+  const destinatarios = (canal: Canal) =>
+    pendentes.filter((c) => (canal === 'EMAIL' ? c.paciente?.email : c.paciente?.celular))
+  const alvo = destinatarios(canalTodos)
 
   async function enviarTodos() {
+    const canal = canalTodos
+    fecharTodos()
     setEnviandoTodos(true)
     let ok = 0
-    for (const c of pendentesComEmail)
+    for (const c of alvo)
       try {
-        await api.post(`/confirmacoes/${c.id}/enviar`, { canal: 'EMAIL' })
+        await api.post(`/confirmacoes/${c.id}/enviar`, { canal })
         ok++
       } catch (e) {
+        // Sem a API do WhatsApp todos falhariam igual: para no primeiro.
+        if (linkWhatsApp(e)) {
+          avisar('A API do WhatsApp ainda não está ligada. Envie um a um pelo WhatsApp Web.', true)
+          break
+        }
         avisar(`${c.paciente?.nome}: ${mensagemDeErro(e)}`, true)
       }
     setEnviandoTodos(false)
-    if (ok) avisar(`${ok} e-mail(s) enviado(s)`)
+    if (ok) avisar(`${ok} confirmação(ões) enviada(s) por ${NOME_CANAL[canal]}`)
     atualizar()
   }
 
@@ -122,13 +158,70 @@ export function Confirmacoes() {
         </span>
         <button
           className="botao ml-auto"
-          disabled={!pendentesComEmail.length || enviandoTodos}
-          onClick={enviarTodos}
+          disabled={!pendentes.length || enviandoTodos}
+          onClick={() => setTodos(true)}
         >
-          <Icone nome="confirmacoes" className="h-4 w-4" />
-          {enviandoTodos ? 'Enviando…' : `Enviar e-mail a todos (${pendentesComEmail.length})`}
+          <Icone nome="enviar" className="h-4 w-4" />
+          {enviandoTodos ? 'Enviando…' : `Enviar para todos (${pendentes.length})`}
         </button>
       </header>
+
+      <Dialogo aberto={todos} aoFechar={fecharTodos} titulo="Enviar para todos">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (palavra.trim().toLowerCase() === PALAVRA && alvo.length) enviarTodos()
+          }}
+        >
+          <p>
+            Envia a confirmação para quem ainda não recebeu nenhuma em {dataBR(data)}. Por onde?
+          </p>
+          <div role="group" aria-label="Enviar por" className="grid grid-cols-2 gap-2">
+            {(['EMAIL', 'WHATSAPP'] as Canal[]).map((c) => (
+              <button
+                key={c}
+                type="button"
+                aria-pressed={canalTodos === c}
+                className={`min-h-11 rounded-xl border-2 px-3 ${canalTodos === c ? 'border-primaria bg-primaria-clara font-extrabold text-titulo' : 'border-borda font-bold hover:border-primaria/50'}`}
+                onClick={() => setCanalTodos(c)}
+              >
+                {NOME_CANAL[c]} ({destinatarios(c).length})
+              </button>
+            ))}
+          </div>
+          {alvo.length < pendentes.length && (
+            <p className="ajuda">
+              {pendentes.length - alvo.length} sem {canalTodos === 'EMAIL' ? 'e-mail' : 'celular'}{' '}
+              no cadastro ficam de fora.
+            </p>
+          )}
+          <div>
+            <label className="rotulo" htmlFor="todos-confirma">
+              Digite <span className="text-perigo">{PALAVRA}</span> para enviar
+            </label>
+            <input
+              id="todos-confirma"
+              className="campo"
+              autoComplete="off"
+              autoFocus
+              value={palavra}
+              onChange={(e) => setPalavra(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end gap-2 border-t border-borda pt-4">
+            <button type="button" className="botao-leve" onClick={fecharTodos}>
+              Cancelar
+            </button>
+            <button
+              className="botao"
+              disabled={palavra.trim().toLowerCase() !== PALAVRA || !alvo.length}
+            >
+              Enviar {alvo.length} por {NOME_CANAL[canalTodos]}
+            </button>
+          </div>
+        </form>
+      </Dialogo>
 
       {/* ---------- Filtros (barra da Agenda 2) ---------- */}
       <div className="cartao flex shrink-0 flex-wrap items-center gap-2 py-2">
@@ -236,8 +329,9 @@ export function Confirmacoes() {
           />
         </div>
         <p className="ajuda">
-          O paciente recebe um e-mail com um link e confirma sozinho. Quem não tem e-mail pode ser
-          confirmado à mão depois da ligação. WhatsApp e SMS ainda estão desligados.
+          O paciente recebe a mensagem com um link e confirma sozinho. Sem a API do WhatsApp, o
+          botão WhatsApp abre o WhatsApp Web com o texto pronto. Quem não responde pode ser
+          confirmado à mão depois da ligação.
         </p>
       </section>
 
@@ -312,22 +406,45 @@ export function Confirmacoes() {
                 </div>
 
                 {/* Sempre presente e com largura fixa: assim as colunas alinham entre linhas. */}
-                <div className="ml-auto flex shrink-0 justify-end gap-1 whitespace-nowrap sm:w-56">
+                <div className="ml-auto flex w-full shrink-0 flex-wrap justify-end gap-1 whitespace-nowrap sm:w-96">
                   {!c.confirmadoEm && (
                     <>
+                      {c.paciente && (
+                        <Link
+                          to="/mensagens"
+                          search={{ paciente: c.paciente.id, consulta: c.id }}
+                          className="botao-leve botao-pequeno"
+                        >
+                          <Icone nome="enviar" className="h-4 w-4" />
+                          {ultima ? 'Reenviar' : 'Enviar mensagem'}
+                        </Link>
+                      )}
                       <button
                         className="botao-leve botao-pequeno"
-                        disabled={!c.paciente?.email || enviar.isPending}
-                        title={c.paciente?.email ? undefined : 'Paciente sem e-mail no cadastro'}
-                        onClick={() => enviar.mutate(c.id)}
+                        disabled={!c.paciente?.celular || whatsapp.isPending}
+                        title={
+                          c.paciente?.celular
+                            ? 'Enviar pelo WhatsApp'
+                            : 'Paciente sem celular no cadastro'
+                        }
+                        aria-label="Enviar pelo WhatsApp"
+                        onClick={() =>
+                          whatsapp.mutate({ id: c.id, aba: window.open('', '_blank') })
+                        }
                       >
-                        <Icone nome="confirmacoes" className="h-4 w-4" />
-                        {ultima ? 'Reenviar' : 'Enviar e-mail'}
+                        <Icone nome="conversa" className="h-4 w-4" />
+                        WhatsApp
                       </button>
                       <button
                         className="botao-leve botao-pequeno"
                         disabled={confirmar.isPending}
-                        onClick={() => confirmar.mutate(c.id)}
+                        onClick={async () => {
+                          const ok = await perguntarConfirmar(
+                            `Marcar a consulta de ${c.paciente?.nome ?? 'sem paciente'} às ${c.inicio} como confirmada?`,
+                            { titulo: 'Confirmar consulta?', botao: 'Confirmar', perigo: false },
+                          )
+                          if (ok) confirmar.mutate(c.id)
+                        }}
                       >
                         Confirmar
                       </button>

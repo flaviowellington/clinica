@@ -65,8 +65,7 @@ const grupoDe = (grupos: { id: number }[][], id: number) =>
   grupos.find((g) => g.some((i) => i.id === id))?.map((i) => i.id) ?? []
 
 const chaveProcedimento = (c: Prisma.ProcedimentoClinicoGetPayload<object>) => [
-  c.pacienteId, c.nome, c.status, +c.data, c.profissionalId, c.observacao,
-  c.observacaoPaciente, c.excluidoPorId,
+  c.pacienteId, c.nome, c.status, +c.data, c.profissionalId, c.observacao, c.excluidoPorId,
 ]
 const chaveItemFicha = (i: Prisma.ItemFichaEspecialidadeGetPayload<object>) => [
   i.fichaId, i.procedimento, i.status, i.data && +i.data, i.observacao,

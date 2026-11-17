@@ -2,20 +2,13 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { api, consultaConfig, consultaEu, errosDosCampos, mensagemDeErro } from '../api'
-import { avisar } from '../estado'
+import { avisar, useVoltar } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import { Dialogo } from '../componentes/Dialogo'
 import { GradeSemana } from '../componentes/GradeSemana'
 import { Icone } from '../componentes/Icones'
-import { FotoRecortada, RecorteFoto, type FotoNova } from '../componentes/RecorteFoto'
-import {
-  CamposProfissional,
-  FOTO_MAXIMO_MB,
-  Retrato,
-  TEXTOS,
-  type Acao,
-  type Profissional,
-} from './Profissionais'
+import { FotoPerfil, salvarFoto, urlFoto, type FotoPendente } from '../componentes/FotoPerfil'
+import { CamposProfissional, Retrato, TEXTOS, type Acao, type Profissional } from './Profissionais'
 
 /** Página do profissional: dados básicos e agenda de trabalho (F-024). */
 export function ProfissionalPagina() {
@@ -24,6 +17,7 @@ export function ProfissionalPagina() {
   const podeEditar = pode(eu.perfis, 'profissional.editar')
   const qc = useQueryClient()
   const navegar = useNavigate()
+  const voltar = useVoltar()
   const consulta = useQuery({
     queryKey: ['profissionais', 'um', id],
     queryFn: async () => (await api.get<Profissional>(`/profissionais/${id}`)).data,
@@ -70,6 +64,7 @@ export function ProfissionalPagina() {
       <header className="flex flex-wrap items-center gap-3">
         <Link
           to="/profissionais"
+          onClick={voltar}
           className="botao-leve px-2.5"
           aria-label="Voltar para profissionais"
         >
@@ -165,18 +160,11 @@ export function ProfissionalPagina() {
 function DadosBasicos(props: { p: Profissional; podeEditar: boolean; aoSalvar: () => void }) {
   const { p } = props
   // Foto escolhida, enviada ao salvar; 'remover' apaga a atual.
-  const [foto, setFoto] = useState<FotoNova | 'remover' | null>(null)
-  const [ajustando, setAjustando] = useState<File | null>(null)
+  const [foto, setFoto] = useState<FotoPendente>(null)
   const salvar = useMutation({
     mutationFn: async (d: Record<string, string>) => {
       await api.put(`/profissionais/${p.id}`, d)
-      if (foto === 'remover') await api.delete(`/profissionais/${p.id}/foto`)
-      else if (foto) {
-        const f = new FormData()
-        f.append('foto', foto.arquivo)
-        for (const [k, v] of Object.entries(foto.recorte)) f.append(k, String(v))
-        await api.post(`/profissionais/${p.id}/foto`, f)
-      }
+      await salvarFoto(`/profissionais/${p.id}`, foto)
     },
     onSuccess: () => {
       avisar('Profissional salvo')
@@ -186,7 +174,6 @@ function DadosBasicos(props: { p: Profissional; podeEditar: boolean; aoSalvar: (
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
   const erros = errosDosCampos(salvar.error)
-  const temFoto = foto === 'remover' ? false : !!foto || !!p.fotoEm
 
   return (
     <section aria-labelledby="titulo-dados" className="cartao">
@@ -200,52 +187,28 @@ function DadosBasicos(props: { p: Profissional; podeEditar: boolean; aoSalvar: (
           salvar.mutate(Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>)
         }}
       >
+        <div className="flex items-center gap-4 rounded-2xl bg-superficie-2 p-3">
+          <FotoPerfil
+            lado={64}
+            className="rounded-2xl"
+            src={foto === 'remover' ? null : urlFoto(`/profissionais/${p.id}`, p.fotoEm)}
+            nova={foto === 'remover' ? null : foto}
+            vazio={<Retrato p={{ ...p, fotoEm: null }} className="size-16 rounded-2xl text-lg" />}
+            podeEditar={props.podeEditar}
+            aoEscolher={setFoto}
+            aoRemover={() => setFoto('remover')}
+          />
+          <div className="min-w-0">
+            <p className="font-bold">Foto</p>
+            <p className="text-xs text-suave">
+              {props.podeEditar
+                ? 'Clique na foto para ver ou alterar. Vale depois de salvar.'
+                : 'Clique na foto para ver.'}
+            </p>
+          </div>
+        </div>
         {/* Sem permissão: os campos aparecem só para leitura. */}
         <fieldset disabled={!props.podeEditar} className="space-y-4">
-          <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-superficie-2 p-3">
-            {foto && foto !== 'remover' ? (
-              <FotoRecortada foto={foto} lado={64} className="rounded-2xl" />
-            ) : (
-              <Retrato
-                p={{ ...p, fotoEm: foto === 'remover' ? null : p.fotoEm }}
-                className="size-16 rounded-2xl text-lg"
-              />
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="font-bold">Foto</p>
-              <p className="text-xs text-suave">JPEG, PNG ou WEBP até {FOTO_MAXIMO_MB} MB.</p>
-            </div>
-            {props.podeEditar && (
-              <div className="flex gap-1">
-                <label className="botao-leve botao-pequeno has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primaria">
-                  {temFoto ? 'Trocar' : 'Escolher'}
-                  {/* Sem name: não vai junto com os dados do formulário. */}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="sr-only"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      e.target.value = '' // deixa escolher o mesmo arquivo de novo
-                      if (!f) return
-                      if (f.size > FOTO_MAXIMO_MB * 1024 * 1024)
-                        return avisar(`A foto pode ter no máximo ${FOTO_MAXIMO_MB} MB.`, true)
-                      setAjustando(f)
-                    }}
-                  />
-                </label>
-                {temFoto && (
-                  <button
-                    type="button"
-                    className="botao-fantasma botao-pequeno text-perigo hover:bg-perigo/10"
-                    onClick={() => setFoto('remover')}
-                  >
-                    Remover
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
           <div>
             <label className="rotulo" htmlFor="p-nome">
               Nome *
@@ -263,18 +226,6 @@ function DadosBasicos(props: { p: Profissional; podeEditar: boolean; aoSalvar: (
           </div>
         )}
       </form>
-      <Dialogo aberto={!!ajustando} aoFechar={() => setAjustando(null)} titulo="Ajustar foto">
-        {ajustando && (
-          <RecorteFoto
-            arquivo={ajustando}
-            aoCancelar={() => setAjustando(null)}
-            aoConfirmar={(f) => {
-              setFoto(f)
-              setAjustando(null)
-            }}
-          />
-        )}
-      </Dialogo>
     </section>
   )
 }

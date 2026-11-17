@@ -3,7 +3,7 @@
 // (e-mail, celular) para mostrar o erro enquanto a pessoa digita.
 // Regra que depende do banco (paciente existe, login em uso) continua na rota.
 import { z } from 'zod'
-import { MOTIVOS_INATIVACAO, cpfValido, dataValida } from './regras'
+import { MOTIVOS_INATIVACAO, TOMADORES_NF, cnpjValido, cpfValido, dataValida } from './regras'
 import { celularVazio } from './mascaras'
 import { CANAIS, STATUS } from './agenda'
 import { FORMAS, TIPOS_LANCAMENTO } from './financeiro'
@@ -109,6 +109,11 @@ export const cpf = z.preprocess(
   z.string().refine(cpfValido, 'CPF inválido.').nullable(),
 )
 
+export const cnpj = z.preprocess(
+  (v) => (typeof v === 'string' ? v.replace(/[^0-9a-z]/gi, '').toUpperCase() || null : null),
+  z.string().refine(cnpjValido, 'CNPJ inválido.').nullable(),
+)
+
 // ── Erros ───────────────────────────────────────────────────────────────────
 
 /** Erros no formato da API: { campo: mensagem }, a primeira de cada campo. */
@@ -127,7 +132,7 @@ export const erroDe = (schema: z.ZodType, valor: unknown) =>
 const qualquerTexto = z.preprocess((v) => (typeof v === 'string' ? v : ''), z.string())
 
 export const EntrarDto = z.object({
-  login: qualquerTexto.transform((v) => v.trim()),
+  login: qualquerTexto.transform((v) => v.trim().toLowerCase()),
   senha: qualquerTexto,
 })
 
@@ -241,12 +246,53 @@ export const PacienteDto = z.object({
   indicadoPor: texto(150),
   comoConheceuOutro: texto(150),
   nomeMae: texto(150),
+  cpfMae: cpf,
   nomePai: texto(150),
+  cpfPai: cpf,
   responsavelNome: texto(150),
   responsavelCpf: cpf,
   responsavelParentesco: texto(60),
 })
 export type PacienteEntrada = z.input<typeof PacienteDto>
+
+/** Dados da nota fiscal. Nome e CPF só são digitados para "Outra pessoa"; os demais vêm do cadastro. */
+export const NotaFiscalDto = z
+  .object({
+    tomador: z.enum(chaves(TOMADORES_NF)).catch('PACIENTE'),
+    nome: texto(150),
+    cpf,
+    cnpj,
+    inscricaoEstadual: texto(20),
+    cep: z.preprocess(
+      (v) => (typeof v === 'string' ? v.replace(/\D/g, '') || null : null),
+      z.string().length(8, 'CEP inválido.').nullable(),
+    ),
+    logradouro: texto(200),
+    numero: texto(20),
+    complemento: texto(100),
+    bairro: texto(100),
+    cidade: texto(100),
+    uf: z.preprocess(limpo(2), z.string().nullable()).transform((v) => v?.toUpperCase() ?? null),
+    observacoes: texto(2000),
+  })
+  .refine((d) => !['OUTRO', 'EMPRESA'].includes(d.tomador) || d.nome, {
+    message: 'Informe o nome.',
+    path: ['nome'],
+  })
+  .refine((d) => d.tomador !== 'EMPRESA' || d.cnpj, {
+    message: 'Informe o CNPJ.',
+    path: ['cnpj'],
+  })
+  // Só fica o que vale para o tomador escolhido: nome/CPF digitados para "Outra pessoa",
+  // razão social/CNPJ/IE para empresa; os demais vêm do cadastro.
+  .transform((d) => ({
+    ...d,
+    nome: ['OUTRO', 'EMPRESA'].includes(d.tomador) ? d.nome : null,
+    cpf: d.tomador === 'OUTRO' ? d.cpf : null,
+    cnpj: d.tomador === 'EMPRESA' ? d.cnpj : null,
+    inscricaoEstadual: d.tomador === 'EMPRESA' ? d.inscricaoEstadual : null,
+  }))
+export type NotaFiscal = z.output<typeof NotaFiscalDto>
 
 export const InativarPacienteDto = z
   .object({
@@ -310,6 +356,7 @@ export const ProcedimentoTabelaDto = z.object({
   nome: textoObrigatorio('Informe o nome do procedimento.', 200),
   valorCentavos: centavos('Informe o valor.'),
   especialidade: texto(80),
+  porDente: z.boolean().catch(true),
   ativo: z.boolean().catch(true),
 })
 
@@ -385,7 +432,6 @@ export const OrcamentoDto = z.object({
           dente: texto(40),
           faces: texto(20),
           observacao: texto(LIMITE_OBSERVACAO),
-          observacaoPaciente: texto(LIMITE_OBSERVACAO),
         }),
       )
       .min(1, 'Adicione pelo menos um procedimento.'),
@@ -409,7 +455,7 @@ export const AutorizacaoDto = z.object({
         origem: z.enum(['CLINICO', 'ORCAMENTO']),
         id: z.number().int().positive(),
         // O que o profissional escreveu sobre o procedimento ao enviar (vai no documento).
-        // Sem o campo, vale a observação para o paciente já gravada.
+        // Sem o campo, vale o detalhamento já gravado.
         texto: texto(LIMITE_OBSERVACAO).optional(),
       }),
       { error: 'Escolha pelo menos um procedimento.' },
@@ -498,9 +544,8 @@ export const ProcedimentoClinicoDto = z.object({
     .max(52)
     .optional(),
   data: dataOpcional,
-  // R-078: duas observações de até 1500 caracteres.
+  // Detalhamento (um campo só, até 1500 caracteres); vem por padrão no documento do paciente.
   observacao,
-  observacaoPaciente: observacao,
 })
 
 export const FichaEspecialidadeDto = z.object({

@@ -9,6 +9,16 @@ usarServidor()
 
 const SEGUNDA = '2026-10-19'
 
+/** Põe o usuário do teste na lista de quem dá desconto (Configurações → Permissões → Desconto). */
+async function liberarDesconto(api: { usuario: { id: number } }) {
+  const valor = [api.usuario.id]
+  await db.configuracao.upsert({
+    where: { chave: 'desconto' },
+    create: { chave: 'desconto', valor },
+    update: { valor },
+  })
+}
+
 async function base(api: Cliente) {
   const dentista = await db.pessoa.create({
     data: { tipo: 'PROFISSIONAL', nome: 'Dra. Teste', nomeBusca: 'dra. teste' },
@@ -188,8 +198,12 @@ describe('PT-15 parcelamento', () => {
 })
 
 describe('PT-10 a PT-19 orçamento', () => {
-  async function criar(api: Cliente, extra: Record<string, unknown> = {}) {
+  async function criar(
+    api: Cliente & { usuario: { id: number } },
+    extra: Record<string, unknown> = {},
+  ) {
     const b = await base(api)
+    await liberarDesconto(api)
     const r = await api('POST', '/api/orcamentos', {
       pacienteId: b.paciente.id,
       profissionalId: b.dentista.id,
@@ -495,6 +509,59 @@ describe('relatórios que dependem dessas partes', () => {
   })
 })
 
+describe('cobrança por dente e permissão de desconto', () => {
+  it('procedimento nasce cobrado por dente e pode ser valor fixo', async () => {
+    const api = await entrarComo('ADMINISTRADOR')
+    const padrao = await api('POST', '/api/procedimentos', { nome: 'Selante', valorCentavos: 5000 })
+    expect(padrao.corpo.porDente).toBe(true)
+    const fixo = await api('POST', '/api/procedimentos', {
+      nome: 'Clareamento fictício',
+      valorCentavos: 90000,
+      porDente: false,
+    })
+    expect(fixo.corpo.porDente).toBe(false)
+    const busca = await api('GET', '/api/procedimentos?busca=clareamento ficticio')
+    expect(busca.corpo[0]).toMatchObject({ porDente: false })
+  })
+
+  it('desconto é por usuário (Configurações → Permissões → Desconto), não por cargo', async () => {
+    const recepcao = await entrarComo('RECEPCAO')
+    const prof = await entrarComo('PROFISSIONAL')
+    const admin = await entrarComo('ADMINISTRADOR')
+    const { dentista, paciente, resina } = await base(recepcao)
+    const corpo = {
+      pacienteId: paciente.id,
+      profissionalId: dentista.id,
+      itens: [{ procedimentoId: resina.id }],
+    }
+    const comDesconto = { ...corpo, descontoCentavos: 1000 }
+    // Ninguém na lista: nem o cargo Profissional dá desconto; o Administrador pode sempre.
+    const negado = await prof('POST', '/api/orcamentos', comDesconto)
+    expect(negado.status).toBe(400)
+    expect(negado.corpo.erros.descontoCentavos).toMatch(/permissão/)
+    expect((await recepcao('POST', '/api/orcamentos', corpo)).status).toBe(201)
+    expect((await admin('POST', '/api/orcamentos', comDesconto)).status).toBe(201)
+    expect((await prof('GET', '/api/eu')).corpo.podeDesconto).toBe(false)
+
+    // Só quem gerencia as configurações escolhe a lista; usuário que não existe não entra.
+    expect((await prof('PUT', '/api/configuracoes/desconto', [prof.usuario.id])).status).toBe(403)
+    const lista = await admin('PUT', '/api/configuracoes/desconto', [recepcao.usuario.id, 999999])
+    expect(lista.corpo).toEqual([recepcao.usuario.id])
+    expect((await recepcao('GET', '/api/eu')).corpo.podeDesconto).toBe(true)
+    const ok = await recepcao('POST', '/api/orcamentos', comDesconto)
+    expect(ok.status).toBe(201)
+    expect((await prof('POST', '/api/orcamentos', comDesconto)).status).toBe(400)
+
+    // Quem não pode dar desconto ainda edita o orçamento, se não mexer no desconto.
+    expect((await prof('PUT', `/api/orcamentos/${ok.corpo.id}`, comDesconto)).status).toBe(200)
+    const outro = await prof('PUT', `/api/orcamentos/${ok.corpo.id}`, {
+      ...corpo,
+      descontoCentavos: 2000,
+    })
+    expect(outro.status).toBe(400)
+  })
+})
+
 describe('procedimento sem custo e análise do financeiro', () => {
   it('cadastro de procedimento não tem custo', async () => {
     const api = await entrarComo('ADMINISTRADOR')
@@ -525,6 +592,10 @@ describe('procedimento sem custo e análise do financeiro', () => {
     })
 
     const hoje = hojeNaClinica()
+    // Aprovado ainda não confirmado em Aprovações não entra no Controle Financeiro.
+    const antes = await api('GET', `/api/financeiro/analise?de=${hoje}&ate=${hoje}`)
+    expect(antes.corpo.orcamentos).toEqual([])
+    expect((await api('POST', `/api/orcamentos/${o.id}/confirmar`)).status).toBe(200)
     const r = await api('GET', `/api/financeiro/analise?de=${hoje}&ate=${hoje}`)
     expect(r.status).toBe(200)
     expect(r.corpo.orcamentos).toMatchObject([
@@ -619,11 +690,18 @@ describe('confirmação das aprovações pelo administrador', () => {
         id: o.id,
         totalCentavos: 30000,
         paciente: { id: paciente.id },
-        aprovadoPor: { nome: recepcao.usuario.nome },
+        aprovadoPor: { id: recepcao.usuario.id, nome: recepcao.usuario.nome },
         descontoCentavos: 0,
         pagamentos: [], // aprovou sem receber: a venda não conta como pagamento
       },
     ])
+    // Filtro "Aprovado por": todos os usuários, a recepção inclusive.
+    expect((await recepcao('GET', '/api/financeiro/aprovacoes/aprovadores')).status).toBe(403)
+    const aprovadores = await admin('GET', '/api/financeiro/aprovacoes/aprovadores')
+    expect(aprovadores.corpo).toContainEqual({
+      id: recepcao.usuario.id,
+      nome: recepcao.usuario.nome,
+    })
 
     expect((await recepcao('POST', `/api/orcamentos/${o.id}/confirmar`)).status).toBe(403)
     const ok = await admin('POST', `/api/orcamentos/${o.id}/confirmar`)
@@ -701,5 +779,40 @@ describe('rejeitar uma aprovação', () => {
     expect(salvo!.contas.every((c) => c.status === 'CANCELADA')).toBe(true)
     expect((await admin('GET', '/api/financeiro/aprovacoes')).corpo).toEqual([])
     expect((await admin('POST', `/api/orcamentos/${o.id}/rejeitar`, senha)).status).toBe(409)
+  })
+})
+
+describe('reabrir um aprovado (Controle Financeiro)', () => {
+  it('volta para aberto mesmo já confirmado; desfaz o pagamento; pede senha; só administrador', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const { dentista, paciente, resina } = await base(admin)
+    const o = (
+      await admin('POST', '/api/orcamentos', {
+        pacienteId: paciente.id,
+        profissionalId: dentista.id,
+        itens: [{ procedimentoId: resina.id }],
+      })
+    ).corpo
+    await admin('POST', `/api/orcamentos/${o.id}/aprovar`, {
+      pagamento: { data: '2026-11-14', forma: 'Pix' },
+    })
+    await admin('POST', `/api/orcamentos/${o.id}/confirmar`)
+
+    const senha = { senha: 'senha-de-teste' }
+    const financeiro = await entrarComo('FINANCEIRO')
+    expect((await financeiro('POST', `/api/orcamentos/${o.id}/reabrir`, senha)).status).toBe(403)
+    expect(
+      (await admin('POST', `/api/orcamentos/${o.id}/reabrir`, { senha: 'errada' })).status,
+    ).toBe(403)
+
+    expect((await admin('POST', `/api/orcamentos/${o.id}/reabrir`, senha)).status).toBe(200)
+    const salvo = await db.orcamento.findUnique({
+      where: { id: o.id },
+      include: { lancamentos: true, contas: true },
+    })
+    expect(salvo).toMatchObject({ status: 'ABERTO', aprovadoEm: null, confirmadoEm: null })
+    expect(salvo!.lancamentos.every((l) => l.excluidoEm)).toBe(true)
+    expect(salvo!.contas.every((c) => c.status === 'CANCELADA')).toBe(true)
+    expect((await admin('POST', `/api/orcamentos/${o.id}/reabrir`, senha)).status).toBe(409)
   })
 })

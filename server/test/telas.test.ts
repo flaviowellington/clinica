@@ -569,7 +569,7 @@ describe('PT-88 painel', () => {
         valorCentavos: 20000,
       },
     })
-    const aprovado = async (descontoCentavos: number) => {
+    const aprovado = async (descontoCentavos: number, confirmar = true) => {
       const o = await admin('POST', '/api/orcamentos', {
         pacienteId: pac.id,
         profissionalId: prof.id,
@@ -577,9 +577,11 @@ describe('PT-88 painel', () => {
         descontoCentavos,
       })
       await admin('POST', `/api/orcamentos/${o.corpo.id}/aprovar`, { pagamento: { forma: 'Pix' } })
+      if (confirmar) await admin('POST', `/api/orcamentos/${o.corpo.id}/confirmar`)
       return o.corpo.id as number
     }
     await aprovado(4000) // 40.000 − 4.000 = 36.000
+    await aprovado(0, false) // ainda em Aprovações: fora do faturamento
     const cancelado = await aprovado(0)
     await admin('POST', `/api/orcamentos/${cancelado}/cancelar`, { ciente: true })
 
@@ -698,7 +700,7 @@ describe('importação de planilhas', () => {
       ['Coroa', 'A_REALIZAR'],
       ['Limpeza', 'EXECUTADO'],
     ])
-    expect(lista[1].observacaoPaciente).toBe('Leve')
+    expect(lista[1].observacao).toBe('Leve')
     // Excluído no sistema antigo: entra excluído, para o histórico do prontuário.
     expect(lista[2].excluidoEm).not.toBeNull()
 

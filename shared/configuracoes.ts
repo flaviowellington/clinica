@@ -7,7 +7,7 @@ import {
   lerPerguntas,
   type Pergunta,
 } from './prontuario'
-import { normalizar } from './regras'
+import { cnpjValido, cpfValido, normalizar, REGIMES_TRIBUTARIOS } from './regras'
 import { CATEGORIAS, lerHorariosSemana } from './agenda'
 import { lerMatriz, MATRIZ_PADRAO } from './permissoes'
 
@@ -35,6 +35,45 @@ export interface Laboratorio {
   contato: string
   trabalhos: { nome: string; valorCentavos: number }[]
 }
+/** Dados de quem emite a nota fiscal (a clínica). PJ usa CNPJ (e IE, se tiver); PF usa CPF. */
+export interface Emitente {
+  /** Nome do perfil, para escolher entre os salvos (ex.: "Até 2026"). */
+  perfil: string
+  tipo: 'PJ' | 'PF'
+  razaoSocial: string
+  /** CNPJ ou CPF, só letras e números. */
+  documento: string
+  inscricaoEstadual: string
+  cep: string
+  logradouro: string
+  numero: string
+  complemento: string
+  bairro: string
+  cidade: string
+  uf: string
+  regime: string
+}
+export const EMITENTE_VAZIO: Emitente = {
+  perfil: '',
+  tipo: 'PJ',
+  razaoSocial: '',
+  documento: '',
+  inscricaoEstadual: '',
+  cep: '',
+  logradouro: '',
+  numero: '',
+  complemento: '',
+  bairro: '',
+  cidade: '',
+  uf: '',
+  regime: '',
+}
+/** Perfis do emitente salvos; "ativo" é o que vai nas notas. */
+export interface Emitentes {
+  ativo: number
+  perfis: Emitente[]
+}
+
 export interface Mensagens {
   confirmacao: string
 }
@@ -57,6 +96,7 @@ export const PADROES = {
   ) as Record<keyof typeof MODELOS_DOCUMENTO, string>,
   documentosPadrao: [] as DocumentoPadrao[],
   laboratorios: [] as Laboratorio[],
+  emitentes: { ativo: 0, perfis: [] } as Emitentes,
   /** Categorias da agenda (nome → cor); a clínica pode criar outras. */
   categorias: { ...CATEGORIAS } as Record<string, string>,
   /** Horários da semana em que a clínica não atende ninguém ("d-hh:mm"). */
@@ -81,6 +121,8 @@ export const PADROES = {
   } as Mensagens,
   /** Perfis que podem cada ação (shared/permissoes.ts). */
   permissoes: MATRIZ_PADRAO,
+  /** Usuários (id) que podem dar desconto em orçamento, além do Administrador. */
+  desconto: [] as number[],
 }
 export type ChaveConfig = keyof typeof PADROES
 export const CHAVES = Object.keys(PADROES) as ChaveConfig[]
@@ -121,6 +163,52 @@ export function validarConfig(
           cidade: txt(b.cidade, 80),
           telefone: txt(b.telefone, 30),
           email: txt(b.email, 120),
+        },
+      }
+    }
+    case 'emitentes': {
+      const lista = b?.perfis
+      if (!Array.isArray(lista) || lista.length > 30) return { erro: 'Lista de perfis inválida.' }
+      const vistos = new Set<string>()
+      const perfis: Emitente[] = []
+      for (const e of lista as Record<string, unknown>[]) {
+        const perfil = txt(e?.perfil, 60)
+        if (!perfil) return { erro: 'Dê um nome ao perfil.' }
+        if (vistos.has(normalizar(perfil))) return { erro: `Já existe o perfil "${perfil}".` }
+        vistos.add(normalizar(perfil))
+        const tipo = e.tipo === 'PF' ? 'PF' : 'PJ'
+        const razaoSocial = txt(e.razaoSocial, 150)
+        if (!razaoSocial)
+          return { erro: `${perfil}: informe ${tipo === 'PJ' ? 'a razão social' : 'o nome'}.` }
+        const documento = txt(e.documento, 20)
+          .replace(/[^0-9a-z]/gi, '')
+          .toUpperCase()
+        if (documento && !(tipo === 'PJ' ? cnpjValido : cpfValido)(documento))
+          return { erro: `${perfil}: ${tipo === 'PJ' ? 'CNPJ' : 'CPF'} inválido.` }
+        const cep = txt(e.cep, 9).replace(/\D/g, '')
+        if (cep && cep.length !== 8) return { erro: `${perfil}: CEP inválido.` }
+        const regime = txt(e.regime, 20)
+        perfis.push({
+          perfil,
+          tipo,
+          razaoSocial,
+          documento,
+          inscricaoEstadual: tipo === 'PJ' ? txt(e.inscricaoEstadual, 20) : '',
+          cep,
+          logradouro: txt(e.logradouro, 200),
+          numero: txt(e.numero, 20),
+          complemento: txt(e.complemento, 100),
+          bairro: txt(e.bairro, 100),
+          cidade: txt(e.cidade, 100),
+          uf: txt(e.uf, 2).toUpperCase(),
+          regime: regime in REGIMES_TRIBUTARIOS ? regime : '',
+        })
+      }
+      const ativo = Number(b.ativo)
+      return {
+        valor: {
+          ativo: Number.isInteger(ativo) && ativo >= 0 && ativo < perfis.length ? ativo : 0,
+          perfis,
         },
       }
     }
@@ -221,6 +309,11 @@ export function validarConfig(
         vistos.add(normalizar(nome))
         valor[nome] = cor
       }
+      return { valor }
+    }
+    case 'desconto': {
+      if (!Array.isArray(bruto)) return { erro: 'Lista de usuários inválida.' }
+      const valor = [...new Set(bruto.filter((v): v is number => Number.isInteger(v) && v > 0))]
       return { valor }
     }
     case 'permissoes': {

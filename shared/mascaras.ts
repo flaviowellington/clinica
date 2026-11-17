@@ -14,9 +14,25 @@ function agrupar(s: string, tamanhos: number[], seps: string[], apagando: boolea
   return saida + s.slice(i)
 }
 
+/** 00000-000 */
+export const mascaraCep = (valor: string, apagando = false) =>
+  agrupar(valor.replace(/\D/g, '').slice(0, 8), [5, 3], ['-'], apagando)
+
 /** 000.000.000-00, só dígitos, no máximo 11. */
 export const mascaraCpf = (valor: string, apagando = false) =>
   agrupar(valor.replace(/\D/g, '').slice(0, 11), [3, 3, 3, 2], ['.', '.', '-'], apagando)
+
+/** 00.000.000/0000-00; aceita letras (CNPJ alfanumérico), em maiúsculas. */
+export const mascaraCnpj = (valor: string, apagando = false) =>
+  agrupar(
+    valor
+      .replace(/[^0-9a-z]/gi, '')
+      .toUpperCase()
+      .slice(0, 14),
+    [2, 3, 3, 4, 2],
+    ['.', '.', '/', '-'],
+    apagando,
+  )
 
 /** 00.000.000, e com 9 caracteres 000.000.000; aceita letras e símbolos, o que passar fica como digitado. */
 export function mascaraRg(valor: string, apagando = false) {

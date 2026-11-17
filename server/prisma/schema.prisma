@@ -54,16 +54,20 @@ model Pessoa {
   comoConheceuOutro String?
 
   nomeMae               String?
+  cpfMae                String?
   nomePai               String?
+  cpfPai                String?
   responsavelNome       String?
   responsavelCpf        String?
   responsavelParentesco String?
+  /// Para quem sai a nota fiscal, endereço e observação (formato em NotaFiscalDto).
+  notaFiscal            Json?
 
   /// Só profissional: registro no conselho, especialidade e cor da coluna na agenda.
   cro                   String?
   especialidade         String?
   corAgenda             String?
-  /// Foto do profissional: quadrado 400x400 em WebP, já recortado no servidor.
+  /// Foto do profissional ou do paciente: quadrado 400x400 em WebP, já recortado no servidor.
   foto                  Bytes?
   /// Quando a foto mudou; vai na URL para o navegador não mostrar a antiga do cache.
   fotoEm                DateTime?
@@ -129,6 +133,9 @@ model Usuario {
   pessoa           Pessoa?   @relation(fields: [pessoaId], references: [id])
   /// Preferências da conta: profissionais escondidos na agenda e nas confirmações.
   preferencias     Json?
+  /// Foto do usuário: quadrado 400x400 em WebP, como a do profissional.
+  foto             Bytes?
+  fotoEm           DateTime?
   criadoEm         DateTime  @default(now())
 
   acessos             LogAcesso[]
@@ -312,6 +319,8 @@ model Procedimento {
   nomeBusca     String
   especialidade String?
   valorCentavos Int
+  /// Cobrança por dente (valor × dentes) ou valor fixo (uma vez, com qualquer número de dentes).
+  porDente      Boolean               @default(true)
   ativo         Boolean               @default(true)
   itens         ItemOrcamento[]
   clinicos      ProcedimentoClinico[]
@@ -375,9 +384,8 @@ model ItemOrcamento {
   valorCentavos      Int
   executadoEm        DateTime?
   executadoPorId     Int?
-  /// Interna, e a que aparece no documento que o paciente assina.
+  /// Detalhamento: vem por padrão no documento que o paciente assina.
   observacao         String?
-  observacaoPaciente String?
   autorizacaoId      Int?
   autorizacao        Autorizacao? @relation(fields: [autorizacaoId], references: [id])
 }
@@ -468,9 +476,8 @@ model ProcedimentoClinico {
   faces              String?
   status             StatusClinico
   data               DateTime      @db.Date
-  /// Interna, e a que aparece no documento do paciente (R-078).
+  /// Detalhamento: vem por padrão no documento que o paciente assina.
   observacao         String?
-  observacaoPaciente String?
   autorizacaoId      Int?
   autorizacao        Autorizacao?  @relation(fields: [autorizacaoId], references: [id])
   excluidoEm         DateTime?
@@ -509,6 +516,13 @@ model Autorizacao {
   itensOrcamento ItemOrcamento[]
   clinicos       ProcedimentoClinico[]
   itensFicha     ItemFichaEspecialidade[]
+  /// Depois de assinado, só o Administrador altera o que ele cobre; quando alterou por último.
+  /// Alterado e sem retificação nova assinada: o paciente precisa assinar a retificação.
+  alteradoEm     DateTime?
+  /// Este pedido é a retificação de outro já assinado (que continua guardado como estava).
+  retificaId     Int?
+  retifica       Autorizacao?             @relation("Retificacao", fields: [retificaId], references: [id])
+  retificacoes   Autorizacao[]            @relation("Retificacao")
 
   @@index([pacienteId])
 }

@@ -4,12 +4,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, consultaConfig, dataBR, horaBR, mensagemDeErro, type Agendamento } from '../api'
 import { avisar } from '../estado'
 import { CATEGORIAS, COM_CHECKIN, STATUS, type StatusAgenda } from '../../../shared/agenda'
-import { reais } from '../../../shared/financeiro'
 import { whatsapp } from '../paginas/Pacientes'
 import { CampoSelect } from './CampoSelect'
 import { Icone, type NomeIcone } from './Icones'
 
-/** Cartão do agendamento (C-005): paciente, selo financeiro, horário, desmarcação e status. */
+/** Cartão do agendamento (C-005): paciente, horário, desmarcação e status. */
 export function CartaoConsulta(props: {
   a: Agendamento
   podeEditar: boolean
@@ -154,28 +153,7 @@ export function CartaoConsulta(props: {
               <Icone nome="conversa" className="h-4 w-4" />
             </a>
           )}
-          <Link
-            to="/pacientes/$id"
-            params={{ id: String(a.paciente.id) }}
-            search={{ aba: 'orcamentos' }}
-            className="botao-leve botao-icone"
-            aria-label="Orçamentos do paciente"
-            title="Orçamentos do paciente"
-          >
-            <Icone nome="financeiro" className="h-4 w-4" />
-          </Link>
         </div>
-      )}
-
-      {/* R-032: o selo olha só parcelas vencidas e em aberto. */}
-      {a.paciente && a.emAtrasoCentavos !== undefined && (
-        <p
-          className={`rounded-xl py-2 text-center font-bold ${
-            a.emAtrasoCentavos ? 'bg-perigo/15 text-perigo' : 'bg-sucesso/15 text-sucesso'
-          }`}
-        >
-          {a.emAtrasoCentavos ? `Em atraso: ${reais(a.emAtrasoCentavos)}` : 'Financeiro OK'}
-        </p>
       )}
 
       <div className="flex items-center gap-3">

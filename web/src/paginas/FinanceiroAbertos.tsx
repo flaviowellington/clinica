@@ -2,7 +2,13 @@
 // orçamento escolhido ao lado; quando o paciente paga, aprova ali mesmo e o valor já entra.
 import { useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from '@tanstack/react-query'
 import { api, consultaEu, consultaProfissionais, dataBR, isoLocal, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
@@ -45,10 +51,18 @@ const diasDesde = (iso: string) =>
   Math.round((Date.parse(isoLocal(new Date())) - Date.parse(iso)) / 86_400_000)
 const idade = (dias: number) => (dias <= 0 ? 'hoje' : dias === 1 ? 'ontem' : `há ${dias} dias`)
 const procedimento = (i: Aberto['itens'][number]) => (i.dente ? `${i.nome} · ${i.dente}` : i.nome)
+/** Exportada para o Financeiro já buscar a lista antes de abrirem a aba. */
+export const consultaAbertos = (periodo: { de?: string; ate?: string } = {}) =>
+  queryOptions({
+    queryKey: ['abertos', periodo],
+    queryFn: async () =>
+      (await api.get<Aberto[]>('/financeiro/orcamentos-abertos', { params: periodo })).data,
+  })
+
 export function OrcamentosAbertos() {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const podeAprovar = pode(eu.perfis, 'orcamento.aprovar') && pode(eu.perfis, 'financeiro.receber')
-  const p = useIntervalo(true) // orçamento aberto não tem prazo: começa vendo todos
+  const p = useIntervalo('tudo') // orçamento aberto não tem prazo: começa vendo todos
   const { data: prof } = useSuspenseQuery(consultaProfissionais)
   // Como na Agenda: o profissional começa vendo só os orçamentos dele.
   const [ocultos, setOcultos] = useState<number[]>(() =>
@@ -62,11 +76,7 @@ export function OrcamentosAbertos() {
   const painel = useRef<HTMLElement>(null)
 
   const periodo = p.tudo ? {} : p.intervalo
-  const lista = useQuery({
-    queryKey: ['abertos', periodo],
-    queryFn: async () =>
-      (await api.get<Aberto[]>('/financeiro/orcamentos-abertos', { params: periodo })).data,
-  })
+  const lista = useQuery(consultaAbertos(periodo))
   const todos = useMemo(() => lista.data ?? [], [lista.data])
   const porProf = new Map<number, number>()
   for (const o of todos) porProf.set(o.profissional.id, (porProf.get(o.profissional.id) ?? 0) + 1)
@@ -104,16 +114,14 @@ export function OrcamentosAbertos() {
       {/* ---------- Filtros (barra da Agenda 2) ---------- */}
       <div className="cartao flex flex-wrap items-center gap-2 py-2">
         <PeriodoSuspenso p={p} />
+        {/* Só os profissionais que têm orçamento aberto na lista. */}
         <ProfissionaisSuspenso
+          lista={prof.profissionais.filter((x) => porProf.has(x.id))}
           ocultos={ocultos}
           aoMudar={setOcultos}
           valor={(id) => porProf.get(id) ?? 0}
         />
-        <Suspenso
-          marcado={tempo !== 'todos'}
-          painel="w-60 p-1.5"
-          rotulo={`${faixa.rotulo} ▾`}
-        >
+        <Suspenso marcado={tempo !== 'todos'} painel="w-60 p-1.5" rotulo={`${faixa.rotulo} ▾`}>
           {(fechar) => (
             <ul>
               {(Object.keys(TEMPOS) as Tempo[]).map((t) => (
@@ -155,7 +163,7 @@ export function OrcamentosAbertos() {
               <input
                 type="search"
                 autoFocus
-                className="campo py-1.5 pl-9"
+                className="campo min-h-11 py-1.5 pl-9 md:min-h-0"
                 placeholder="Buscar paciente, procedimento ou nº"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
@@ -218,6 +226,15 @@ export function OrcamentosAbertos() {
           </div>
         </nav>
 
+        {/* Sem escolha, o lugar do painel fica reservado: a lista não muda de tamanho. */}
+        {!sel && (
+          <section
+            aria-hidden
+            className="cartao hidden min-h-60 min-w-0 flex-[999_1_32rem] place-items-center text-suave sm:grid"
+          >
+            {lista.isPending ? 'Carregando…' : 'Nenhum orçamento escolhido.'}
+          </section>
+        )}
         {/* ---------- Orçamento escolhido ---------- */}
         {sel && (
           <section
@@ -305,8 +322,7 @@ function Aprovar({ orcamento: o }: { orcamento: Aberto }) {
       (await api.post(`/orcamentos/${o.id}/aprovar`, { pagamento })).data,
     onSuccess: () => {
       avisar('Orçamento aprovado e pagamento registrado')
-      for (const k of ['abertos', 'analise', 'orcamentos'])
-        qc.invalidateQueries({ queryKey: [k] })
+      for (const k of ['abertos', 'analise', 'orcamentos']) qc.invalidateQueries({ queryKey: [k] })
     },
     onError: (e) => {
       avisar(mensagemDeErro(e), true)

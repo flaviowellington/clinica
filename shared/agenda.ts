@@ -3,12 +3,12 @@
 /** Tamanho de cada intervalo da grade, em minutos (R-021). */
 export const INTERVALO = 15
 
-// ponytail: expediente fixo da clínica estudada (8:00–19:45, domingo fechado);
+// ponytail: expediente fixo (8:00–18:00, último início 17:45, domingo fechado);
 // virar configuração quando a clínica pedir horários diferentes por dia.
 const PRIMEIRO = 8 * 60
-const ULTIMO = 19 * 60 + 45
+const ULTIMO = 17 * 60 + 45
 
-/** "08:00", "08:15", ... "19:45": os 48 horários de início (R-029). */
+/** "08:00", "08:15", ... "17:45": os 40 horários de início (R-029). */
 export const HORARIOS = Array.from({ length: (ULTIMO - PRIMEIRO) / INTERVALO + 1 }, (_, i) =>
   paraHora(PRIMEIRO + i * INTERVALO),
 )

@@ -219,6 +219,8 @@ const IMPORTADORES: Record<
     const status = situacao === 'A_REALIZAR' || situacao === 'EXISTENTE' ? situacao : 'EXECUTADO'
     const observacao = [
       txt(l.observacao, 1500),
+      // Observação para o paciente do sistema antigo: entra no mesmo detalhamento.
+      txt(l.observacaoPaciente, 1500),
       denteBruto && !dente ? `Região: ${denteBruto}` : null,
     ]
       .filter(Boolean)
@@ -233,7 +235,6 @@ const IMPORTADORES: Record<
         status,
         data,
         observacao: observacao.slice(0, 1500) || null,
-        observacaoPaciente: txt(l.observacaoPaciente, 1500),
         excluidoEm,
         excluidoPorId: excluidoEm ? usuarioId : null,
         criadoPorId: usuarioId,

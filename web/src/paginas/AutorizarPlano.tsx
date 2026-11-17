@@ -6,6 +6,9 @@ import { useParams } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api, dataBR, mensagemDeErro } from '../api'
 import type { DadosClinica } from '../../../shared/configuracoes'
+import { ARCADAS, dentesDoPlano, marcadosNa } from '../../../shared/arcadas'
+import imgPermanente from '../../../shared/arcadas/permanente.png'
+import imgDecidua from '../../../shared/arcadas/decidua.png'
 
 interface Dados {
   clinica: DadosClinica
@@ -22,6 +25,8 @@ interface Dados {
     /** Planejamento: a especialidade e as etapas com as datas previstas. */
     especialidade?: string
     etapas?: { id: string; nome: string; data: string | null; comentario: string | null }[]
+    /** Retificação de um plano já assinado: quando foi assinado e o que mudou. */
+    retificacao?: { de: number; assinadoEm: string; alteracoes: string[] }
     itens: {
       nome: string
       profissional: string
@@ -35,6 +40,51 @@ interface Dados {
 /** Um traço da assinatura: os pontos por onde o dedo passou. */
 type Traco = [number, number][]
 
+const IMAGENS = { permanente: imgPermanente, decidua: imgDecidua }
+const RECORTES = import.meta.glob<string>('../../../shared/arcadas/dentes/*.png', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+})
+
+/** As duas arcadas lado a lado, com os dentes do plano pintados (permanentes e decíduos). */
+function Arcadas({ itens }: { itens: { dentes: string[] }[] }) {
+  const plano = dentesDoPlano(itens)
+  if (!plano.size) return null
+  const pc = (n: number, total: number) => `${(n / total) * 100}%`
+  return (
+    <div className="my-3 flex justify-evenly">
+      {(['permanente', 'decidua'] as const).map((tipo) => {
+        const a = ARCADAS[tipo]
+        return (
+          <figure key={tipo} className="w-[38%] max-w-40 text-center">
+            <div className="relative">
+              <img src={IMAGENS[tipo]} alt={a.nome} className="block w-full" />
+              {marcadosNa(tipo, plano).map(([n, [x, y, w, h]]) => (
+                <img
+                  key={n}
+                  src={RECORTES[`../../../shared/arcadas/dentes/${n}.png`]}
+                  alt={`Dente ${n} com procedimento`}
+                  className="absolute"
+                  style={{
+                    left: pc(x, a.largura),
+                    top: pc(y, a.altura),
+                    width: pc(w, a.largura),
+                    height: pc(h, a.altura),
+                  }}
+                />
+              ))}
+            </div>
+            <figcaption className="mt-1 text-xs text-[#555]">{a.nome}</figcaption>
+          </figure>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Data e hora gravadas (UTC) no dia daqui. */
+const diaLocal = (iso: string) => new Date(iso).toLocaleDateString('pt-BR')
 const dataHora = (iso: string) =>
   new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 
@@ -140,8 +190,10 @@ export function AutorizarPlano() {
         <>
           {!d.assinadoEm && (
             <p className="text-center">
-              Olá, {d.primeiroNome}! Leia o documento abaixo e, se estiver de acordo, assine no fim
-              da página.
+              Olá, {d.primeiroNome}!{' '}
+              {d.conteudo.retificacao
+                ? `A clínica fez uma retificação no plano que você assinou em ${diaLocal(d.conteudo.retificacao.assinadoEm)}. Leia o que mudou e, se estiver de acordo, assine de novo no fim da página.`
+                : 'Leia o documento abaixo e, se estiver de acordo, assine no fim da página.'}
             </p>
           )}
 
@@ -160,8 +212,26 @@ export function AutorizarPlano() {
             </header>
 
             <h1 className="mt-6 text-center text-[15px] font-bold text-[#1a1a1a] uppercase sm:text-base">
+              {d.conteudo.retificacao && (
+                <span className="mb-1 block text-[#b91c1c]">Retificação</span>
+              )}
               Termo de ciência e autorização do plano de tratamento
             </h1>
+
+            {d.conteudo.retificacao && (
+              <section className="mt-5 rounded-sm border-2 border-[#b91c1c] bg-[#fef2f2] px-4 py-3">
+                <p className="font-bold text-[#b91c1c] uppercase">Documento de retificação</p>
+                <p className="mt-1">
+                  Este documento corrige e substitui o plano de tratamento assinado em{' '}
+                  <strong>{diaLocal(d.conteudo.retificacao.assinadoEm)}</strong>. O que mudou:
+                </p>
+                <ul className="mt-1 list-disc pl-5">
+                  {d.conteudo.retificacao.alteracoes.map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
             <p className="mt-5">
               <strong>Paciente:</strong> {d.conteudo.paciente}
@@ -187,6 +257,7 @@ export function AutorizarPlano() {
 
             <section className="mt-5">
               <h2 className="font-bold text-[#1a1a1a]">Procedimentos</h2>
+              <Arcadas itens={d.conteudo.itens} />
               <ul className="mt-1 divide-y divide-[#ddd] border-y border-[#ddd]">
                 {d.conteudo.itens.map((i, k) => (
                   <li key={k} className="py-2.5">

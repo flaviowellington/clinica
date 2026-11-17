@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { useEffect, useRef, useState } from 'react'
 import { queryOptions, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
-import type { Preferencias } from '../../shared/dtos'
+import type { NotaFiscal, Preferencias } from '../../shared/dtos'
 import type { Matriz, Perfil } from '../../shared/permissoes'
 import type { MotivoInativacao } from '../../shared/regras'
 import type { StatusAgenda } from '../../shared/agenda'
@@ -33,6 +33,8 @@ export interface Eu {
   perfis: Perfil[]
   preferencias: Preferencias
   permissoes: Matriz
+  /** Pode dar desconto em orçamento (Configurações → Permissões → Desconto). */
+  podeDesconto: boolean
 }
 
 /**
@@ -82,10 +84,15 @@ export interface Paciente {
   indicadoPor: string | null
   comoConheceuOutro: string | null
   nomeMae: string | null
+  cpfMae: string | null
   nomePai: string | null
+  cpfPai: string | null
   responsavelNome: string | null
   responsavelCpf: string | null
   responsavelParentesco: string | null
+  notaFiscal: NotaFiscal | null
+  fotoEm: string | null
+  alteradoEm: string
   ativo: boolean
   motivoInativacao: MotivoInativacao | null
   motivoInativacaoDescricao: string | null

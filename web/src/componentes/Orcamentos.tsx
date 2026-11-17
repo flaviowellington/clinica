@@ -28,7 +28,7 @@ import { CampoSelect } from './CampoSelect'
 import { confirmar } from './Confirmar'
 import { Icone } from './Icones'
 import { CampoSugestoes } from './CampoSugestoes'
-import { FormProcedimento } from '../paginas/Configuracoes'
+import { FormProcedimento, SeloTipoProcedimento } from '../paginas/Configuracoes'
 import { Passo, Resumo } from './NovoAgendamento'
 
 interface Item {
@@ -39,9 +39,10 @@ interface Item {
   /** Faces do dente quando o item veio do odontograma (ex.: "MO"). */
   faces?: string | null
   valorCentavos: number
+  /** Procedimento completo (boca toda): não tem dente. Só nos itens novos, vindos da tabela. */
+  porDente?: boolean
   executadoEm?: string | null
   observacao?: string | null
-  observacaoPaciente?: string | null
 }
 interface Orcamento {
   id: number
@@ -68,6 +69,7 @@ interface Procedimento {
   nome: string
   especialidade: string | null
   valorCentavos: number
+  porDente: boolean
 }
 
 const COR_STATUS: Record<StatusOrcamento, string> = {
@@ -165,9 +167,7 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
                   <td className="px-3 py-2">
                     <SeloOrcamento status={o.status} />
                   </td>
-                  <td className="max-w-80 truncate px-3 py-2">
-                    {o.itens.map((i) => (i.dente ? `${i.nome} (${i.dente})` : i.nome)).join('; ')}
-                  </td>
+                  <td className="max-w-80 truncate px-3 py-2">{resumoItens(o.itens)}</td>
                   <td className="px-3 py-2">{o.profissional.nome}</td>
                   <td className="px-3 py-2 font-medium">{reais(o.totalCentavos)}</td>
                   <td className="px-1 py-1 text-right">
@@ -244,11 +244,28 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
   )
 }
 
+/** "Resina (16, 26); Raspagem (23 dentes)": um nome por procedimento, os dentes juntos. */
+function resumoItens(itens: Item[]) {
+  const porNome = new Map<string, string[]>()
+  for (const i of itens)
+    porNome.set(i.nome, [...(porNome.get(i.nome) ?? []), ...(i.dente ? [i.dente] : [])])
+  return [...porNome]
+    .map(([nome, ds]) =>
+      !ds.length
+        ? nome
+        : ds.length > 6
+          ? `${nome} (${ds.length} dentes)`
+          : `${nome} (${ds.join(', ')})`,
+    )
+    .join('; ')
+}
+
 const paraItem = (p: Procedimento): Item => ({
   procedimentoId: p.id,
   nome: p.nome,
   dente: null,
   valorCentavos: p.valorCentavos,
+  porDente: p.porDente,
 })
 
 /** Busca na tabela de preços com seleção de vários procedimentos e o total dos marcados. */
@@ -292,7 +309,7 @@ function ListaProcedimentos(props: { botao: string; aoConfirmar: (ps: Procedimen
         />
       </div>
       <ul className="min-h-32 flex-1 overflow-y-auto rounded-xl border border-borda max-lg:max-h-64">
-        {pode(eu.perfis, 'configuracao.editar') &&
+        {pode(eu.perfis, 'configuracao.procedimentos') &&
           !tabela.data?.some((p) => normalizar(p.nome) === normalizar(busca.trim())) && (
             <li>
               <button
@@ -323,9 +340,10 @@ function ListaProcedimentos(props: { botao: string; aoConfirmar: (ps: Procedimen
                   <span className={`block truncate ${sel ? 'font-bold text-primaria' : ''}`}>
                     {p.nome}
                   </span>
-                  {p.especialidade && (
-                    <span className="block truncate text-xs text-suave">{p.especialidade}</span>
-                  )}
+                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-suave">
+                    <SeloTipoProcedimento porDente={p.porDente} />
+                    {p.especialidade && <span className="truncate">{p.especialidade}</span>}
+                  </span>
                 </span>
                 <span className="font-bold whitespace-nowrap text-suave tabular-nums">
                   {reais(p.valorCentavos)}
@@ -409,10 +427,6 @@ function EditorOrcamento(props: {
   const [profissionalId, setProfissionalId] = useState<number | ''>(
     o?.profissional.id ?? prof?.meuId ?? '',
   )
-  // Desconto fixo (R$) ou em %; no %, o valor em reais acompanha o subtotal.
-  const [modoDesconto, setModoDesconto] = useState<'REAIS' | 'PERCENTUAL'>('REAIS')
-  const [descontoFixo, setDescontoFixo] = useState(o?.descontoCentavos ?? 0)
-  const [percentual, setPercentual] = useState(0)
   const [observacoes, setObservacoes] = useState(o?.observacoes ?? '')
   const escolher = (ps: Procedimento[]) =>
     // R-012: valor da tabela, editável na linha.
@@ -421,37 +435,20 @@ function EditorOrcamento(props: {
     setItens(itens.map((i, x) => (x === n ? { ...i, ...d } : i)))
 
   const subtotal = totalOrcamento(itens)
-  const desconto =
-    modoDesconto === 'PERCENTUAL' ? descontoDoPercentual(subtotal, percentual) : descontoFixo
+  const { desconto, campoDesconto } = useDesconto(subtotal, o?.descontoCentavos)
   const total = totalOrcamento(itens, desconto)
-  const trocarModo = (m: typeof modoDesconto) => {
-    // Troca mantendo o mesmo desconto, só mudando como ele é digitado.
-    if (m === 'PERCENTUAL') setPercentual(percentualDoDesconto(subtotal, descontoFixo))
-    else setDescontoFixo(desconto)
-    setModoDesconto(m)
-  }
 
   const corpo = () => ({
     pacienteId: props.paciente.id,
     profissionalId,
-    // As observações do plano de tratamento vão junto para não se perderem ao editar.
-    itens: itens.map(
-      ({
-        procedimentoId,
-        dente,
-        faces,
-        valorCentavos,
-        observacao,
-        observacaoPaciente,
-      }) => ({
-        procedimentoId,
-        dente,
-        faces,
-        valorCentavos,
-        observacao,
-        observacaoPaciente,
-      }),
-    ),
+    // O detalhamento do plano de tratamento vai junto para não se perder ao editar.
+    itens: itens.map(({ procedimentoId, dente, faces, valorCentavos, observacao }) => ({
+      procedimentoId,
+      dente,
+      faces,
+      valorCentavos,
+      observacao,
+    })),
     descontoCentavos: desconto,
     observacoes,
   })
@@ -546,13 +543,22 @@ function EditorOrcamento(props: {
                       {i.faces && <p className="text-xs text-suave">Faces: {i.faces}</p>}
                     </div>
                     <div>
-                      <CampoSugestoes
-                        sugestoes={TODOS_DENTES}
-                        value={i.dente ?? ''}
-                        onChange={(v) => mudarItem(n, { dente: v || null })}
-                        placeholder="Dente"
-                        aria-label={`Dente ou região: ${i.nome}`}
-                      />
+                      {i.porDente === false ? (
+                        <span
+                          className="campo block truncate text-center text-sm font-bold text-primaria"
+                          title="Procedimento completo: vale para a boca toda"
+                        >
+                          Boca toda
+                        </span>
+                      ) : (
+                        <CampoSugestoes
+                          sugestoes={TODOS_DENTES}
+                          value={i.dente ?? ''}
+                          onChange={(v) => mudarItem(n, { dente: v || null })}
+                          placeholder="Dente"
+                          aria-label={`Dente ou região: ${i.nome}`}
+                        />
+                      )}
                     </div>
                     <div>
                       <span className="mb-0.5 block text-xs font-bold text-suave" aria-hidden>
@@ -581,64 +587,7 @@ function EditorOrcamento(props: {
             )}
 
             <div className="shrink-0 space-y-3 border-t border-borda pt-3">
-              <div className="flex flex-wrap items-end gap-3">
-                <fieldset>
-                  <legend className="rotulo text-sm">Desconto</legend>
-                  <div className="flex rounded-xl bg-superficie p-1">
-                    {(
-                      [
-                        ['REAIS', 'Valor fixo (R$)'],
-                        ['PERCENTUAL', 'Porcentagem (%)'],
-                      ] as const
-                    ).map(([m, rotulo]) => (
-                      <button
-                        key={m}
-                        type="button"
-                        aria-pressed={modoDesconto === m}
-                        onClick={() => trocarModo(m)}
-                        className={`rounded-lg px-3 py-1.5 text-sm font-bold ${modoDesconto === m ? 'bg-primaria text-sobre-primaria' : 'text-suave hover:text-texto'}`}
-                      >
-                        {rotulo}
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-                <div className="w-36">
-                  {modoDesconto === 'REAIS' ? (
-                    <CampoReais
-                      id="desconto"
-                      rotulo="Desconto"
-                      rotuloOculto
-                      valor={descontoFixo}
-                      aoMudar={setDescontoFixo}
-                    />
-                  ) : (
-                    <label>
-                      <span className="sr-only">Desconto (%)</span>
-                      <input
-                        type="number"
-                        className="campo"
-                        min={0}
-                        max={100}
-                        step={0.01}
-                        placeholder="0"
-                        value={percentual || ''}
-                        onChange={(e) =>
-                          setPercentual(Math.min(100, Math.max(0, Number(e.target.value))))
-                        }
-                      />
-                    </label>
-                  )}
-                </div>
-                {/* Conta automática: mostra o desconto no outro formato. */}
-                {subtotal > 0 && desconto > 0 && (
-                  <p className="pb-2 text-sm text-suave">
-                    {modoDesconto === 'REAIS'
-                      ? `= ${percentualDoDesconto(subtotal, desconto).toLocaleString('pt-BR')}% do subtotal`
-                      : `= ${reais(desconto)} de desconto`}
-                  </p>
-                )}
-              </div>
+              {campoDesconto}
               <dl className="space-y-0.5 text-sm">
                 <div className="flex justify-between text-suave">
                   <dt>Subtotal</dt>
@@ -926,4 +875,84 @@ function VerOrcamento(props: { orcamento: Orcamento; pacienteId: number; aoTermi
       )}
     </div>
   )
+}
+
+/**
+ * Desconto do orçamento: fixo (R$) ou em %; no %, o valor em reais acompanha o subtotal.
+ * Mesmo campo no orçamento e no "Adicionar procedimento" do prontuário.
+ */
+export function useDesconto(subtotal: number, inicial = 0) {
+  const { data: eu } = useSuspenseQuery(consultaEu)
+  const [modoDesconto, setModoDesconto] = useState<'REAIS' | 'PERCENTUAL'>('REAIS')
+  const [descontoFixo, setDescontoFixo] = useState(inicial)
+  const [percentual, setPercentual] = useState(0)
+  const desconto =
+    modoDesconto === 'PERCENTUAL' ? descontoDoPercentual(subtotal, percentual) : descontoFixo
+  const trocarModo = (m: typeof modoDesconto) => {
+    // Troca mantendo o mesmo desconto, só mudando como ele é digitado.
+    if (m === 'PERCENTUAL') setPercentual(percentualDoDesconto(subtotal, descontoFixo))
+    else setDescontoFixo(desconto)
+    setModoDesconto(m)
+  }
+  // Sem a permissão (Configurações → Permissões) o campo some e o desconto fica como estava.
+  if (!eu.podeDesconto) return { desconto: inicial, campoDesconto: null }
+  const campoDesconto = (
+    <div className="flex flex-wrap items-end gap-3">
+      <fieldset>
+        <legend className="rotulo text-sm">Desconto</legend>
+        <div className="flex rounded-xl bg-superficie p-1">
+          {(
+            [
+              ['REAIS', 'Valor fixo (R$)'],
+              ['PERCENTUAL', 'Porcentagem (%)'],
+            ] as const
+          ).map(([m, rotulo]) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={modoDesconto === m}
+              onClick={() => trocarModo(m)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-bold ${modoDesconto === m ? 'bg-primaria text-sobre-primaria' : 'text-suave hover:text-texto'}`}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      <div className="w-36">
+        {modoDesconto === 'REAIS' ? (
+          <CampoReais
+            id="desconto"
+            rotulo="Desconto"
+            rotuloOculto
+            valor={descontoFixo}
+            aoMudar={setDescontoFixo}
+          />
+        ) : (
+          <label>
+            <span className="sr-only">Desconto (%)</span>
+            <input
+              type="number"
+              className="campo"
+              min={0}
+              max={100}
+              step={0.01}
+              placeholder="0"
+              value={percentual || ''}
+              onChange={(e) => setPercentual(Math.min(100, Math.max(0, Number(e.target.value))))}
+            />
+          </label>
+        )}
+      </div>
+      {/* Conta automática: mostra o desconto no outro formato. */}
+      {subtotal > 0 && desconto > 0 && (
+        <p className="pb-2 text-sm text-suave">
+          {modoDesconto === 'REAIS'
+            ? `= ${percentualDoDesconto(subtotal, desconto).toLocaleString('pt-BR')}% do subtotal`
+            : `= ${reais(desconto)} de desconto`}
+        </p>
+      )}
+    </div>
+  )
+  return { desconto, campoDesconto }
 }

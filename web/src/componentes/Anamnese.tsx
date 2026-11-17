@@ -312,7 +312,7 @@ function FormAnamnese(props: {
             {m.nome}
           </button>
         ))}
-        {pode(eu.perfis, 'configuracao.editar') && (
+        {pode(eu.perfis, 'configuracao.anamnese') && (
           <button
             type="button"
             role="tab"

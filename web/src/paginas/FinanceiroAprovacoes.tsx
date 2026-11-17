@@ -2,21 +2,21 @@
 // Mesmo desenho de Orçamentos abertos: barra de filtros do Financeiro, lista e o escolhido ao lado.
 import { useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, dataBR, isoLocal, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
 import { confirmar } from '../componentes/Confirmar'
 import { reais } from '../../../shared/financeiro'
 import { normalizar } from '../../../shared/regras'
 import { Icone } from '../componentes/Icones'
-import { PeriodoSuspenso, ProfissionaisSuspenso, Suspenso, useIntervalo } from './FinanceiroAbas'
+import { PeriodoSuspenso, ProfissionaisSuspenso, useIntervalo } from './FinanceiroAbas'
 import { COR_PADRAO } from './Profissionais'
 
 interface Aprovacao {
   id: number
   criadoEm: string
   aprovadoEm: string
-  aprovadoPor: { nome: string } | null
+  aprovadoPor: { id: number; nome: string } | null
   paciente: { id: number; nome: string }
   profissional: { id: number; nome: string; corAgenda: string | null }
   observacoes: string | null
@@ -28,6 +28,8 @@ interface Aprovacao {
 
 const SEM_NOME = 'Não registrado'
 const quemAprovou = (o: Aprovacao) => o.aprovadoPor?.nome ?? SEM_NOME
+/** Aprovação sem registro de quem aprovou entra no filtro com id 0. */
+const idAprovador = (o: Aprovacao) => o.aprovadoPor?.id ?? 0
 const quando = (iso: string) =>
   new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 const diasDesde = (iso: string) =>
@@ -36,23 +38,32 @@ const idade = (dias: number) => (dias <= 0 ? 'hoje' : dias === 1 ? 'ontem' : `h�
 const procedimento = (i: Aprovacao['itens'][number]) =>
   i.dente ? `${i.nome} · ${i.dente}` : i.nome
 
+/** Exportada para o Financeiro já buscar a lista antes de abrirem a aba. */
+export const consultaAprovacoes = queryOptions({
+  queryKey: ['aprovacoes'],
+  queryFn: async () => (await api.get<Aprovacao[]>('/financeiro/aprovacoes')).data,
+})
+const consultaAprovadores = queryOptions({
+  queryKey: ['aprovacoes', 'aprovadores'],
+  queryFn: async () =>
+    (await api.get<{ id: number; nome: string }[]>('/financeiro/aprovacoes/aprovadores')).data,
+  staleTime: 5 * 60_000,
+})
+
 export function Aprovacoes() {
   const qc = useQueryClient()
-  const p = useIntervalo(true) // o que espera conferência não tem prazo: começa vendo tudo
+  const p = useIntervalo('tudo') // o que espera conferência não tem prazo: começa vendo tudo
   const [ocultos, setOcultos] = useState<number[]>([])
-  const [aprovador, setAprovador] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [escolhido, setEscolhido] = useState<number | null>(null)
   const painel = useRef<HTMLElement>(null)
 
-  const lista = useQuery({
-    queryKey: ['aprovacoes'],
-    queryFn: async () => (await api.get<Aprovacao[]>('/financeiro/aprovacoes')).data,
-  })
+  const lista = useQuery(consultaAprovacoes)
+  const usuarios = useQuery(consultaAprovadores)
   const todos = lista.data ?? []
   const aoConfirmar = (n: number) => {
     avisar(`${n} ${n === 1 ? 'aprovação confirmada' : 'aprovações confirmadas'}`)
-    qc.invalidateQueries({ queryKey: ['aprovacoes'] })
+    for (const k of ['aprovacoes', 'analise']) qc.invalidateQueries({ queryKey: [k] })
   }
   const confirmarUm = useMutation({
     mutationFn: async (id: number) => (await api.post(`/orcamentos/${id}/confirmar`)).data,
@@ -80,11 +91,14 @@ export function Aprovacoes() {
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
 
-  const porProf = new Map<number, number>()
-  const aprovadores = new Map<string, number>()
+  // Filtro por quem aprovou: todos os usuários (profissionais, recepção, financeiro), mais quem
+  // aprovou e hoje está inativo ou não ficou registrado.
+  const porAprovador = new Map<number, number>()
+  const aprovadores = new Map((usuarios.data ?? []).map((u) => [u.id, u]))
   for (const o of todos) {
-    porProf.set(o.profissional.id, (porProf.get(o.profissional.id) ?? 0) + 1)
-    aprovadores.set(quemAprovou(o), (aprovadores.get(quemAprovou(o)) ?? 0) + 1)
+    porAprovador.set(idAprovador(o), (porAprovador.get(idAprovador(o)) ?? 0) + 1)
+    if (!aprovadores.has(idAprovador(o)))
+      aprovadores.set(idAprovador(o), { id: idAprovador(o), nome: quemAprovou(o) })
   }
 
   const termo = normalizar(busca.trim())
@@ -93,10 +107,10 @@ export function Aprovacoes() {
       const dia = isoLocal(new Date(o.aprovadoEm))
       return (
         (p.tudo || (dia >= p.intervalo.de && dia <= p.intervalo.ate)) &&
-        !ocultos.includes(o.profissional.id) &&
-        (!aprovador || quemAprovou(o) === aprovador) &&
+        !ocultos.includes(idAprovador(o)) &&
         (!termo ||
           normalizar(o.paciente.nome).includes(termo) ||
+          normalizar(quemAprovou(o)).includes(termo) ||
           String(o.id) === termo.replace(/\D/g, '') ||
           o.itens.some((i) => normalizar(i.nome).includes(termo) || i.dente === termo))
       )
@@ -126,54 +140,18 @@ export function Aprovacoes() {
             ? 'Carregando…'
             : `${visiveis.length} esperando confirmação · ${reais(totalVisivel)}`}
         </span>
-        {visiveis.length > 1 && (
-          <button
-            type="button"
-            className="botao-leve min-h-11 w-full sm:ml-auto sm:w-auto md:min-h-0"
-            disabled={ocupado}
-            onClick={aoConfirmarTodas}
-          >
-            Confirmar todas ({visiveis.length})
-          </button>
-        )}
       </header>
 
       {/* ---------- Filtros (barra padrão do Financeiro) ---------- */}
       <div className="cartao flex flex-wrap items-center gap-2 py-2">
         <PeriodoSuspenso p={p} />
         <ProfissionaisSuspenso
+          titulo="Aprovado por"
+          lista={[...aprovadores.values()]}
           ocultos={ocultos}
           aoMudar={setOcultos}
-          valor={(id) => porProf.get(id) ?? 0}
+          valor={(id) => porAprovador.get(id) ?? 0}
         />
-        <Suspenso
-          marcado={!!aprovador}
-          painel="w-64 p-1.5"
-          rotulo={`${aprovador ? `Por ${aprovador}` : 'Aprovado por'} ▾`}
-        >
-          {(fechar) => (
-            <ul>
-              {[null, ...aprovadores.keys()].map((nome) => (
-                <li key={nome ?? ''}>
-                  <button
-                    type="button"
-                    aria-pressed={aprovador === nome}
-                    className={`flex w-full items-center justify-between gap-2.5 rounded-lg px-3 py-2 text-left font-bold hover:bg-primaria-clara ${aprovador === nome ? 'bg-primaria-clara text-titulo' : ''}`}
-                    onClick={() => {
-                      setAprovador(nome)
-                      fechar()
-                    }}
-                  >
-                    {nome ?? 'Todos'}
-                    <span className="text-sm text-suave tabular-nums">
-                      {nome ? aprovadores.get(nome) : todos.length}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Suspenso>
       </div>
 
       {lista.isError && <p className="alerta-perigo">{mensagemDeErro(lista.error)}</p>}
@@ -184,8 +162,9 @@ export function Aprovacoes() {
           aria-label="Aprovações"
           className={`cartao flex max-h-[calc(100vh-13rem)] min-w-0 flex-[1_1_22rem] flex-col p-0 ${lista.isFetching ? 'opacity-60' : ''}`}
         >
-          <div className="border-b border-borda p-3">
-            <label className="relative block">
+          {/* Mesma linha de busca da aba Orçamentos abertos: o botão fica aqui, não no cabeçalho. */}
+          <div className="flex items-center gap-2 border-b border-borda p-3">
+            <label className="relative min-w-0 flex-1">
               <Icone
                 nome="busca"
                 className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-suave"
@@ -193,12 +172,23 @@ export function Aprovacoes() {
               <span className="sr-only">Buscar aprovação</span>
               <input
                 type="search"
-                className="campo py-1.5 pl-9"
-                placeholder="Buscar paciente, procedimento ou nº"
+                className="campo min-h-11 py-1.5 pl-9 md:min-h-0"
+                placeholder="Buscar paciente, procedimento, quem aprovou ou nº"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
               />
             </label>
+            {visiveis.length > 1 && (
+              <button
+                type="button"
+                className="botao-leve min-h-11 shrink-0 py-1.5 md:min-h-0"
+                disabled={ocupado}
+                onClick={aoConfirmarTodas}
+                title={`Confirmar as ${visiveis.length} aprovações da lista`}
+              >
+                Confirmar todas
+              </button>
+            )}
           </div>
           <div className="flex flex-col gap-0.5 overflow-y-auto p-2">
             {visiveis.map((o) => {
@@ -252,6 +242,15 @@ export function Aprovacoes() {
           </div>
         </nav>
 
+        {/* Sem escolha, o lugar do painel fica reservado: a lista não muda de tamanho. */}
+        {!sel && (
+          <section
+            aria-hidden
+            className="cartao hidden min-h-60 min-w-0 flex-[999_1_32rem] place-items-center text-suave sm:grid"
+          >
+            {lista.isPending ? 'Carregando…' : 'Nenhuma aprovação escolhida.'}
+          </section>
+        )}
         {/* ---------- Aprovação escolhida ---------- */}
         {sel && (
           <section

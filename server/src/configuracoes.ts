@@ -3,6 +3,7 @@ import { Router } from 'express'
 import type { z } from 'zod'
 import { db } from './db'
 import { exigir, usuarioDe } from './auth'
+import type { Acao } from '../../shared/permissoes'
 import { CHAVES, PADROES, validarConfig, type ChaveConfig } from '../../shared/configuracoes'
 import { normalizar } from '../../shared/regras'
 import { emailConfigurado, enviar, ErroEnvio } from './mensagens'
@@ -25,7 +26,7 @@ const ehChave = (v: string): v is ChaveConfig => (CHAVES as string[]).includes(v
 export const rotasConfiguracoes = Router()
 
 // E-mail antes de "/:chave", para não ser lido como uma chave.
-rotasConfiguracoes.get('/email/estado', exigir('configuracao.editar'), (_req, res) => {
+rotasConfiguracoes.get('/email/estado', exigir('configuracao.mensagens'), (_req, res) => {
   res.json({
     configurado: emailConfigurado(),
     remetente: process.env.EMAIL_REMETENTE || process.env.SMTP_USUARIO || null,
@@ -33,7 +34,7 @@ rotasConfiguracoes.get('/email/estado', exigir('configuracao.editar'), (_req, re
   })
 })
 
-rotasConfiguracoes.post('/email/teste', exigir('configuracao.editar'), async (req, res) => {
+rotasConfiguracoes.post('/email/teste', exigir('configuracao.mensagens'), async (req, res) => {
   const b = lerCorpo(EmailTesteDto, req.body, res, null)
   if (!b) return
   const { para } = b
@@ -60,19 +61,43 @@ rotasConfiguracoes.get('/:chave', async (req, res) => {
   res.json(await lerConfig(req.params.chave))
 })
 
+// Cada chave pede a ação da aba de Configurações onde ela é editada.
 // Os tipos de ficha são criados por quem preenche a ficha (o dentista), não só pelo Adm.
+const ACAO_DA_CHAVE: Partial<Record<ChaveConfig, Acao>> = {
+  clinica: 'configuracao.clinica',
+  emitentes: 'configuracao.clinica',
+  horariosFechados: 'configuracao.horarios',
+  especialidades: 'configuracao.especialidades',
+  laboratorios: 'configuracao.laboratorios',
+  anamnese: 'configuracao.anamnese',
+  modelosAnamnese: 'configuracao.anamnese',
+  documentos: 'configuracao.documentos',
+  documentosPadrao: 'configuracao.documentos',
+  mensagens: 'configuracao.mensagens',
+  permissoes: 'configuracao.permissoes',
+  desconto: 'configuracao.permissoes',
+  especialidadesFicha: 'prontuario.editar',
+}
+
 rotasConfiguracoes.put(
   '/:chave',
   (req, res, next) =>
-    exigir(
-      req.params.chave === 'especialidadesFicha' ? 'prontuario.editar' : 'configuracao.editar',
-    )(req, res, next),
+    exigir(ACAO_DA_CHAVE[req.params.chave as ChaveConfig] ?? 'configuracao.editar')(req, res, next),
   async (req, res) => {
     const chave = String(req.params.chave)
     if (!ehChave(chave)) return res.status(404).json({ erro: 'Configuração não existe.' })
     const v = validarConfig(chave, req.body)
     if (v.erro !== undefined) return res.status(400).json({ erro: v.erro })
-    const valor = v.valor as object
+    let valor = v.valor as object
+    // Desconto: só usuários que existem.
+    if (chave === 'desconto') {
+      const ids = v.valor as number[]
+      const achados = await db.usuario.findMany({
+        where: { id: { in: ids } },
+        select: { id: true },
+      })
+      valor = ids.filter((i) => achados.some((u) => u.id === i))
+    }
     const alteradoPorId = usuarioDe(res).id
     await db.configuracao.upsert({
       where: { chave },
@@ -92,13 +117,13 @@ const paraBanco = (d: z.output<typeof ProcedimentoTabelaDto>) => ({
   nomeBusca: normalizar(d.nome),
 })
 
-rotasTabelaProcedimentos.post('/', exigir('configuracao.editar'), async (req, res) => {
+rotasTabelaProcedimentos.post('/', exigir('configuracao.procedimentos'), async (req, res) => {
   const d = lerCorpo(ProcedimentoTabelaDto, req.body, res)
   if (!d) return
   res.status(201).json(await db.procedimento.create({ data: paraBanco(d) }))
 })
 
-rotasTabelaProcedimentos.put('/:id', exigir('configuracao.editar'), async (req, res) => {
+rotasTabelaProcedimentos.put('/:id', exigir('configuracao.procedimentos'), async (req, res) => {
   const p = await db.procedimento.findUnique({ where: { id: Number(req.params.id) || 0 } })
   if (!p) return res.status(404).json({ erro: 'Procedimento não encontrado.' })
   const d = lerCorpo(ProcedimentoTabelaDto, req.body, res)
