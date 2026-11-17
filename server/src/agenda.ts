@@ -20,7 +20,7 @@ import type { Prisma } from './generated/prisma/client'
 import { lerConfig } from './configuracoes'
 import { validarConfig } from '../../shared/configuracoes'
 import { hojeNaClinica } from '../../shared/regras'
-import { avisarTodos } from './tempoReal'
+import { avisarPerfil, avisarTodos } from './tempoReal'
 
 const comDados = {
   paciente: { select: { id: true, nome: true, celular: true } },
@@ -218,6 +218,13 @@ rotasAgenda.patch('/:id/status', exigir('agenda.editar'), async (req, res) => {
     },
     include: comDados,
   })
+  // Chamou da sala de espera: a recepção é avisada para encaminhar o paciente.
+  if (a.status === 'EM_ESPERA' && status === 'EM_ATENDIMENTO' && atualizado.paciente)
+    avisarPerfil('RECEPCAO', {
+      assunto: 'chamado',
+      paciente: atualizado.paciente.nome,
+      profissional: atualizado.profissional.nome,
+    })
   res.json(paraTela(atualizado))
 })
 

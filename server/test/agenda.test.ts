@@ -281,3 +281,62 @@ describe('categorias da agenda criadas pela clínica', () => {
     expect((await marcar({ categoria: 'Inventada' })).corpo.categoria).toBeNull()
   })
 })
+
+/** Abre o /api/eventos com o login e vai juntando o que chega. */
+async function ouvir(cookie: string) {
+  const ctrl = new AbortController()
+  const r = await fetch(`${urlBase()}/api/eventos`, { headers: { cookie }, signal: ctrl.signal })
+  let texto = ''
+  const leitor = r.body!.getReader()
+  void (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await leitor.read()
+        if (done) return
+        texto += new TextDecoder().decode(value)
+      }
+    } catch {
+      /* fechou */
+    }
+  })()
+  return { texto: () => texto, fechar: () => ctrl.abort() }
+}
+
+describe('chamar o paciente avisa a recepção', () => {
+  it('só quem é da recepção recebe, com o nome do paciente e do profissional', async () => {
+    const recepcao = await entrarComo('RECEPCAO')
+    const financeiro = await entrarComo('FINANCEIRO')
+    const { dentista, marcar } = await preparar(recepcao)
+    const { corpo: a } = await marcar()
+    await recepcao('PATCH', `/api/agenda/${a.id}/status`, { status: 'EM_ESPERA' })
+
+    const naRecepcao = await ouvir(recepcao.cookie)
+    const noFinanceiro = await ouvir(financeiro.cookie)
+    await new Promise((r) => setTimeout(r, 100)) // conexões registradas
+    await recepcao('PATCH', `/api/agenda/${a.id}/status`, { status: 'EM_ATENDIMENTO' })
+    await new Promise((r) => setTimeout(r, 200))
+    naRecepcao.fechar()
+    noFinanceiro.fechar()
+
+    const chamado = JSON.stringify({
+      assunto: 'chamado',
+      paciente: PACIENTE.nome,
+      profissional: dentista.nome,
+    })
+    expect(naRecepcao.texto()).toContain(chamado)
+    expect(noFinanceiro.texto()).not.toContain('chamado')
+    expect(noFinanceiro.texto()).toContain('"assunto":"agenda"')
+  })
+
+  it('não avisa em outras trocas de status', async () => {
+    const recepcao = await entrarComo('RECEPCAO')
+    const { marcar } = await preparar(recepcao)
+    const { corpo: a } = await marcar()
+    const ouvindo = await ouvir(recepcao.cookie)
+    await new Promise((r) => setTimeout(r, 100))
+    await recepcao('PATCH', `/api/agenda/${a.id}/status`, { status: 'EM_ATENDIMENTO' }) // não estava na espera
+    await new Promise((r) => setTimeout(r, 200))
+    ouvindo.fechar()
+    expect(ouvindo.texto()).not.toContain('chamado')
+  })
+})

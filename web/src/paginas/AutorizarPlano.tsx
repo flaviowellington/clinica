@@ -7,6 +7,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { api, dataBR, mensagemDeErro } from '../api'
 import type { DadosClinica } from '../../../shared/configuracoes'
 import { ARCADAS, dentesDoPlano, marcadosNa } from '../../../shared/arcadas'
+import { reais } from '../../../shared/financeiro'
 import imgPermanente from '../../../shared/arcadas/permanente.png'
 import imgDecidua from '../../../shared/arcadas/decidua.png'
 
@@ -33,6 +34,7 @@ interface Dados {
       dentes: string[]
       data?: string | null
       observacaoPaciente: string | null
+      valorCentavos?: number | null
     }[]
   }
 }
@@ -261,7 +263,12 @@ export function AutorizarPlano() {
               <ul className="mt-1 divide-y divide-[#ddd] border-y border-[#ddd]">
                 {d.conteudo.itens.map((i, k) => (
                   <li key={k} className="py-2.5">
-                    <p className="font-semibold">{i.nome}</p>
+                    <p className="flex justify-between gap-3 font-semibold">
+                      <span>{i.nome}</span>
+                      {i.valorCentavos != null && (
+                        <span className="whitespace-nowrap">{reais(i.valorCentavos)}</span>
+                      )}
+                    </p>
                     <p className="text-[13px] text-[#555]">
                       {[
                         i.dentes.length && `Dentes: ${i.dentes.join(', ')}`,
@@ -279,6 +286,12 @@ export function AutorizarPlano() {
                   </li>
                 ))}
               </ul>
+              {d.conteudo.itens.some((i) => i.valorCentavos != null) && (
+                <p className="mt-2 text-right font-bold">
+                  Valor total:{' '}
+                  {reais(d.conteudo.itens.reduce((s, i) => s + (i.valorCentavos ?? 0), 0))}
+                </p>
+              )}
             </section>
 
             {!!d.conteudo.etapas?.length && (

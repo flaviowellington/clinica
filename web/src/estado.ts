@@ -32,12 +32,12 @@ interface Aviso {
 export const useAvisos = create<{ avisos: Aviso[] }>()(() => ({ avisos: [] }))
 
 let proximo = 0
-export function avisar(texto: string, erro = false) {
+export function avisar(texto: string, erro = false, ms = 4000) {
   const id = ++proximo
   useAvisos.setState((s) => ({ avisos: [...s.avisos, { id, texto, erro }] }))
   setTimeout(
     () => useAvisos.setState((s) => ({ avisos: s.avisos.filter((a) => a.id !== id) })),
-    4000,
+    ms,
   )
 }
 

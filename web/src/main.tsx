@@ -158,6 +158,14 @@ function useTempoReal() {
       const { assunto } = JSON.parse(e.data)
       recarregar(assunto)
       if (assunto === 'assinatura') avisar('Um paciente acabou de assinar o plano de tratamento')
+      // Só a recepção recebe (o servidor filtra): o profissional chamou o paciente da espera.
+      if (assunto === 'chamado') {
+        const { paciente, profissional } = JSON.parse(e.data)
+        const texto = `${profissional} chamou ${paciente}`
+        avisar(texto, false, 20_000)
+        if ('Notification' in window && Notification.permission === 'granted')
+          new Notification('Paciente chamado', { body: texto, tag: texto })
+      }
     }
     return () => fonte.close()
   }, [qc])
@@ -205,6 +213,15 @@ function Layout() {
   const qc = useQueryClient()
   const navegar = useNavigate()
   useTempoReal()
+  // Recepção: pede para mostrar "paciente chamado" também fora do navegador. O navegador só
+  // aceita o pedido depois de um clique, então pede no primeiro clique da sessão.
+  const ehRecepcao = eu.perfis.includes('RECEPCAO')
+  useEffect(() => {
+    if (!ehRecepcao || !('Notification' in window) || Notification.permission !== 'default') return
+    const pedir = () => void Notification.requestPermission()
+    addEventListener('click', pedir, { once: true })
+    return () => removeEventListener('click', pedir)
+  }, [ehRecepcao])
   const naEspera = useNaEspera().lista.length
   // "(2) …" no título da aba: avisa quem está em outra aba do navegador.
   useEffect(() => {

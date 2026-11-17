@@ -7,6 +7,7 @@ import type { Writable } from 'node:stream'
 import type { DadosClinica } from '../../shared/configuracoes'
 import type { ConteudoAutorizacao } from './autorizacoes'
 import { ARCADAS, dentesDoPlano, marcadosNa } from '../../shared/arcadas'
+import { reais } from '../../shared/financeiro'
 
 const arquivoArcada = (nome: string) =>
   fileURLToPath(new URL(`../../shared/arcadas/${nome}.png`, import.meta.url))
@@ -150,8 +151,22 @@ export function escreverPdf(
     doc.x = 50
     doc.y = topo + alt + 22
   }
+  // Nome à esquerda e valor à direita, na mesma linha.
+  const colValor = 100
   for (const i of a.conteudo.itens) {
-    doc.font('Negrito').fontSize(10).text(i.nome)
+    const y = doc.y
+    doc
+      .font('Negrito')
+      .fontSize(10)
+      .text(i.nome, 50, y, { width: largura - colValor })
+    const abaixo = doc.y
+    if (i.valorCentavos != null)
+      doc.text(reais(i.valorCentavos), 50 + largura - colValor, y, {
+        width: colValor,
+        align: 'right',
+      })
+    doc.x = 50
+    doc.y = Math.max(abaixo, doc.y)
     doc.font('Normal').fontSize(9).fillColor(cinza)
     doc.text(
       [
@@ -166,6 +181,14 @@ export function escreverPdf(
     if (i.observacaoPaciente) doc.font('Italico').text(i.observacaoPaciente)
     doc.moveDown(0.5)
   }
+  const valores = a.conteudo.itens.filter((i) => i.valorCentavos != null)
+  if (valores.length)
+    doc
+      .font('Negrito')
+      .fontSize(11)
+      .text(`Valor total: ${reais(valores.reduce((s, i) => s + i.valorCentavos!, 0))}`, {
+        align: 'right',
+      })
 
   // Etapas do planejamento, com as datas previstas e o comentário do profissional.
   if (a.conteudo.etapas?.length) {

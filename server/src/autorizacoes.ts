@@ -44,6 +44,8 @@ export interface ConteudoAutorizacao {
     data?: string | null
     /** Detalhamento que sai no documento (nome antigo mantido: pedidos já gravados usam). */
     observacaoPaciente: string | null
+    /** Valor somado dos dentes (orçamento; sem orçamento, a tabela). Pedidos antigos não têm. */
+    valorCentavos?: number | null
   }[]
 }
 
@@ -166,6 +168,7 @@ function agrupar(
     observacaoPaciente: string | null
     dente: string | null
     faces: string | null
+    valorCentavos: number | null
   }[],
 ) {
   const itens = new Map<string, ConteudoAutorizacao['itens'][number]>()
@@ -176,7 +179,9 @@ function agrupar(
       profissional: l.profissional,
       dentes: [],
       observacaoPaciente: l.observacaoPaciente,
+      valorCentavos: null,
     }
+    if (l.valorCentavos != null) item.valorCentavos = (item.valorCentavos ?? 0) + l.valorCentavos
     if (l.dente) item.dentes.push(denteComFaces(l.dente, l.faces))
     itens.set(k, item)
   }
@@ -251,7 +256,7 @@ rotasAutorizacoes.post('/', exigir('prontuario.editar'), async (req, res) => {
         // Executado também: pode ter sido feito e ainda esperar a assinatura.
         status: { in: ['A_REALIZAR', 'EXECUTADO'] },
       },
-      include: { profissional: pessoaCurta },
+      include: { profissional: pessoaCurta, procedimento: { select: { valorCentavos: true } } },
     }),
     db.itemOrcamento.findMany({
       where: {
@@ -285,6 +290,7 @@ rotasAutorizacoes.post('/', exigir('prontuario.editar'), async (req, res) => {
     ...clinicos.map((c) => ({
       ...c,
       profissional: c.profissional.nome,
+      valorCentavos: c.procedimento?.valorCentavos ?? null,
       observacaoPaciente: textoDe('CLINICO', c.id, c.observacao),
     })),
     ...orcados.map((i) => ({
@@ -350,6 +356,14 @@ rotasAutorizacoes.post('/ficha', exigir('prontuario.editar'), async (req, res) =
   if (!f.itens.length)
     return res.status(400).json({ erro: 'Adicione um procedimento antes de enviar.' })
 
+  // O planejamento não tem preço: vale o da tabela, pelo nome.
+  const tabela = new Map(
+    (
+      await db.procedimento.findMany({
+        where: { nome: { in: [...new Set(f.itens.map((i) => i.procedimento))] }, ativo: true },
+      })
+    ).map((p) => [p.nome, p]),
+  )
   // Um item por procedimento e data prevista, com os dentes juntos.
   const itens = new Map<string, ConteudoAutorizacao['itens'][number]>()
   for (const i of f.itens) {
@@ -361,7 +375,14 @@ rotasAutorizacoes.post('/ficha', exigir('prontuario.editar'), async (req, res) =
       dentes: [],
       data,
       observacaoPaciente: b.procedimentos[i.procedimento] ?? null,
+      valorCentavos: null,
     }
+    const p = tabela.get(i.procedimento)
+    // Valor fixo conta uma vez por item, com qualquer número de dentes.
+    if (p)
+      item.valorCentavos = p.porDente
+        ? (item.valorCentavos ?? 0) + p.valorCentavos
+        : p.valorCentavos
     item.dentes.push(denteComFaces(i.dente, i.faces))
     itens.set(k, item)
   }
@@ -516,7 +537,10 @@ rotasAutorizacoes.post('/:id/retificar', exigir('prontuario.editar'), async (req
     where: { id: Number(req.params.id) || 0, canceladoEm: null, fichaId: null },
     include: {
       retificacoes: { where: { canceladoEm: null }, select: { id: true } },
-      clinicos: { where: { excluidoEm: null }, include: { profissional: pessoaCurta } },
+      clinicos: {
+        where: { excluidoEm: null },
+        include: { profissional: pessoaCurta, procedimento: { select: { valorCentavos: true } } },
+      },
       itensOrcamento: {
         where: { orcamento: { excluidoEm: null } },
         include: { orcamento: { include: { profissional: pessoaCurta } } },
@@ -531,7 +555,11 @@ rotasAutorizacoes.post('/:id/retificar', exigir('prontuario.editar'), async (req
   const antes = a.conteudo as unknown as ConteudoAutorizacao
   // O documento novo leva o detalhamento como está hoje.
   const linhas = [
-    ...a.clinicos.map((c) => ({ ...c, profissional: c.profissional.nome })),
+    ...a.clinicos.map((c) => ({
+      ...c,
+      profissional: c.profissional.nome,
+      valorCentavos: c.procedimento?.valorCentavos ?? null,
+    })),
     ...a.itensOrcamento.map((i) => ({ ...i, profissional: i.orcamento.profissional.nome })),
   ].map((l) => ({ ...l, observacaoPaciente: l.observacao }))
   const conteudo: ConteudoAutorizacao = {

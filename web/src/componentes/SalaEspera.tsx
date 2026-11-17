@@ -57,35 +57,34 @@ export function useTrocarStatus(aoTerminar?: () => void) {
 
 /**
  * Consultas de hoje com o paciente na espera, por ordem de chegada.
- * O profissional logado só vê as dele; quem não é profissional (recepção) vê todas.
+ * Só para o profissional da consulta: cada um vê as dele; quem não é profissional não vê nada.
  */
 export function useNaEspera() {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const ver = pode(eu.perfis, 'agenda.ver')
   const meuId = useQuery({ ...consultaProfissionais, enabled: ver }).data?.meuId ?? null
   const hoje = isoLocal(new Date())
-  const { data } = useQuery({ ...consultaAgenda(hoje, hoje), enabled: ver })
+  const { data } = useQuery({ ...consultaAgenda(hoje, hoje), enabled: ver && meuId !== null })
   const lista = (data ?? [])
     .filter(
       (a) =>
         a.status === 'EM_ESPERA' &&
         a.checkinEm &&
         a.paciente &&
-        (meuId === null || a.profissional.id === meuId),
+        a.profissional.id === meuId,
     )
     .sort((a, b) => a.checkinEm!.localeCompare(b.checkinEm!))
-  return { lista, deTodos: meuId === null, podeChamar: pode(eu.perfis, 'agenda.editar') }
+  return { lista, podeChamar: pode(eu.perfis, 'agenda.editar') }
 }
 
 /** Cartão da agenda com quem está esperando. Some quando não há ninguém. */
 export function SalaEspera() {
-  const { lista, deTodos, podeChamar } = useNaEspera()
+  const { lista, podeChamar } = useNaEspera()
   const trocar = useTrocarStatus()
   // Celular: começa recolhido, para a grade aparecer na primeira tela.
   const [aberto, setAberto] = useState(() => matchMedia('(min-width: 1024px)').matches)
   const agora = useAgora()
   if (!lista.length) return null
-  const titulo = deTodos ? 'Sala de espera' : 'Sua sala de espera'
   return (
     <details
       open={aberto}
@@ -95,7 +94,7 @@ export function SalaEspera() {
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-2.5 [&::-webkit-details-marker]:hidden">
         <Icone nome="relogio" className="h-5 w-5 shrink-0 text-aviso" />
         <span className="min-w-0 flex-1">
-          <span className="font-extrabold text-titulo">{titulo}</span>
+          <span className="font-extrabold text-titulo">Sua sala de espera</span>
           <span className="block text-xs text-suave group-open:hidden">
             Mais antigo há {minutosDeEspera(lista[0].checkinEm!, agora)} min
           </span>
@@ -124,7 +123,6 @@ export function SalaEspera() {
               </Link>
               <p className="text-xs text-suave">
                 Chegou {horaBR(a.checkinEm!)} · consulta {a.inicio}
-                {deTodos && ` · ${a.profissional.nome}`}
               </p>
               <TempoEspera checkinEm={a.checkinEm!} />
             </div>
@@ -147,9 +145,9 @@ export function SalaEspera() {
 
 /** Faixa no topo da ficha: só para o profissional da consulta de hoje. */
 export function FaixaEspera({ pacienteId }: { pacienteId: number }) {
-  const { lista, deTodos, podeChamar } = useNaEspera()
+  const { lista, podeChamar } = useNaEspera()
   const trocar = useTrocarStatus()
-  const a = deTodos ? undefined : lista.find((x) => x.paciente!.id === pacienteId)
+  const a = lista.find((x) => x.paciente!.id === pacienteId)
   if (!a) return null
   return (
     <div

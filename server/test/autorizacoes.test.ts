@@ -70,6 +70,8 @@ describe('autorização do plano de tratamento', () => {
             nome: 'Restauração em resina',
             dentes: ['16O', '17O'],
             observacaoPaciente: 'Evite mastigar do lado por 2 horas',
+            // Valor dos dois dentes somado (o total do documento sai da soma dos itens).
+            valorCentavos: 60000,
           },
         ],
       },
@@ -360,6 +362,10 @@ describe('planejamento (ficha de especialidade) para o paciente assinar', () => 
     const { paciente, f, url, ficha } = await planejamento(api)
     expect(f.aprovacao).toMatchObject({ situacao: 'NAO_ENVIADO' })
     const cirurgia = f.etapas.find((e: { nome: string }) => e.nome === 'Cirurgia')
+    // Planejamento não tem preço: o valor vem da tabela pelo nome (por dente).
+    await db.procedimento.create({
+      data: { nome: 'Implante', nomeBusca: 'implante', valorCentavos: 250000 },
+    })
 
     const r = await api('POST', '/api/autorizacoes/ficha', {
       fichaId: f.id,
@@ -378,6 +384,7 @@ describe('planejamento (ficha de especialidade) para o paciente assinar', () => 
           dentes: ['36', '46'],
           data: '2026-12-15',
           observacaoPaciente: 'Sob anestesia local.',
+          valorCentavos: 500000,
         },
       ],
     })
