@@ -6,7 +6,7 @@ const env = dotenv.config({ path: 'server/.env', quiet: true }).parsed ?? {}
 // Cada cargo abre todos os módulos do seu menu sem erro: nada de exceção na página,
 // resposta 4xx/5xx da API ou tela de erro.
 for (const login of ['admin', 'dentista1', 'recepcao1', 'financeiro', 'gestor']) {
-  test(`${login}: todos os módulos do menu abrem sem erro`, async ({ page }) => {
+  test(`${login}: todos os módulos do menu abrem sem erro`, { tag: '@smoke' }, async ({ page }) => {
     test.setTimeout(120_000)
     const erros: string[] = []
     page.on('pageerror', (e) => erros.push(`JS: ${e.message}`))
@@ -62,7 +62,13 @@ for (const login of ['admin', 'dentista1', 'recepcao1', 'financeiro', 'gestor'])
     // Telas de detalhe: uma ficha de paciente e um profissional.
     await abrir('ficha do paciente', async () => {
       await clicar('/pacientes')
-      await page.getByRole('link', { name: 'Ana Fictícia Oliveira' }).click({ timeout: 5000 })
+      // A lista carrega aos poucos: abre o primeiro paciente que aparecer. :visible porque os
+      // cartões do celular vêm antes da tabela e ficam escondidos no desktop.
+      await page
+        .getByRole('main')
+        .locator('a[href^="/pacientes/"]:visible')
+        .first()
+        .click({ timeout: 5000 })
     })
     await abrir('profissional', async () => {
       await clicar('/profissionais')

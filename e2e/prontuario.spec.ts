@@ -1,11 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
 import dotenv from 'dotenv'
+import { preencher } from './ajuda'
 
 const env = dotenv.config({ path: 'server/.env', quiet: true }).parsed ?? {}
 
 // Seções da ficha na ordem do menu (agrupadas: Paciente, Atendimento, Clínico, Arquivos, Outros).
 const TODAS = [
   'Visão Geral',
+  'Nota Fiscal',
   'Agendamentos',
   'Orçamentos',
   'Anamnese',
@@ -16,6 +18,9 @@ const TODAS = [
   'Fotos',
   'Indicações',
 ]
+// Botão do número do dente; com procedimento no dente inteiro o nome traz a situação ("11 Procedimento…").
+const dente = (page: Page, n: string) =>
+  page.getByRole('button', { name: new RegExp(`^${n}( |$)`) })
 const secoes = (page: Page) =>
   page.getByRole('navigation', { name: 'Seções da ficha' }).getByRole('button')
 
@@ -24,12 +29,15 @@ async function abrirFicha(page: Page, login: string) {
   await page.getByLabel('Usuário').fill(login)
   await page.getByLabel('Senha').fill(env.SEED_SENHA_ADMIN)
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await page.getByRole('navigation').getByRole('link', { name: 'Pacientes' }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu principal' })
+    .getByRole('link', { name: 'Pacientes' })
+    .click()
   await page.getByRole('link', { name: 'Ana Fictícia Oliveira' }).click()
   await expect(page.getByRole('heading', { name: /Ana Fictícia Oliveira/ })).toBeVisible()
 }
 
-test('S-003: a ficha tem as 10 seções (evolução clínica e planejamentos ficam em Plano e Ficha Clínica); anamnese obrigatória e alerta (PT-58, PT-59, PT-74)', async ({
+test('S-003: a ficha tem as 11 seções (evolução clínica e planejamentos ficam em Plano e Ficha Clínica); anamnese obrigatória e alerta (PT-58, PT-59, PT-74)', async ({
   page,
 }) => {
   await abrirFicha(page, 'admin')
@@ -55,16 +63,10 @@ test('S-003: a ficha tem as 10 seções (evolução clínica e planejamentos fic
   await expect(page.getByRole('alert').filter({ hasText: 'Penicilina' })).toBeVisible()
 })
 
+// Anamnese e Fotos são do prontuário clínico: só quem atende (permissoes.ts).
 test('permissões: Recepção vê só as abas da sua função', async ({ page }) => {
   await abrirFicha(page, 'recepcao1')
-  await expect(secoes(page)).toHaveText([
-    'Visão Geral',
-    'Agendamentos',
-    'Orçamentos',
-    'Anamnese',
-    'Fotos',
-    'Indicações',
-  ])
+  await expect(secoes(page)).toHaveText(['Visão Geral', 'Agendamentos', 'Orçamentos', 'Indicações'])
 })
 
 test('odontograma: faces marcadas vão preenchidas ao procedimento; dentição mista guarda o progresso', async ({
@@ -94,14 +96,14 @@ test('odontograma: faces marcadas vão preenchidas ao procedimento; dentição m
     'aria-pressed',
     'true',
   )
-  await dialogo
-    .getByPlaceholder('Busque na tabela ou escreva')
-    .fill('Restauração em resina (1 face)')
-  await dialogo.getByPlaceholder('Busque na tabela ou escreva').press('Tab')
+  await preencher(
+    dialogo.getByRole('combobox', { name: 'Procedimento 1' }),
+    'Restauração em resina (1 face)',
+  )
   // "A realizar" já vem marcado: mostra o preço da tabela e o total, e vira orçamento em aberto.
   await expect(dialogo.getByLabel('A realizar')).toBeChecked()
   await expect(dialogo.getByLabel('Valor por dente')).toHaveValue(/250,00/)
-  await expect(dialogo).toContainText('Total: R$ 500,00')
+  await expect(dialogo).toContainText(/Total do orçamento\s*R\$\s500,00/)
   await dialogo.getByLabel('Profissional *').selectOption({ index: 1 })
   await dialogo.getByRole('button', { name: 'Salvar' }).click()
   await expect(page.getByText(/Adicionado ao plano \(orçamento nº \d+ em aberto\)/)).toBeVisible()
@@ -119,8 +121,7 @@ test('odontograma: faces marcadas vão preenchidas ao procedimento; dentição m
   // Executado vai direto ao prontuário, sem orçamento; as ações ficam no menu ⋯.
   await page.getByRole('button', { name: 'Dente 12, Vestibular' }).first().click()
   await page.getByRole('button', { name: 'Adicionar procedimento' }).click()
-  await dialogo.getByPlaceholder('Busque na tabela ou escreva').fill('Restauração de teste')
-  await dialogo.getByPlaceholder('Busque na tabela ou escreva').press('Tab')
+  await preencher(dialogo.getByRole('combobox', { name: 'Procedimento 1' }), 'Restauração de teste')
   await dialogo.getByLabel('Executado').check()
   await dialogo.getByLabel('Profissional *').selectOption({ index: 1 })
   await dialogo.getByRole('button', { name: 'Salvar' }).click()
@@ -157,8 +158,7 @@ test('odontograma: faces marcadas vão preenchidas ao procedimento; dentição m
   for (const d of [/^13$/, /^23$/])
     await page.getByTitle('Marcar o dente inteiro').filter({ hasText: d }).click()
   await page.getByRole('button', { name: 'Adicionar procedimento' }).click()
-  await dialogo.getByPlaceholder('Busque na tabela ou escreva').fill('Clareamento de teste')
-  await dialogo.getByPlaceholder('Busque na tabela ou escreva').press('Tab')
+  await preencher(dialogo.getByRole('combobox', { name: 'Procedimento 1' }), 'Clareamento de teste')
   await dialogo.getByLabel('Executado').check()
   await dialogo.getByLabel('Profissional *').selectOption({ index: 1 })
   await dialogo.getByRole('button', { name: 'Salvar' }).click()
@@ -186,24 +186,24 @@ test('odontograma: faces marcadas vão preenchidas ao procedimento; dentição m
 
   // Decídua: o 11 sai, o 51 entra; a mista traz o 11 de volta com o que já tinha.
   await page.getByLabel('Tipo de dentição').selectOption('DECIDUA')
-  await expect(page.getByRole('button', { name: '11', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '51', exact: true })).toBeVisible()
+  await expect(dente(page, '11')).toHaveCount(0)
+  await expect(dente(page, '51')).toBeVisible()
   await page.getByRole('button', { name: 'Dentição mista' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Dente 11' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Aplicar' }).click()
-  await expect(page.getByRole('button', { name: '11', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '51', exact: true })).toHaveCount(0)
+  await expect(dente(page, '11')).toBeVisible()
+  await expect(dente(page, '51')).toHaveCount(0)
 
   // Trocar o tipo desfaz a mista, mas não apaga o procedimento.
   await page.getByLabel('Tipo de dentição').selectOption('PERMANENTE')
   await page.getByLabel('Tipo de dentição').selectOption('DECIDUA')
-  await expect(page.getByRole('button', { name: '11', exact: true })).toHaveCount(0)
+  await expect(dente(page, '11')).toHaveCount(0)
   await expect(page.getByText('11VD', { exact: true })).toBeVisible()
 
   // A última mista fica guardada e volta pelo seletor.
   const tipo = page.getByLabel('Tipo de dentição')
   await tipo.selectOption('ANTERIOR')
-  await expect(page.getByRole('button', { name: '11', exact: true })).toBeVisible()
+  await expect(dente(page, '11')).toBeVisible()
 
   // Criar outra mista em outro tipo avisa que a anterior será apagada.
   await tipo.selectOption('PERMANENTE')
@@ -215,6 +215,6 @@ test('odontograma: faces marcadas vão preenchidas ao procedimento; dentição m
   await tipo.selectOption('DECIDUA')
   await tipo.selectOption('ANTERIOR')
   await expect(tipo).toHaveValue('PERMANENTE')
-  await expect(page.getByRole('button', { name: '55', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '15', exact: true })).toHaveCount(0)
+  await expect(dente(page, '55')).toBeVisible()
+  await expect(dente(page, '15')).toHaveCount(0)
 })

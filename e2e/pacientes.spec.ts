@@ -10,7 +10,10 @@ test('PT-01 e PT-04: cadastrar paciente e achar pela busca', async ({ page }) =>
   await page.getByLabel('Senha').fill(env.SEED_SENHA_ADMIN)
   await page.getByRole('button', { name: 'Entrar' }).click()
 
-  await page.getByRole('navigation').getByRole('link', { name: 'Pacientes' }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu principal' })
+    .getByRole('link', { name: 'Pacientes' })
+    .click()
   await page.getByRole('button', { name: 'Novo paciente' }).click()
   const cadastrar = page.getByRole('button', { name: 'Cadastrar paciente' })
   await expect(cadastrar).toBeDisabled()
@@ -33,7 +36,10 @@ test('PT-01 e PT-04: cadastrar paciente e achar pela busca', async ({ page }) =>
   await expect(page).toHaveURL(/\/pacientes\/\d+$/)
   await expect(page.getByRole('heading', { name: /Paciente Ponta a Ponta/ })).toBeVisible()
 
-  await page.getByRole('navigation').getByRole('link', { name: 'Pacientes' }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu principal' })
+    .getByRole('link', { name: 'Pacientes' })
+    .click()
   const busca = page.getByPlaceholder('Nome do paciente')
   await busca.fill('%ponta') // sem ENTER: a lista atualiza enquanto digita
   await expect(page.getByRole('link', { name: 'Paciente Ponta a Ponta' })).toBeVisible()

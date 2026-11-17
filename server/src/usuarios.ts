@@ -21,6 +21,7 @@ import {
 import { lerCorpo } from './dto'
 import { mandarFoto, receberFoto, tratarFoto } from './foto'
 import { normalizar } from '../../shared/regras'
+import { atualizarConectado, avisarTodos } from './tempoReal'
 
 const id = (req: Request) => Number(req.params.id) || 0
 
@@ -104,6 +105,8 @@ rotasUsuarios.post('/', exigir('usuario.gerenciar'), async (req, res) => {
     },
     select: campos,
   })
+  avisarTodos('config')
+  if (novoProfissional) avisarTodos('agenda') // profissional novo entra na agenda e nas listas
   res.status(201).json(u)
 })
 
@@ -136,6 +139,8 @@ rotasUsuarios.put('/:id', exigir('usuario.gerenciar'), async (req, res) => {
     data: { nome, email, perfis, ativo, pessoaId },
     select: campos,
   })
+  atualizarConectado(u.id, perfis, ativo)
+  avisarTodos('config') // quem foi editado recarrega as próprias permissões (['eu'])
   res.json(novo)
 })
 

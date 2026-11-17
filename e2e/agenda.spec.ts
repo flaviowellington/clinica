@@ -20,12 +20,17 @@ test('PT-20, PT-29, PT-31, PT-34 e PT-35: marcar, fazer check-in e excluir', asy
   await page.getByRole('button', { name: 'Entrar' }).click()
 
   // Abre no Início; a Agenda fica no menu com as outras abas.
-  await expect(page.getByRole('heading', { name: /Olá/ })).toBeVisible()
-  await page.getByRole('navigation').getByRole('link', { name: 'Agenda', exact: true }).click()
+  await expect(page.getByRole('heading', { name: /Por onde começamos/ })).toBeVisible()
+  await page
+    .getByRole('navigation', { name: 'Menu principal' })
+    .getByRole('link', { name: 'Agenda', exact: true })
+    .click()
   await expect(page).toHaveURL(/\/agenda$/)
   for (const aba of ['Agenda', 'Pacientes', 'Profissionais'])
     await expect(
-      page.getByRole('navigation').getByRole('link', { name: aba, exact: true }),
+      page
+        .getByRole('navigation', { name: 'Menu principal' })
+        .getByRole('link', { name: aba, exact: true }),
     ).toBeVisible()
   await page.screenshot({ path: 'test-results/agenda-dia.png', fullPage: true })
 
@@ -65,14 +70,18 @@ test('PT-20, PT-29, PT-31, PT-34 e PT-35: marcar, fazer check-in e excluir', asy
   await page.getByRole('button', { name: 'Marcar consulta' }).click()
   await expect(page.getByText('Consulta marcada com sucesso')).toBeVisible()
 
-  // Aparece na grade do dia, com 15 min. Navega pelo minicalendário da lateral.
+  // Aparece na grade do dia, com 15 min. O minicalendário abre no botão da data, na barra.
+  await page.getByRole('button', { name: /^\d\d\/\d\d\/\d{4}$/ }).click()
   if (segunda.slice(5, 7) !== String(new Date().getMonth() + 1).padStart(2, '0'))
     await page.getByRole('button', { name: 'Próximo mês' }).click()
   await page
     .getByRole('button', { name: br(segunda), exact: true })
     .first()
     .click()
-  const bloco = page.getByRole('button', { name: `Ana Fictícia Oliveira, ${inicio}–${fim}` })
+  // Em espera o bloco troca o fim pelo tempo de espera ("09:30 0 min").
+  const bloco = page.getByRole('button', {
+    name: new RegExp(`^Ana Fictícia Oliveira, ${inicio}(–${fim}| \\d+ min)`),
+  })
   await expect(bloco).toBeVisible()
 
   // Check-in: "Em espera" bloqueia excluir; voltar para "Agendado" libera.
@@ -91,11 +100,11 @@ test('PT-20, PT-29, PT-31, PT-34 e PT-35: marcar, fazer check-in e excluir', asy
   await expect(bloco).toHaveCount(0)
 
   // Visões Semana e Mês.
-  await page.getByRole('button', { name: 'Semana', exact: true }).click()
+  await page.getByLabel('Visualizar por').selectOption('semana')
   await expect(page.getByText('Carregando…')).toHaveCount(0)
   await page.screenshot({ path: 'test-results/agenda-semana.png', fullPage: true })
   const doMes = page.waitForResponse((r) => r.url().includes('/api/agenda?'))
-  await page.getByRole('button', { name: 'Mês', exact: true }).click()
+  await page.getByLabel('Visualizar por').selectOption('mes')
   await doMes
   await page.screenshot({ path: 'test-results/agenda-mes.png', fullPage: true })
 })
@@ -107,7 +116,10 @@ test('vários agendamentos: profissionais, categorias e horários diferentes de 
   await page.getByLabel('Usuário').fill('recepcao1')
   await page.getByLabel('Senha').fill(env.SEED_SENHA_ADMIN)
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await page.getByRole('navigation').getByRole('link', { name: 'Agenda', exact: true }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu principal' })
+    .getByRole('link', { name: 'Agenda', exact: true })
+    .click()
   await page.getByRole('button', { name: 'Adicionar' }).click()
   await page.getByRole('button', { name: 'Nova consulta' }).click()
   const dialogo = page.getByRole('dialog')

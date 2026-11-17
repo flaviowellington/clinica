@@ -76,6 +76,8 @@ const PADRAO = {
   'configuracao.mensagens': ADM,
   'configuracao.permissoes': ADM,
   'dados.importar': ADM,
+  // Fora de MODULOS de propósito: só o administrador, não aparece na tela de permissões.
+  'configuracao.logs': ADM,
   'relatorio.agenda': GESTAO,
   'relatorio.pacientes': GESTAO,
   'relatorio.financeiro': GESTAO,

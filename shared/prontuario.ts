@@ -142,7 +142,7 @@ export function lerPerguntas(bruto: unknown): Pergunta[] | null {
   const txt = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null)
   const lidas: Pergunta[] = []
   for (const b of bruto as Record<string, unknown>[]) {
-    const texto = txt(b?.texto, 300)?.trim()
+    const texto = typeof b?.texto === 'string' ? b.texto.trim().slice(0, 300) : null
     if (!texto || !(String(b.tipo) in TIPOS_PERGUNTA)) return null
     const opcoes = Array.isArray(b.opcoes)
       ? b.opcoes.map((o) => String(o).slice(0, 100))

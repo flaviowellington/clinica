@@ -16,20 +16,17 @@ test('Início, Profissionais, Financeiro, e Relatórios', async ({ page }) => {
     await expect(main.getByRole('link', { name: new RegExp(`^(\\d+ )?${c}( |$)`) })).toBeVisible()
   await page.screenshot({ path: 'test-results/inicio.png', fullPage: true })
 
-  // Profissionais: cadastrar um novo.
+  // Profissionais: a lista abre (o cadastro novo agora é feito em Usuários).
   await main.getByRole('link', { name: /^Profissionais/ }).click()
-  await expect(page.getByText('Dra. Fictícia Andrade')).toBeVisible()
-  await page.getByRole('button', { name: 'Adicionar profissional' }).click()
-  await page.getByLabel('Nome *').fill('Dr. Ponta a Ponta')
-  await page.getByLabel('Especialidade').fill('Perio')
-  await page.getByRole('button', { name: 'Periodontia' }).click()
-  await page.getByRole('button', { name: 'Salvar' }).click()
-  await expect(page.getByText('Profissional salvo')).toBeVisible()
-  await expect(page.getByText('Dr. Ponta a Ponta')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Profissionais', level: 1 })).toBeVisible()
+  await expect(page.getByRole('main').locator('a[href^="/profissionais/"]').first()).toBeVisible()
   await page.screenshot({ path: 'test-results/profissionais.png', fullPage: true })
 
   // Procedimento novo sem custo; valor digitado da direita para a esquerda (R-055).
-  await page.getByRole('navigation').getByRole('link', { name: 'Configurações' }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu principal' })
+    .getByRole('link', { name: 'Configurações' })
+    .click()
   await page.getByRole('tab', { name: 'Procedimentos e preços' }).click()
   await page.getByRole('button', { name: 'Novo procedimento' }).click()
   await page.getByLabel('Nome *').fill('Faceta de teste')
@@ -43,7 +40,10 @@ test('Início, Profissionais, Financeiro, e Relatórios', async ({ page }) => {
   await expect(page.getByText('Procedimento salvo')).toBeVisible()
 
   // Financeiro: Controle Financeiro com faturamento e entrada, sem lucro; e os gráficos editáveis.
-  await page.getByRole('navigation').getByRole('link', { name: 'Financeiro' }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu principal' })
+    .getByRole('link', { name: 'Financeiro' })
+    .click()
   await page.getByRole('tab', { name: 'Controle Financeiro' }).click()
   await expect(page.getByRole('heading', { name: 'Controle Financeiro' })).toBeVisible()
   await expect(page.getByText('Faturamento', { exact: true }).first()).toBeVisible()
@@ -67,7 +67,10 @@ test('Início, Profissionais, Financeiro, e Relatórios', async ({ page }) => {
   await page.screenshot({ path: 'test-results/graficos.png', fullPage: true })
 
   // Relatórios: agenda geral.
-  await page.getByRole('navigation').getByRole('link', { name: 'Relatórios' }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu principal' })
+    .getByRole('link', { name: 'Relatórios' })
+    .click()
   await page.getByRole('button', { name: 'Faixa etária' }).click()
   await expect(page.getByRole('columnheader', { name: 'Faixa etária' })).toBeVisible()
   // O menu rola sozinho; trocar de relatório não sobe a página nem volta o menu ao topo.

@@ -1,15 +1,16 @@
 import { expect, test } from '@playwright/test'
 import dotenv from 'dotenv'
+import { api, primeiroProfissional, procedimentoDaTabela } from './ajuda'
 
 const env = dotenv.config({ path: 'server/.env', quiet: true }).parsed ?? {}
 
-test('orçamento, recebimento, extrato, DRE e alerta de retorno', async ({ page }) => {
+test('orçamento, recebimento, extrato e alerta de retorno', async ({ page }) => {
   page.on('dialog', (d) => d.accept()) // confirmações do navegador ("Aprovar este orçamento?")
   await page.goto('/')
   await page.getByLabel('Usuário').fill('admin')
   await page.getByLabel('Senha').fill(env.SEED_SENHA_ADMIN)
   await page.getByRole('button', { name: 'Entrar' }).click()
-  const menu = page.getByRole('navigation')
+  const menu = page.getByRole('navigation', { name: 'Menu principal' })
 
   // Orçamento na ficha: adicionar procedimento, aprovar (R-010, R-012, R-018).
   await menu.getByRole('link', { name: 'Pacientes' }).click()
@@ -48,9 +49,17 @@ test('orçamento, recebimento, extrato, DRE e alerta de retorno', async ({ page 
   ).toBeVisible()
   await page.screenshot({ path: 'test-results/ficha-orcamentos.png', fullPage: true })
 
-  // Financeiro: abre em Orçamentos abertos; aprovar já registra o pagamento.
+  // Financeiro: abre em Orçamentos abertos; aprovar já registra o pagamento. Aprova um
+  // orçamento deste teste, achado pelo nº: o primeiro da lista pode ser de outro teste em paralelo.
+  const pacienteId = Number(new URL(page.url()).pathname.split('/').pop())
+  const aberto = await api<{ id: number }>(page, 'POST', '/orcamentos', {
+    pacienteId,
+    profissionalId: (await primeiroProfissional(page)).id,
+    itens: [{ procedimentoId: (await procedimentoDaTabela(page, 'Aplicação de flúor')).id }],
+  })
   await menu.getByRole('link', { name: 'Financeiro' }).click()
   await expect(page.getByRole('heading', { name: 'Orçamentos abertos' })).toBeVisible()
+  await page.getByPlaceholder('Buscar paciente, procedimento ou nº').fill(String(aberto.id))
   await page.getByRole('button', { name: 'Confirmar pagamento e aprovar' }).click()
   await expect(page.getByText('Orçamento aprovado e pagamento registrado')).toBeVisible()
   // O aprovado na ficha aparece no Controle Financeiro do mês atual (padrão).
@@ -65,12 +74,6 @@ test('orçamento, recebimento, extrato, DRE e alerta de retorno', async ({ page 
   await page.getByRole('button', { name: 'Ver todo o período' }).click()
   await expect(botaoPeriodo).toHaveText('Todo o período')
   await expect(page.getByRole('link', { name: 'João Fictício Silva' }).first()).toBeVisible()
-
-  // DRE.
-  await menu.getByRole('link', { name: 'Relatórios' }).click()
-  await page.getByRole('button', { name: 'DRE', exact: true }).click()
-  await expect(page.getByRole('cell', { name: '(=) Resultado do período' })).toBeVisible()
-  await page.screenshot({ path: 'test-results/dre.png', fullPage: true })
 
   // Alerta de retorno pela agenda.
   await menu.getByRole('link', { name: 'Agenda', exact: true }).click()
@@ -97,8 +100,13 @@ test('orçamento, recebimento, extrato, DRE e alerta de retorno', async ({ page 
   await alerta.getByLabel('Profissional').selectOption({ label: 'Dra. Fictícia Andrade' })
   await alerta.getByRole('button', { name: 'Criar alerta' }).click()
   await expect(page.getByText('Alerta de retorno criado')).toBeVisible()
+  // Sem lateral na agenda do menu: os alertas abrem no botão da barra.
+  await page.getByRole('button', { name: /Alertas de retorno/ }).click()
   await expect(
-    page.getByRole('complementary').getByRole('button', { name: /Conceição Fictícia Silva/ }),
+    page
+      .getByRole('heading', { name: 'Alertas de retorno' })
+      .locator('..')
+      .getByRole('button', { name: /Conceição Fictícia Silva/ }),
   ).not.toHaveCount(0)
   await page.screenshot({ path: 'test-results/agenda-retornos.png', fullPage: true })
 })

@@ -139,7 +139,8 @@ model Usuario {
   criadoEm         DateTime  @default(now())
 
   acessos             LogAcesso[]
-  agendou             Agendamento[]
+  atividades          LogAtividade[]
+  agendou            Agendamento[]
   lancamentos         Lancamento[]
   retornos            AlertaRetorno[]
   orcamentos          Orcamento[]       @relation("criouOrcamento")
@@ -169,6 +170,23 @@ model LogAcesso {
   em        DateTime @default(now())
 
   @@index([pessoaId, em])
+}
+
+/// Toda alteração feita pela API (e cada tentativa de login), para o administrador conferir.
+/// Guarda só o endereço e o resultado, nunca o conteúdo enviado (dados de saúde, senhas).
+model LogAtividade {
+  id        Int      @id @default(autoincrement())
+  usuarioId Int?
+  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
+  metodo    String
+  caminho   String
+  status    Int
+  ip        String?
+  /// Login digitado, só em /api/entrar (para ver tentativas erradas).
+  detalhe   String?
+  em        DateTime @default(now())
+
+  @@index([em])
 }
 
 enum TipoAgendamento {

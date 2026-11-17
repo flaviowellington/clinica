@@ -1,7 +1,13 @@
 // Configurações da clínica (S-014).
-import { Fragment, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from '@tanstack/react-query'
 import { api, consultaConfig, consultaEu, dataBR, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
 import { Abas } from '../componentes/Abas'
@@ -62,6 +68,7 @@ export const ABAS = [
   { id: 'mensagens', rotulo: 'E-mail e mensagens', acao: 'configuracao.mensagens' },
   { id: 'permissoes', rotulo: 'Permissões', acao: 'configuracao.permissoes' },
   { id: 'importacao', rotulo: 'Importar dados', acao: 'dados.importar' },
+  { id: 'logs', rotulo: 'Logs', acao: 'configuracao.logs' },
 ] as const satisfies readonly { id: string; rotulo: string; acao: Acao }[]
 
 /** Lista longa rola dentro do cartão, não a página (cabeçalho e abas ficam à vista). */
@@ -105,6 +112,7 @@ export function Configuracoes() {
       {aba === 'mensagens' && <Mensagens />}
       {aba === 'permissoes' && <Permissoes />}
       {aba === 'importacao' && <Importacao />}
+      {aba === 'logs' && <Logs />}
     </div>
   )
 }
@@ -2153,5 +2161,200 @@ export function SeloTipoProcedimento({ porDente }: { porDente: boolean }) {
       <Icone nome="dente" className="h-3.5 w-3.5" />
       {porDente ? 'Por dente' : 'Boca toda'}
     </span>
+  )
+}
+
+// ── Logs (só o administrador) ──────────────────────────────────────────────
+interface Log {
+  id: string
+  em: string
+  usuario: string | null
+  metodo: string
+  caminho: string
+  status: number
+  ip: string | null
+  detalhe: string | null
+}
+
+const VERBO: Record<string, string> = {
+  ABRIU: 'Abriu a ficha',
+  POST: 'Criou/enviou',
+  PUT: 'Alterou',
+  PATCH: 'Alterou',
+  DELETE: 'Excluiu',
+}
+
+function textoLog(l: Log) {
+  if (l.caminho === '/api/entrar')
+    return l.status < 400 ? 'Entrou no sistema' : 'Login recusado (usuário ou senha errados)'
+  if (l.caminho === '/api/sair') return 'Saiu do sistema'
+  return l.metodo === 'ABRIU' ? `${VERBO.ABRIU} de ${l.detalhe}` : (VERBO[l.metodo] ?? l.metodo)
+}
+
+function Logs() {
+  const [termo, setTermo] = useState('')
+  const [busca, setBusca] = useState('')
+  const [pagina, setPagina] = useState(1)
+  const [linhas, setLinhas] = useState(25)
+  const rolagem = useRef<HTMLDivElement>(null)
+  // Espera parar de digitar para buscar no servidor; busca nova volta à página 1.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (termo.trim() === busca) return
+      setBusca(termo.trim())
+      setPagina(1)
+    }, 300)
+    return () => clearTimeout(t)
+  }, [termo, busca])
+  const logs = useQuery({
+    queryKey: ['logs', busca, pagina, linhas],
+    queryFn: async () =>
+      (
+        await api.get<{ itens: Log[]; total: number }>('/logs', {
+          params: { busca: busca || undefined, pagina, porPagina: linhas },
+        })
+      ).data,
+    placeholderData: keepPreviousData,
+  })
+  const itens = logs.data?.itens ?? []
+  const total = logs.data?.total ?? 0
+  const paginas = Math.max(1, Math.ceil(total / linhas))
+  const quem = (l: Log) =>
+    l.usuario ?? (l.caminho === '/api/entrar' && l.detalhe ? `"${l.detalhe}"` : 'Página pública')
+  const tecnico = (l: Log) =>
+    `${l.metodo === 'ABRIU' ? l.caminho : `${l.metodo} ${l.caminho}`}${l.ip ? ` · ${l.ip}` : ''}`
+  const falhou = (l: Log) =>
+    l.status >= 400 && <span className="etiqueta etiqueta-perigo">Falhou ({l.status})</span>
+  const vazio = logs.data && !itens.length && (
+    <Vazio
+      icone={busca ? 'busca' : 'documento'}
+      titulo={busca ? 'Nada encontrado' : 'Nenhum registro ainda'}
+    />
+  )
+
+  return (
+    <div className="space-y-4">
+      <CampoBusca
+        valor={termo}
+        aoMudar={setTermo}
+        rotulo="Buscar por usuário, paciente ou caminho"
+      />
+      {/* Só a tabela rola (no computador); a página fica parada, como em Pacientes. */}
+      <div className="cartao flex min-h-0 flex-col overflow-hidden p-0">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-borda px-4 py-2.5 text-sm text-suave">
+          <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <span className="font-bold">
+              {logs.isFetching ? 'Buscando…' : `${total} ${total === 1 ? 'registro' : 'registros'}`}
+            </span>
+            <label className="flex items-center gap-2">
+              Linhas por página
+              <CampoSelect
+                className="w-auto py-1"
+                value={linhas}
+                onChange={(e) => {
+                  setLinhas(Number(e.target.value))
+                  setPagina(1)
+                }}
+                vazio={false}
+                opcoes={[10, 25, 50, 100]}
+              />
+            </label>
+            <button
+              className="botao-leve"
+              onClick={() => logs.refetch()}
+              disabled={logs.isFetching}
+            >
+              Atualizar
+            </button>
+          </span>
+          {paginas > 1 && (
+            <span className="flex items-center gap-1">
+              <span className="mr-2">
+                Página {pagina} de {paginas}
+              </span>
+              {(
+                [
+                  ['primeira', 1, 'Primeira página'],
+                  ['esquerda', pagina - 1, 'Página anterior'],
+                  ['direita', pagina + 1, 'Próxima página'],
+                  ['ultima', paginas, 'Última página'],
+                ] as const
+              ).map(([icone, destino, rotulo]) => (
+                <button
+                  key={rotulo}
+                  className="botao-leve botao-icone"
+                  aria-label={rotulo}
+                  title={rotulo}
+                  disabled={destino < 1 || destino > paginas || destino === pagina}
+                  onClick={() => {
+                    rolagem.current?.scrollTo({ top: 0 })
+                    setPagina(destino)
+                  }}
+                >
+                  <Icone nome={icone} />
+                </button>
+              ))}
+            </span>
+          )}
+        </div>
+        {logs.isPending && <p className="px-4 py-10 text-center text-suave">Carregando…</p>}
+        {logs.isError && (
+          <p className="px-4 py-10 text-center text-perigo">{mensagemDeErro(logs.error)}</p>
+        )}
+        {vazio}
+        {/* Celular: cartões; a tabela só a partir de md. */}
+        <ul className={`divide-y divide-borda md:hidden ${logs.isFetching ? 'opacity-60' : ''}`}>
+          {itens.map((l) => (
+            <li key={l.id} className="space-y-1 px-4 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="min-w-0 font-bold break-words text-titulo">{quem(l)}</span>
+                {falhou(l)}
+              </div>
+              <p className="break-words">{textoLog(l)}</p>
+              <p className="text-xs text-suave tabular-nums">
+                {new Date(l.em).toLocaleString('pt-BR')}
+              </p>
+              <code className="block text-xs break-all text-suave">{tecnico(l)}</code>
+            </li>
+          ))}
+        </ul>
+        {itens.length > 0 && (
+          <div
+            ref={rolagem}
+            className="hidden min-h-0 overflow-auto md:block lg:max-h-[calc(100dvh-22rem)]"
+          >
+            <table className="w-full min-w-[52rem] text-left">
+              <thead className="sticky top-0 z-10 bg-superficie">
+                <tr>
+                  {['Quando', 'Quem', 'O que fez', 'Detalhe técnico', ''].map((t) => (
+                    <th key={t} className={`${TH} shadow-[inset_0_-1px_0_var(--borda)]`}>
+                      {t || <span className="sr-only">Resultado</span>}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className={logs.isFetching ? 'opacity-60' : ''}>
+                {itens.map((l) => (
+                  <tr
+                    key={l.id}
+                    className="border-b border-borda last:border-0 hover:bg-primaria-clara"
+                  >
+                    <td className="px-4 py-2 whitespace-nowrap text-suave tabular-nums">
+                      {new Date(l.em).toLocaleString('pt-BR')}
+                    </td>
+                    <td className="px-4 py-2 font-bold text-titulo">{quem(l)}</td>
+                    <td className="px-4 py-2">{textoLog(l)}</td>
+                    <td className="px-4 py-2">
+                      <code className="text-xs break-all text-suave">{tecnico(l)}</code>
+                    </td>
+                    <td className="px-4 py-2 text-right">{falhou(l)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

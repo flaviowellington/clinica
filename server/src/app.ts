@@ -23,6 +23,7 @@ import { rotasConfirmacoes, rotasPublicas } from './confirmacoes'
 import { rotasPainel } from './painel'
 import { rotasMensagens } from './mensagens'
 import { rotasImportacao } from './importacao'
+import { registrarAtividade, rotasLogs } from './logs'
 import { lerCorpo } from './dto'
 import { EntrarDto } from '../../shared/dtos'
 
@@ -34,7 +35,13 @@ export function criarApp() {
   app.use(cookieParser())
   app.use(express.json({ limit: '200kb' }))
   app.use(express.urlencoded({ extended: false, limit: '200kb' }))
-  app.use('/api', rateLimit({ windowMs: 60_000, limit: 600 }))
+  // LIMITE_API_POR_MINUTO: só o e2e e o teste de carga sobem; em produção fica o padrão.
+  app.use(
+    '/api',
+    rateLimit({ windowMs: 60_000, limit: Number(process.env.LIMITE_API_POR_MINUTO) || 600 }),
+  )
+
+  app.use('/api', registrarAtividade) // toda alteração vai para Configurações → Logs
 
   app.get('/api/saude', (_req, res) => res.json({ ok: true }))
 
@@ -47,6 +54,7 @@ export function criarApp() {
       if (!b) return
       const usuario = await conferirSenha(b.login, b.senha)
       if (!usuario) return res.status(401).json({ erro: 'Usuário ou senha incorretos.' })
+      res.locals.usuario = usuario // o log do login leva quem entrou
       abrirSessao(res, usuario.id)
       res.json(await dadosDoEu(usuario))
     },
@@ -102,7 +110,8 @@ export function criarApp() {
   app.use('/api/confirmacoes', exigirLogin, avisarAoMudar('agenda'), rotasConfirmacoes)
   app.use('/api/mensagens', exigirLogin, rotasMensagens)
   app.use('/api/painel', exigirLogin, rotasPainel)
-  app.use('/api/importacao', exigirLogin, rotasImportacao)
+  app.use('/api/importacao', exigirLogin, avisarAoMudar('pacientes'), rotasImportacao)
+  app.use('/api/logs', exigirLogin, rotasLogs)
   app.use('/api', (_req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }))
 
   // Em produção, o próprio servidor entrega o front já compilado (web/dist).

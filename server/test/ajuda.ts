@@ -40,6 +40,7 @@ export function usarServidor() {
     await db.contaBancaria.deleteMany()
     await db.agendamento.deleteMany()
     await db.logAcesso.deleteMany()
+    await db.logAtividade.deleteMany()
     await db.usuario.deleteMany()
     await db.pessoa.deleteMany()
   })

@@ -7,8 +7,9 @@ import type { Perfil } from '../../shared/permissoes'
 import { usuarioDe } from './auth'
 
 // ponytail: conexões na memória de um processo; com mais de uma instância da API,
-// trocar por Postgres LISTEN/NOTIFY. Os perfis são lidos ao conectar.
-const conectados = new Map<Response, Perfil[]>()
+// trocar por Postgres LISTEN/NOTIFY. Os perfis são lidos ao conectar e trocados por
+// atualizarConectado quando o administrador edita o usuário.
+const conectados = new Map<Response, { usuarioId: number; perfis: Perfil[] }>()
 
 /** GET /api/eventos: mantém a conexão aberta e manda um "ping" para ela não cair. */
 export function abrirEventos(req: Request, res: Response) {
@@ -19,7 +20,8 @@ export function abrirEventos(req: Request, res: Response) {
     'X-Accel-Buffering': 'no', // proxy (nginx) não segura os avisos
   })
   res.write('retry: 3000\n\n')
-  conectados.set(res, usuarioDe(res).perfis as Perfil[])
+  const u = usuarioDe(res)
+  conectados.set(res, { usuarioId: u.id, perfis: u.perfis as Perfil[] })
   const ping = setInterval(() => res.write(': ping\n\n'), 25_000)
   req.on('close', () => {
     clearInterval(ping)
@@ -33,8 +35,20 @@ export function avisarTodos(assunto: string) {
 
 /** Avisa só quem tem o perfil (ex.: toda a recepção). */
 export function avisarPerfil(perfil: Perfil, aviso: { assunto: string } & Record<string, unknown>) {
-  for (const [res, perfis] of conectados)
-    if (perfis.includes(perfil)) res.write(`data: ${JSON.stringify(aviso)}\n\n`)
+  for (const [res, c] of conectados)
+    if (c.perfis.includes(perfil)) res.write(`data: ${JSON.stringify(aviso)}\n\n`)
+}
+
+/** Usuário editado: troca os perfis das conexões dele; inativado, fecha (o navegador cai no 401). */
+export function atualizarConectado(usuarioId: number, perfis: Perfil[], ativo: boolean) {
+  for (const [res, c] of conectados) {
+    if (c.usuarioId !== usuarioId) continue
+    if (ativo) c.perfis = perfis
+    else {
+      conectados.delete(res)
+      res.end()
+    }
+  }
 }
 
 /** Depois de qualquer alteração que deu certo, avisa todos com o assunto informado. */

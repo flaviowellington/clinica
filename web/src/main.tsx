@@ -96,13 +96,14 @@ function Raiz() {
 
 /** O que recarregar quando o servidor avisa que um assunto mudou (server/src/tempoReal.ts). */
 const RECARREGAR: Record<string, string[][]> = {
-  agenda: [['agenda'], ['confirmacoes'], ['agendamentos-paciente']],
+  agenda: [['agenda'], ['confirmacoes'], ['agendamentos-paciente'], ['profissionais']],
   retornos: [['retornos']],
   autorizacoes: [['autorizacoes'], ['procedimentos'], ['fichas']],
   assinatura: [['autorizacoes'], ['procedimentos'], ['fichas']],
   // Pode sobrar chave: só o que está aberto na tela busca de novo, o resto só fica "velho".
   pacientes: [
     ['pacientes'],
+    ['agenda'], // nome do paciente nos cartões
     ['paciente'],
     ['alertas'],
     ['resumo'],
@@ -135,9 +136,10 @@ const RECARREGAR: Record<string, string[][]> = {
     ['resumo'],
     ['painel'],
     ['grafico-codigo'],
+    ['aprovacoes'],
   ],
   protetico: [['protetico']],
-  config: [['config'], ['email-estado'], ['eu']],
+  config: [['config'], ['email-estado'], ['eu'], ['usuarios']],
 }
 
 /** Tempo real: ouve os avisos do servidor e recarrega o que outra máquina mudou. */

@@ -34,7 +34,6 @@ export function Inicio() {
     queryKey: ['agenda', hoje, hoje, false],
     queryFn: async () =>
       (await api.get<Agendamento[]>('/agenda', { params: { de: hoje, ate: hoje } })).data,
-    refetchInterval: 60_000,
   })
   const confirmacoes = useQuery({
     queryKey: ['confirmacoes', amanha],

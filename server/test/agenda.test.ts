@@ -339,4 +339,34 @@ describe('chamar o paciente avisa a recepção', () => {
     ouvindo.fechar()
     expect(ouvindo.texto()).not.toContain('chamado')
   })
+
+  it('quem perde a recepção para de receber, e quem é inativado perde a conexão', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const recepcao = await entrarComo('RECEPCAO')
+    const outra = await entrarComo('RECEPCAO')
+    const { marcar } = await preparar(recepcao)
+    const { corpo: a } = await marcar()
+    await recepcao('PATCH', `/api/agenda/${a.id}/status`, { status: 'EM_ESPERA' })
+
+    const tirada = await ouvir(recepcao.cookie)
+    const inativada = await ouvir(outra.cookie)
+    await new Promise((r) => setTimeout(r, 100))
+    const editar = (u: typeof recepcao.usuario, perfis: string[], ativo = true) =>
+      admin('PUT', `/api/usuarios/${u.id}`, {
+        nome: u.nome,
+        email: `${u.login}@exemplo.com`,
+        perfis,
+        ativo,
+      })
+    expect((await editar(recepcao.usuario, ['FINANCEIRO'])).status).toBe(200)
+    expect((await editar(outra.usuario, ['RECEPCAO'], false)).status).toBe(200)
+    await admin('PATCH', `/api/agenda/${a.id}/status`, { status: 'EM_ATENDIMENTO' })
+    await new Promise((r) => setTimeout(r, 200))
+    tirada.fechar()
+    inativada.fechar()
+
+    expect(tirada.texto()).toContain('"assunto":"config"') // recarrega as próprias permissões
+    expect(tirada.texto()).not.toContain('chamado')
+    expect(inativada.texto()).not.toContain('chamado')
+  })
 })

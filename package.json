@@ -14,14 +14,22 @@
     "build": "npm run build -w web",
     "start": "npm start -w server",
     "test": "npm test -w server",
+    "test:unidade": "npm run test:unidade -w server",
+    "test:web": "npm test -w web",
+    "test:tudo": "node scripts/testar.js",
     "test:permissoes": "npm run test:permissoes -w server",
     "e2e": "playwright test",
+    "carga": "node scripts/carga.js",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "e2e:smoke": "playwright test --grep @smoke",
+    "e2e:jornadas": "playwright test --grep-invert @smoke"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.1",
+    "autocannon": "^9.0.0",
     "dotenv": "^18.0.9",
     "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.1.1",

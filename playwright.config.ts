@@ -6,12 +6,29 @@ const env = dotenv.config({ path: 'server/.env', quiet: true }).parsed ?? {}
 
 export default defineConfig({
   testDir: 'e2e',
-  use: { baseURL: 'http://localhost:5199' },
+  // Falhou: guarda a captura da tela e o trace (cada passo com a tela do momento).
+  use: {
+    baseURL: 'http://localhost:5199',
+    screenshot: 'only-on-failure',
+    trace: 'retain-on-failure',
+  },
+  // O Playwright apaga esta pasta a cada rodada; os resultados do Vitest ficam em test-results/.
+  outputDir: 'test-results/e2e',
+  // Console: um teste por linha, com os passos (test.step). Erro, captura e trace no HTML:
+  // npx playwright show-report
+  reporter: [
+    ['list', { printSteps: true }],
+    ['html', { open: 'never' }],
+  ],
   webServer: [
     {
       command: 'npm run e2e:servidor -w server',
       url: 'http://localhost:3101/api/saude',
-      env: { DATABASE_URL: env.DATABASE_URL_TESTE, PORTA: '3101' },
+      // Vários testes em paralelo do mesmo IP passam do limite de 600 pedidos/min.
+      env: { DATABASE_URL: env.DATABASE_URL_TESTE, PORTA: '3101', LIMITE_API_POR_MINUTO: '100000' },
+      // Só os erros do servidor aparecem no console (o seed fala muito).
+      stdout: 'ignore',
+      stderr: 'pipe',
     },
     {
       command: 'npm run dev -w web -- --port 5199 --strictPort',
@@ -21,6 +38,7 @@ export default defineConfig({
       // mandaria a API para o servidor de dev. No Windows o Vite às vezes fica aberto depois do teste;
       // reaproveitar evita "porta em uso".
       reuseExistingServer: true,
+      stdout: 'ignore',
     },
   ],
 })
