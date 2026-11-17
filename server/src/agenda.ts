@@ -20,6 +20,7 @@ import type { Prisma } from './generated/prisma/client'
 import { lerConfig } from './configuracoes'
 import { validarConfig } from '../../shared/configuracoes'
 import { hojeNaClinica } from '../../shared/regras'
+import { avisarTodos } from './tempoReal'
 
 const comDados = {
   paciente: { select: { id: true, nome: true, celular: true } },
@@ -46,6 +47,39 @@ const NAO_ACHOU = { erro: 'Agendamento não encontrado.' }
 const ehProfissional = async (id: number) =>
   !!(await db.pessoa.findFirst({ where: { id, tipo: 'PROFISSIONAL', excluidoEm: null } }))
 
+/**
+ * Status automáticos de consultas confirmadas cujo paciente não chegou:
+ * - passou o horário de início → "Atrasado";
+ * - passou 1 hora do início (ou o dia acabou) → "Faltou".
+ * Chegou (Em espera) ou não confirmou (Agendado): nada muda sozinho. Devolve quantas mudou.
+ */
+export async function atualizarAtrasos(agora = new Date()) {
+  const hoje = dia(hojeNaClinica(agora))
+  const hora = agora
+    .toLocaleTimeString('sv-SE', { timeZone: 'America/Sao_Paulo', hour12: false })
+    .slice(0, 5)
+  const umaHoraAntes = paraMinutos(hora) - 60
+  const base = { tipo: 'CONSULTA', excluidoEm: null, desmarcadoEm: null } as const
+  const faltou = await db.agendamento.updateMany({
+    where: {
+      ...base,
+      status: { in: ['CONFIRMADO', 'ATRASADO'] },
+      OR: [
+        { data: { lt: hoje } },
+        ...(umaHoraAntes >= 0 ? [{ data: hoje, inicio: { lte: paraHora(umaHoraAntes) } }] : []),
+      ],
+    },
+    data: { status: 'FALTOU' },
+  })
+  const atrasou = await db.agendamento.updateMany({
+    where: { ...base, status: 'CONFIRMADO', data: hoje, inicio: { lte: hora } }, // "hh:mm" ordena como texto
+    data: { status: 'ATRASADO' },
+  })
+  const mudou = faltou.count + atrasou.count
+  if (mudou) avisarTodos('agenda')
+  return mudou
+}
+
 export const rotasAgenda = Router()
 
 /** Profissionais para o filtro e o do usuário logado (B-013: usar quem está logado). */
@@ -63,6 +97,7 @@ rotasAgenda.get('/', exigir('agenda.ver'), async (req, res) => {
   const ate = String(req.query.ate ?? de)
   if (isNaN(Date.parse(de)) || isNaN(Date.parse(ate)))
     return res.status(400).json({ erro: 'Período inválido.' })
+  await atualizarAtrasos()
   const ids = String(req.query.profissionais ?? '')
     .split(',')
     .map(Number)

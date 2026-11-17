@@ -201,7 +201,9 @@ body {
   }
 
   /* ---------- Campos ---------- */
+  /* Celular: 16 px (o Safari dá zoom em campo menor) e 44 px de altura para o dedo. */
   .campo {
+    @apply min-h-11 text-base md:min-h-0 md:text-sm;
     @apply w-full rounded-xl border-2 border-borda-campo bg-superficie px-3 py-2 outline-none placeholder:text-suave/70 hover:border-primaria/60 focus:border-primaria focus:ring-4 focus:ring-primaria/15 disabled:border-transparent disabled:bg-desativado disabled:text-desativado-texto [&[readonly]]:bg-superficie-2 [&[readonly]]:focus:ring-0 aria-[invalid=true]:border-perigo aria-[invalid=true]:ring-perigo/15;
   }
 
@@ -211,6 +213,8 @@ body {
   .botao-leve,
   .botao-fantasma,
   .botao-perigo {
+    /* min-h-11: alvo de toque de 44 px no celular; do md em diante vale o tamanho do conteúdo. */
+    @apply min-h-11 md:min-h-0;
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 font-bold select-none active:translate-y-px disabled:translate-y-0 disabled:border-transparent disabled:bg-desativado disabled:text-desativado-texto disabled:shadow-none;
   }
   /* Ação principal da tela: uma por tela. */
@@ -232,11 +236,18 @@ body {
   .botao-perigo {
     @apply bg-perigo text-white shadow-[0_3px_0_0_color-mix(in_srgb,var(--perigo)_55%,black)] hover:brightness-110 dark:text-black;
   }
+  /* Pequeno e ícone só encolhem do md em diante (no celular o alvo fica com 44 px). */
   .botao-pequeno {
-    @apply rounded-lg px-3 py-1 text-xs;
+    @apply md:rounded-lg md:px-3 md:py-1 md:text-xs;
   }
   .botao-icone {
-    @apply size-9 rounded-full p-0;
+    @apply size-11 rounded-full p-0 md:size-9;
+  }
+
+  /* Rodapé fixo das janelas (Dialogo): a ação principal fica à vista enquanto o formulário rola.
+     Vai como último filho do formulário; as margens negativas encostam nas bordas do p-5 da janela. */
+  .rodape-janela {
+    @apply sticky bottom-0 z-10 -mx-5 -mb-5 flex flex-wrap items-center justify-end gap-2 border-t border-borda bg-superficie px-5 py-3;
   }
 
   /* ---------- Superfícies ---------- */

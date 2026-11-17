@@ -237,7 +237,8 @@ export function Suspenso(props: {
   const [aberto, setAberto] = useState(false)
   const fechar = () => setAberto(false)
   return (
-    <div className="relative min-w-0 flex-1 sm:flex-none">
+    // basis-40: no celular cada filtro tem largura mínima e desce de linha em vez de espremer o rótulo.
+    <div className="relative min-w-0 grow basis-40 sm:flex-none sm:basis-auto">
       {aberto && <div className="fixed inset-0 z-30" onClick={fechar} />}
       <button
         type="button"
@@ -248,7 +249,9 @@ export function Suspenso(props: {
         {props.rotulo}
       </button>
       {aberto && (
-        <div className={`cartao absolute top-full left-0 z-40 mt-1 shadow-lg ${props.painel}`}>
+        <div
+          className={`cartao absolute top-full left-0 z-40 mt-1 max-w-[calc(100vw-2rem)] shadow-lg ${props.painel}`}
+        >
           {props.children(fechar)}
         </div>
       )}

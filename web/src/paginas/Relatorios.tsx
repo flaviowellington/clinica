@@ -7,6 +7,7 @@ import { pode } from '../../../shared/permissoes'
 import { normalizar } from '../../../shared/regras'
 import { GRUPOS, acharRelatorio, type Filtro } from '../../../shared/relatorios'
 import { Icone, type NomeIcone } from '../componentes/Icones'
+import { useAosPoucos } from '../componentes/CarregarMais'
 import { PeriodoSuspenso, ProfissionaisSuspenso, Suspenso, useIntervalo } from './FinanceiroAbas'
 
 interface Resultado {
@@ -94,6 +95,9 @@ function comparar(a: string | number, b: string | number, numerica: boolean) {
 }
 
 /** Coluna de números (contagem, "1.234,56", "12%"): alinha à direita. */
+/** 1ª coluna fixa ao rolar a tabela de lado (o que identifica a linha fica sempre à vista). */
+const FIXA = 'sticky left-0 z-[1] shadow-[inset_-1px_0_0_var(--borda)]'
+
 const ehNumero = (v: string | number) => typeof v === 'number' || /^-?[\d.,]+%?$/.test(v)
 
 export function Relatorios() {
@@ -159,12 +163,16 @@ export function Relatorios() {
     )
   const ordenavel = (c: string) => !NAO_ORDENA.includes(c)
   const carregando = r.isFetching ? 'opacity-60' : ''
+  // Centenas de linhas de uma vez travam o celular: 50 por vez, recomeça ao trocar relatório/busca/ordem.
+  const aosPoucos = useAosPoucos(linhas, `${id}|${termo}|${ord?.col}|${ord?.desc}|${JSON.stringify(params)}`)
+  // Celular: com um relatório aberto, o índice fica recolhido atrás do botão "Outros relatórios".
+  const [verIndice, setVerIndice] = useState(false)
 
   return (
-    // Menu e quadro rolam cada um por conta própria; a página não sobe ao trocar de relatório.
+    // Computador: menu e quadro rolam cada um por conta própria; a página não sobe ao trocar de relatório.
     <div className="flex flex-col gap-4 lg:h-[calc(100vh-2rem)] lg:flex-row">
       <nav
-        className="cartao max-h-72 shrink-0 space-y-4 overflow-y-auto lg:max-h-none lg:w-64"
+        className={`cartao shrink-0 space-y-4 lg:block lg:w-64 lg:overflow-y-auto ${permitido && !verIndice ? 'hidden' : ''}`}
         aria-label="Relatórios"
       >
         <p className="flex items-center gap-2 text-base font-extrabold text-titulo">
@@ -193,7 +201,10 @@ export function Relatorios() {
                 <li key={i.id} className="relative">
                   <button
                     disabled={!i.pronto}
-                    onClick={() => navegar({ search: { id: i.id }, resetScroll: false })}
+                    onClick={() => {
+                      setVerIndice(false)
+                      navegar({ search: { id: i.id }, resetScroll: false })
+                    }}
                     aria-current={id === i.id}
                     className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-primaria-clara disabled:cursor-not-allowed disabled:text-suave disabled:hover:bg-transparent ${id === i.id ? "bg-primaria-clara font-bold text-primaria before:absolute before:inset-y-1 before:-left-[10px] before:w-0.5 before:rounded-full before:bg-primaria before:content-['']" : ''}`}
                   >
@@ -207,9 +218,9 @@ export function Relatorios() {
         ))}
       </nav>
 
-      <section className="min-w-0 flex-1 space-y-4 overflow-y-auto">
+      <section className="min-w-0 flex-1 space-y-4 lg:overflow-y-auto">
         {!permitido ? (
-          <div className="cartao flex flex-col items-center gap-2 py-20 text-center">
+          <div className="cartao flex-col items-center gap-2 py-20 text-center max-lg:hidden lg:flex">
             <span className="rounded-full bg-primaria-clara p-4 text-primaria">
               <Icone nome="relatorios" className="h-8 w-8" />
             </span>
@@ -218,11 +229,21 @@ export function Relatorios() {
           </div>
         ) : (
           <>
-            <header>
-              <p className="text-xs font-extrabold tracking-wide text-suave uppercase">
-                {atual.grupo}
-              </p>
-              <h1 className="titulo">{atual.titulo}</h1>
+            <header className="flex items-end justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-extrabold tracking-wide text-suave uppercase">
+                  {atual.grupo}
+                </p>
+                <h1 className="titulo">{atual.titulo}</h1>
+              </div>
+              <button
+                type="button"
+                className="botao-leve shrink-0 lg:hidden"
+                aria-expanded={verIndice}
+                onClick={() => setVerIndice(!verIndice)}
+              >
+                Outros relatórios
+              </button>
             </header>
 
             {/* Filtros (modelo do Financeiro). */}
@@ -301,7 +322,7 @@ export function Relatorios() {
                             aria-sort={
                               ord?.col === j ? (ord.desc ? 'descending' : 'ascending') : undefined
                             }
-                            className={`px-4 py-2.5 font-extrabold whitespace-nowrap ${numerica[j] ? 'text-right' : ''}`}
+                            className={`px-4 py-2.5 font-extrabold whitespace-nowrap ${numerica[j] ? 'text-right' : ''} ${j === 0 ? FIXA : ''} bg-superficie-2`}
                           >
                             {ordenavel(c) ? (
                               <button
@@ -323,7 +344,7 @@ export function Relatorios() {
                       </tr>
                     </thead>
                     <tbody>
-                      {linhas.map((l, i) => (
+                      {aosPoucos.itens.map((l, i) => (
                         <tr
                           key={i}
                           className="border-t border-borda even:bg-superficie-2/40 hover:bg-primaria-clara"
@@ -331,7 +352,7 @@ export function Relatorios() {
                           {l.map((v, j) => (
                             <td
                               key={j}
-                              className={`px-4 py-2.5 ${numerica[j] ? 'text-right whitespace-nowrap tabular-nums' : ''} ${j === 0 ? 'font-bold text-titulo' : ''}`}
+                              className={`px-4 py-2.5 ${numerica[j] ? 'text-right whitespace-nowrap tabular-nums' : ''} ${j === 0 ? `${FIXA} bg-superficie font-bold text-titulo` : ''}`}
                             >
                               {v === '' ? <span className="text-suave">—</span> : v}
                             </td>
@@ -342,6 +363,7 @@ export function Relatorios() {
                   </table>
                 </div>
               )}
+              {aosPoucos.mais && <div className="border-t border-borda p-3">{aosPoucos.mais}</div>}
 
               {!linhas.length && (
                 <p className="px-4 py-12 text-center text-suave">

@@ -7,6 +7,7 @@ import {
   consultaConfig,
   consultaEu,
   dataBR,
+  horaBR,
   isoLocal,
   mensagemDeErro,
   type Paciente,
@@ -24,6 +25,7 @@ interface AgendamentoPaciente {
   inicio: string
   fim: string
   status: StatusAgenda
+  checkinEm: string | null
   categoria: string | null
   observacoes: string | null
   desmarcadoEm: string | null
@@ -218,6 +220,12 @@ export function AgendamentosPaciente({ paciente }: { paciente: Paciente }) {
                       </span>
                     </span>
                     {prazo && <span className="etiqueta etiqueta-primaria">{prazo}</span>}
+                    {a.data === hoje && a.checkinEm && !desmarcada && (
+                      <span className="etiqueta etiqueta-aviso">
+                        <Icone nome="relogio" className="size-3.5" />
+                        Chegou às {horaBR(a.checkinEm)}
+                      </span>
+                    )}
                   </p>
                   <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-suave">
                     <span>{a.profissional.nome}</span>

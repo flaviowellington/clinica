@@ -27,6 +27,7 @@ import { Arquivos } from '../componentes/Arquivos'
 import { Documentos } from '../componentes/Documentos'
 import { AgendamentosPaciente, Indicacoes } from '../componentes/FichaConsultas'
 import { NotaFiscalPaciente } from '../componentes/NotaFiscal'
+import { FaixaEspera } from '../componentes/SalaEspera'
 
 type Janela = 'editar' | 'excluir' | null
 
@@ -93,6 +94,18 @@ export function Ficha() {
     ultimaAba.current = aba
     api.get(`/pacientes/${id}`, { params: { aba } }).catch(() => {})
   }, [aba, id])
+
+  // Celular: o menu de seções rola de lado; traz a seção aberta para a vista (só na horizontal).
+  const menuSecoes = useRef<HTMLElement>(null)
+  const carregada = !!ficha.data
+  useEffect(() => {
+    const menu = menuSecoes.current
+    const atual = menu?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (!menu || !atual) return
+    const m = menu.getBoundingClientRect()
+    const a = atual.getBoundingClientRect()
+    if (a.left < m.left || a.right > m.right) menu.scrollLeft += a.left - m.left - 16
+  }, [aba, carregada])
 
   const alertas = useQuery({
     queryKey: ['alertas', id],
@@ -188,7 +201,7 @@ export function Ficha() {
           <Link
             to="/pacientes"
             onClick={voltar}
-            className="botao-leve botao-icone size-10 shrink-0"
+            className="botao-leve botao-icone md:size-10 shrink-0"
             aria-label="Voltar para pacientes"
             title="Voltar para pacientes"
           >
@@ -216,7 +229,8 @@ export function Ficha() {
                   .join(' · ')}
               </p>
             </div>
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 pt-0.5">
+            {/* basis-full no celular: as etiquetas descem para baixo do nome em vez de virar uma coluna estreita. */}
+            <div className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-x-2 gap-y-1 pt-0.5 sm:basis-0">
               <Situacao ativo={p.ativo} />
               {!p.fotoEm && (
                 <span className="etiqueta etiqueta-aviso" title="Clique na foto para adicionar">
@@ -263,20 +277,23 @@ export function Ficha() {
             {acoes}
           </div>
         </div>
+        {pode(eu.perfis, 'agenda.ver') && <FaixaEspera pacienteId={p.id} />}
 
-        {/* Cada grupo é um trilho de botões; a seção aberta é o botão roxo cheio. */}
+        {/* Cada grupo é um trilho de botões; a seção aberta é o botão roxo cheio.
+            No celular os grupos ficam numa faixa só, que rola de lado (em vez de ~300 px de menu). */}
         <nav
+          ref={menuSecoes}
           aria-label="Seções da ficha"
-          className="flex flex-wrap items-end gap-x-3 gap-y-2.5 rounded-b-2xl border-t border-borda bg-superficie-2/50 px-4 pt-3 pb-3.5"
+          className="flex items-end gap-x-3 gap-y-2.5 overflow-x-auto rounded-b-2xl border-t border-borda bg-superficie-2/50 px-4 pt-3 pb-3.5 md:flex-wrap md:overflow-x-visible"
         >
           {GRUPOS_FICHA.map((g) => {
             const itens = abas.filter((a) => a.grupo === g)
             if (!itens.length) return null
             const grupoAtivo = itens.some((a) => a.id === aba)
             return (
-              <div key={g} role="group" aria-label={g} className="flex flex-col gap-1.5">
+              <div key={g} role="group" aria-label={g} className="flex shrink-0 flex-col gap-1.5">
                 <p
-                  className={`flex items-center gap-1.5 px-1.5 text-[11px] font-extrabold tracking-wide uppercase ${grupoAtivo ? 'text-primaria' : 'text-suave'}`}
+                  className={`flex items-center gap-1.5 px-1.5 text-xs font-extrabold tracking-wide uppercase ${grupoAtivo ? 'text-primaria' : 'text-suave'}`}
                 >
                   {/* As reticências têm traço fino: engrossa para ter o mesmo peso dos outros. */}
                   <Icone
@@ -285,13 +302,13 @@ export function Ficha() {
                   />
                   {g}
                 </p>
-                <ul className="flex flex-wrap gap-0.5 rounded-xl border border-borda bg-superficie-2 p-[3px]">
+                <ul className="flex gap-0.5 rounded-xl border border-borda bg-superficie-2 p-[3px] md:flex-wrap">
                   {itens.map((a) => (
                     <li key={a.id}>
                       <button
                         aria-current={aba === a.id ? 'page' : undefined}
                         onClick={() => trocarAba(a.id)}
-                        className={`rounded-[9px] px-3 py-1.5 font-bold whitespace-nowrap ${aba === a.id ? 'bg-primaria text-sobre-primaria shadow-[0_3px_10px_color-mix(in_srgb,var(--primaria)_35%,transparent)]' : 'text-texto hover:bg-superficie hover:shadow-sm'}`}
+                        className={`min-h-11 rounded-[9px] px-3 py-1.5 font-bold whitespace-nowrap md:min-h-0 ${aba === a.id ? 'bg-primaria text-sobre-primaria shadow-[0_3px_10px_color-mix(in_srgb,var(--primaria)_35%,transparent)]' : 'text-texto hover:bg-superficie hover:shadow-sm'}`}
                       >
                         {a.rotulo}
                       </button>

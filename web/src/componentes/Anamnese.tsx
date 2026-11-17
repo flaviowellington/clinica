@@ -463,7 +463,7 @@ function FormAnamnese(props: {
           />
         </label>
 
-        <div className="flex justify-end gap-2">
+        <div className="rodape-janela">
           <button type="button" className="botao-leve" onClick={props.aoTerminar}>
             Cancelar
           </button>

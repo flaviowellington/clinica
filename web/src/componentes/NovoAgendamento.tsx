@@ -789,7 +789,7 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
         </div>
 
         {/* ---------- Resumo ---------- */}
-        <footer className="flex shrink-0 flex-wrap items-center gap-3 border-t border-borda pt-4">
+        <footer className="rodape-janela shrink-0 justify-start gap-3">
           <dl className="flex w-full min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm sm:w-auto sm:flex-1">
             <Resumo rotulo={tipo === 'CONSULTA' ? 'Paciente' : 'Compromisso'}>
               {tipo === 'CONSULTA' ? paciente?.nome : titulo.trim()}
@@ -994,7 +994,7 @@ function NovaCategoria(props: { aoCriar: (nome: string) => void }) {
         <input
           autoFocus
           aria-label="Nome da nova categoria"
-          className="campo py-1.5 text-sm"
+          className="campo py-1.5 md:text-sm"
           placeholder="Nome da categoria"
           maxLength={40}
           value={nome}

@@ -88,3 +88,13 @@ export function useVoltar() {
     router.history.back()
   }
 }
+
+/** Relógio que anda a cada 30 s: linha do "agora" e tempo de espera. */
+export function useAgora() {
+  const [agora, setAgora] = useState(() => new Date())
+  useEffect(() => {
+    const t = setInterval(() => setAgora(new Date()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  return agora
+}

@@ -1028,7 +1028,7 @@ function CartaoGrafico(props: {
       <header className="flex items-start gap-1.5">
         <button
           type="button"
-          className="botao-fantasma botao-icone -ml-1 size-7 shrink-0 cursor-grab text-suave active:cursor-grabbing print:hidden"
+          className="botao-fantasma botao-icone -ml-1 md:size-7 shrink-0 cursor-grab text-suave active:cursor-grabbing print:hidden"
           aria-label={`Mover o gráfico ${titulo}`}
           title="Arraste para mudar a posição (ou use as setas do teclado)"
           onPointerDown={() => setPega(true)}
@@ -1048,7 +1048,7 @@ function CartaoGrafico(props: {
           {!props.fixo && (
             <button
               type="button"
-              className={`botao-fantasma botao-icone size-7 ${props.favorito ? 'text-aviso' : 'text-suave'}`}
+              className={`botao-fantasma botao-icone md:size-7 ${props.favorito ? 'text-aviso' : 'text-suave'}`}
               aria-pressed={props.favorito}
               aria-label={`Favoritar o gráfico ${titulo}`}
               title={props.favorito ? 'Tirar dos favoritos' : 'Favoritar'}
@@ -1068,7 +1068,7 @@ function CartaoGrafico(props: {
           {c.codigo && (
             <button
               type="button"
-              className="botao-fantasma botao-icone size-7 text-suave"
+              className="botao-fantasma botao-icone md:size-7 text-suave"
               aria-label={`Editar o código do gráfico ${titulo}`}
               title="Editar o código"
               onClick={props.aoEditar}
@@ -1079,7 +1079,7 @@ function CartaoGrafico(props: {
           {!props.fixo && (
             <button
               type="button"
-              className="botao-fantasma botao-icone size-7 text-suave hover:bg-perigo/10 hover:text-perigo"
+              className="botao-fantasma botao-icone md:size-7 text-suave hover:bg-perigo/10 hover:text-perigo"
               aria-label={`Remover o gráfico ${titulo}`}
               title="Remover gráfico"
               onClick={props.aoRemover}
@@ -1144,7 +1144,7 @@ function ListaFavoritos(props: {
             </button>
             <button
               type="button"
-              className="botao-fantasma botao-icone size-7 text-suave hover:text-perigo"
+              className="botao-fantasma botao-icone md:size-7 text-suave hover:text-perigo"
               aria-label={`Tirar ${tituloDe(f.config)} dos favoritos`}
               title="Tirar dos favoritos"
               onClick={() => props.aoDesfavoritar(f.config)}
@@ -1243,7 +1243,7 @@ function PromptIA({ linguagem }: { linguagem: Linguagem }) {
         <textarea
           readOnly
           aria-label="Prompt para a IA"
-          className="campo h-44 font-mono text-xs"
+          className="campo h-44 font-mono md:text-xs"
           value={texto}
         />
         <button

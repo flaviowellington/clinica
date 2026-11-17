@@ -3,10 +3,17 @@ import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, consultaConfig, dataBR, horaBR, mensagemDeErro, type Agendamento } from '../api'
 import { avisar } from '../estado'
-import { CATEGORIAS, COM_CHECKIN, STATUS, type StatusAgenda } from '../../../shared/agenda'
+import {
+  CATEGORIAS,
+  COM_CHECKIN,
+  STATUS,
+  proximoStatus,
+  type StatusAgenda,
+} from '../../../shared/agenda'
 import { whatsapp } from '../paginas/Pacientes'
 import { CampoSelect } from './CampoSelect'
 import { Icone, type NomeIcone } from './Icones'
+import { TempoEspera, useTrocarStatus } from './SalaEspera'
 
 /** Cartão do agendamento (C-005): paciente, horário, desmarcação e status. */
 export function CartaoConsulta(props: {
@@ -21,20 +28,8 @@ export function CartaoConsulta(props: {
   const atualizar = () => qc.invalidateQueries({ queryKey: ['agenda'] })
   const cores: Record<string, string> = useQuery(consultaConfig('categorias')).data ?? CATEGORIAS
 
-  const status = useMutation({
-    mutationFn: async (s: StatusAgenda) =>
-      (await api.patch<Agendamento>(`/agenda/${a.id}/status`, { status: s })).data,
-    onSuccess: (novo) => {
-      // Já troca na lista em memória: reabrir antes de a agenda recarregar mostra o status novo.
-      qc.setQueriesData<unknown>({ queryKey: ['agenda'] }, (l: unknown) =>
-        Array.isArray(l) ? l.map((x: Agendamento) => (x.id === novo.id ? novo : x)) : l,
-      )
-      avisar('Status atualizado')
-      atualizar()
-      props.aoFechar()
-    },
-    onError: (e) => avisar(mensagemDeErro(e), true),
-  })
+  const status = useTrocarStatus(props.aoFechar)
+  const trocar = (s: StatusAgenda) => status.mutate({ id: a.id, status: s })
   const excluir = useMutation({
     mutationFn: async () => (await api.delete(`/agenda/${a.id}`)).data,
     onSuccess: () => {
@@ -55,6 +50,7 @@ export function CartaoConsulta(props: {
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
   const chegou = COM_CHECKIN.includes(a.status)
+  const passo = proximoStatus(a.status)
   const nome = a.paciente?.nome ?? a.titulo ?? 'Compromisso'
 
   if (desmarcando)
@@ -204,6 +200,19 @@ export function CartaoConsulta(props: {
         </div>
       )}
 
+      {a.status === 'EM_ESPERA' && a.checkinEm && !desmarcada && (
+        <div className="flex items-center gap-3 rounded-xl border-2 border-aviso bg-aviso/10 px-3 py-2.5">
+          <Icone nome="relogio" className="h-6 w-6 shrink-0 text-aviso" />
+          <div className="min-w-0">
+            <p className="flex flex-wrap items-center gap-2 font-extrabold text-titulo">
+              Na espera há <TempoEspera checkinEm={a.checkinEm} />
+            </p>
+            <p className="text-sm text-suave">
+              Chegou às {horaBR(a.checkinEm)} · consulta às {a.inicio}
+            </p>
+          </div>
+        </div>
+      )}
       {chegou && a.checkinEm && (
         <p className="text-suave">
           Check-in às {horaBR(a.checkinEm)}: não dá para desmarcar nem excluir.
@@ -237,13 +246,27 @@ export function CartaoConsulta(props: {
         <p className="text-sm text-suave">
           Agendado por {a.criadoPor.nome} em {dataBR(a.criadoEm)} às {horaBR(a.criadoEm)}
         </p>
+        {a.tipo === 'CONSULTA' && passo && props.podeEditar && !desmarcada && (
+          <button
+            type="button"
+            className={`${passo.status === 'ATENDIDO' ? 'botao bg-sucesso' : 'botao'} min-h-11 w-full`}
+            disabled={status.isPending}
+            onClick={() => trocar(passo.status)}
+          >
+            <Icone
+              nome={passo.status === 'EM_ATENDIMENTO' ? 'iniciar' : 'feito'}
+              className="h-4 w-4"
+            />
+            {passo.rotulo}
+          </button>
+        )}
         {a.tipo === 'CONSULTA' && (
           <div className="w-44">
             <CampoSelect
               aria-label="Status"
               value={a.status}
               disabled={!props.podeEditar || desmarcada || status.isPending}
-              onChange={(e) => status.mutate(e.target.value as StatusAgenda)}
+              onChange={(e) => trocar(e.target.value as StatusAgenda)}
               vazio={false}
               opcoes={Object.entries(STATUS).map(([v, s]) => [v, s.rotulo] as const)}
             />

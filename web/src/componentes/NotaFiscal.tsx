@@ -267,7 +267,7 @@ export function NotaFiscalBusca() {
             {!analise.isPending && !lista.length && (
               <p className="p-4 text-suave">Nenhum orçamento aprovado no período.</p>
             )}
-            <div className="max-h-[65vh] overflow-y-auto overscroll-contain xl:max-h-none xl:min-h-0 xl:flex-1">
+            <div className="lg:max-h-[65vh] lg:overflow-y-auto lg:overscroll-contain xl:max-h-none xl:min-h-0 xl:flex-1">
               {grupos.map((g) => (
                 <div key={g.dia}>
                   <h3 className="px-4 pt-3 pb-1 text-sm font-extrabold text-suave">
@@ -472,7 +472,7 @@ function NotaDoPaciente(props: {
               </span>
             </label>
           )}
-          <div className="max-h-[28rem] overflow-y-auto overscroll-contain xl:max-h-none xl:min-h-0 xl:flex-1">
+          <div className="lg:max-h-[28rem] lg:overflow-y-auto lg:overscroll-contain xl:max-h-none xl:min-h-0 xl:flex-1">
             {!os.length && (
               <p className="px-4 pb-4 text-suave">
                 Nenhum orçamento aprovado deste paciente no período.

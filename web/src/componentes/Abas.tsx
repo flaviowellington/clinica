@@ -12,7 +12,7 @@ export function Abas<T extends string>(props: {
           role="tab"
           aria-selected={props.atual === a.id}
           onClick={() => props.aoTrocar(a.id)}
-          className={`shrink-0 border-b-2 px-3 py-2 ${props.atual === a.id ? 'border-primaria font-medium text-primaria' : 'border-transparent text-suave hover:text-texto'}`}
+          className={`min-h-11 shrink-0 border-b-2 px-3 py-2 md:min-h-0 ${props.atual === a.id ? 'border-primaria font-medium text-primaria' : 'border-transparent text-suave hover:text-texto'}`}
         >
           {a.rotulo}
         </button>

@@ -59,6 +59,7 @@ import { Dialogo } from './componentes/Dialogo'
 import { ABAS } from './abas'
 import { GRUPOS } from '../../shared/relatorios'
 import { Icone, type NomeIcone } from './componentes/Icones'
+import { useNaEspera } from './componentes/SalaEspera'
 
 const queryClient = new QueryClient({
   // Sem recarregar ao voltar para a janela: cada leitura da ficha grava um acesso.
@@ -75,7 +76,11 @@ function Raiz() {
     <>
       <Outlet />
       <Confirmacao />
-      <div aria-live="polite" className="fixed right-4 bottom-4 space-y-2">
+      {/* No celular os avisos sobem acima da barra de baixo (z-30) e ficam por cima dela. */}
+      <div
+        aria-live="polite"
+        className="fixed inset-x-4 bottom-24 z-40 space-y-2 md:inset-x-auto md:right-4 md:bottom-4"
+      >
         {avisos.map((a) => (
           <div
             key={a.id}
@@ -200,6 +205,12 @@ function Layout() {
   const qc = useQueryClient()
   const navegar = useNavigate()
   useTempoReal()
+  const naEspera = useNaEspera().lista.length
+  // "(2) …" no título da aba: avisa quem está em outra aba do navegador.
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\) /, '')
+    document.title = naEspera ? `(${naEspera}) ${base}` : base
+  }, [naEspera])
   const [mais, setMais] = useState(false)
   const busca = useRef<HTMLInputElement>(null)
   // Entre md e lg a barra fica sempre recolhida; abaixo de md vira a barra de baixo.
@@ -335,6 +346,14 @@ function Layout() {
           <span className="truncate">{p.rotulo}</span>
         ) : (
           <span className={balao}>{p.rotulo}</span>
+        )}
+        {p.para === '/agenda' && naEspera > 0 && (
+          <span
+            className={`rounded-full bg-aviso px-1.5 text-xs leading-5 font-extrabold text-superficie tabular-nums ${aberta ? 'ml-auto' : 'absolute -top-1 -right-1'}`}
+            aria-label={`${naEspera} na espera`}
+          >
+            {naEspera}
+          </span>
         )}
       </Link>
     )
@@ -539,8 +558,16 @@ function Layout() {
               className={abaCelular}
               activeOptions={{ exact: a.para === '/' }}
             >
-              <span className="grid h-7.5 w-13 place-items-center rounded-full">
+              <span className="relative grid h-7.5 w-13 place-items-center rounded-full">
                 <Icone nome={a.icone} className="size-5" />
+                {a.para === '/agenda' && naEspera > 0 && (
+                  <span
+                    className="absolute -top-1 right-1 rounded-full bg-aviso px-1.5 text-xs leading-4 font-extrabold text-superficie tabular-nums"
+                    aria-label={`${naEspera} na espera`}
+                  >
+                    {naEspera}
+                  </span>
+                )}
               </span>
               {a.rotulo}
             </Link>

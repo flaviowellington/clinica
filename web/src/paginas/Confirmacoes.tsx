@@ -10,6 +10,7 @@ import { STATUS, type StatusAgenda } from '../../../shared/agenda'
 import { MiniCalendario } from '../componentes/MiniCalendario'
 import { Icone } from '../componentes/Icones'
 import { Dialogo } from '../componentes/Dialogo'
+import { useAosPoucos } from '../componentes/CarregarMais'
 import { confirmar as perguntarConfirmar } from '../componentes/Confirmar'
 import { ProfissionaisSuspenso, Suspenso } from './FinanceiroAbas'
 
@@ -145,6 +146,8 @@ export function Confirmacoes() {
     filtro === 'todas' ? true : filtro === 'confirmadas' ? !!c.confirmadoEm : !c.confirmadoEm,
   )
   const contagem = { todas: total, pendentes: total - confirmadas, confirmadas }
+  // Dia cheio = 90+ cartões: 30 por vez (recomeça ao trocar dia ou situação).
+  const aosPoucos = useAosPoucos(visiveis, `${data}|${filtro}`, 30)
 
   return (
     <div className="flex flex-col gap-5 lg:h-[calc(100dvh-2rem)]">
@@ -337,7 +340,7 @@ export function Confirmacoes() {
 
       <div className="relative min-h-0 flex-1 space-y-5 lg:-mr-2 lg:overflow-y-auto lg:pr-2">
         <ul className={`space-y-2 ${lista.isFetching ? 'opacity-60' : ''}`}>
-          {visiveis.map((c) => {
+          {aosPoucos.itens.map((c) => {
             const ultima = c.mensagens[0]
             const cor = c.confirmadoEm
               ? 'border-l-sucesso'
@@ -462,6 +465,7 @@ export function Confirmacoes() {
             </li>
           )}
         </ul>
+        {aosPoucos.mais}
       </div>
     </div>
   )

@@ -129,6 +129,18 @@ export interface Agendamento {
   emAtrasoCentavos?: number
 }
 
+/** Agendamentos do período; a sala de espera usa a mesma chave para o dia de hoje. */
+export const consultaAgenda = (de: string, ate: string, desmarcadas = false) =>
+  queryOptions({
+    queryKey: ['agenda', de, ate, desmarcadas],
+    queryFn: async () =>
+      (
+        await api.get<Agendamento[]>('/agenda', {
+          params: { de, ate, desmarcadas: desmarcadas ? 1 : undefined },
+        })
+      ).data,
+  })
+
 export const consultaProfissionais = queryOptions({
   queryKey: ['agenda', 'profissionais'],
   queryFn: async () =>

@@ -9,6 +9,7 @@ import { confirmar } from '../componentes/Confirmar'
 import { reais } from '../../../shared/financeiro'
 import { normalizar } from '../../../shared/regras'
 import { Icone } from '../componentes/Icones'
+import { useAosPoucos } from '../componentes/CarregarMais'
 import { PeriodoSuspenso, ProfissionaisSuspenso, useIntervalo } from './FinanceiroAbas'
 import { COR_PADRAO } from './Profissionais'
 
@@ -116,6 +117,8 @@ export function Aprovacoes() {
       )
     })
     .sort((a, b) => b.aprovadoEm.localeCompare(a.aprovadoEm) || b.id - a.id)
+  // No celular a lista não tem rolagem própria: 20 por vez para o painel não ficar lá embaixo.
+  const aosPoucos = useAosPoucos(visiveis, `${termo}|${visiveis.length}`, 20)
   const totalVisivel = visiveis.reduce((s, o) => s + o.totalCentavos, 0)
   // Sem escolha (ou o escolhido saiu da lista), mostra o primeiro.
   const sel = visiveis.find((o) => o.id === escolhido) ?? visiveis[0]
@@ -160,7 +163,7 @@ export function Aprovacoes() {
         {/* ---------- Lista ---------- */}
         <nav
           aria-label="Aprovações"
-          className={`cartao flex max-h-[calc(100vh-13rem)] min-w-0 flex-[1_1_22rem] flex-col p-0 ${lista.isFetching ? 'opacity-60' : ''}`}
+          className={`cartao flex min-w-0 lg:max-h-[calc(100vh-13rem)] flex-[1_1_22rem] flex-col p-0 ${lista.isFetching ? 'opacity-60' : ''}`}
         >
           {/* Mesma linha de busca da aba Orçamentos abertos: o botão fica aqui, não no cabeçalho. */}
           <div className="flex items-center gap-2 border-b border-borda p-3">
@@ -190,8 +193,8 @@ export function Aprovacoes() {
               </button>
             )}
           </div>
-          <div className="flex flex-col gap-0.5 overflow-y-auto p-2">
-            {visiveis.map((o) => {
+          <div className="flex flex-col gap-0.5 p-2 lg:overflow-y-auto">
+            {aosPoucos.itens.map((o) => {
               const ativo = o.id === sel?.id
               return (
                 <button
@@ -239,6 +242,7 @@ export function Aprovacoes() {
                     : 'Nenhuma aprovação esperando confirmação.'}
               </p>
             )}
+            {aosPoucos.mais}
           </div>
         </nav>
 

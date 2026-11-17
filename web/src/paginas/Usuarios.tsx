@@ -55,6 +55,35 @@ const iniciais = (nome: string) => {
 }
 
 /** Usuários e Permissões (S-012). */
+function Avatar({ u }: { u: Usuario }) {
+  return u.fotoEm ? (
+    <img
+      src={urlFoto(`/usuarios/${u.id}`, u.fotoEm)!}
+      alt=""
+      className={`size-8 shrink-0 rounded-full object-cover ${u.ativo ? '' : 'grayscale'}`}
+    />
+  ) : (
+    <span
+      aria-hidden
+      className={`grid size-8 shrink-0 place-items-center rounded-full text-xs ${u.ativo ? 'bg-primaria/15 text-primaria' : 'bg-superficie-2'}`}
+    >
+      {iniciais(u.nome)}
+    </span>
+  )
+}
+
+function Perfis({ u }: { u: Usuario }) {
+  return (
+    <span className="flex flex-wrap gap-1">
+      {u.perfis.map((p) => (
+        <span key={p} className="etiqueta" style={u.ativo ? estiloPerfil(p) : undefined}>
+          {PERFIS[p]}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 export function Usuarios() {
   const lista = useQuery({
     queryKey: ['usuarios'],
@@ -72,6 +101,20 @@ export function Usuarios() {
       [u.nome, ...u.perfis.map((p) => PERFIS[p])].some((t) => normalizar(t).includes(termo)),
     )
     .sort((a, b) => Number(b.ativo) - Number(a.ativo))
+
+  // Mesmas ações no cartão (celular) e na tabela.
+  const acoes = (u: Usuario) => (
+    <>
+      <button className="botao-fantasma botao-pequeno" onClick={() => setEditando(u)}>
+        <Icone nome="lapis" className="h-4 w-4" />
+        Editar
+      </button>
+      <button className="botao-fantasma botao-pequeno" onClick={() => setSenhaDe(u)}>
+        <Icone nome="cadeado" className="h-4 w-4" />
+        Trocar senha
+      </button>
+    </>
+  )
 
   return (
     // Em tela grande a página ocupa a janela: só a tabela rola.
@@ -98,7 +141,34 @@ export function Usuarios() {
             {inativos > 0 && ` · ${inativos} ${inativos === 1 ? 'inativo' : 'inativos'}`}
           </div>
         )}
-        <div className="min-h-0 overflow-auto">
+        {/* Celular: cartões (quem é em cima, login/perfis/profissional embaixo, ações no pé); tabela só do md em diante. */}
+        <ul className={`divide-y divide-borda md:hidden ${lista.isFetching ? 'opacity-60' : ''}`}>
+          {vistos.map((u) => (
+            <li key={u.id} className={`space-y-2 px-4 py-3 ${u.ativo ? '' : 'text-suave'}`}>
+              <div className="flex items-center gap-3">
+                <Avatar u={u} />
+                <span
+                  className={`min-w-0 flex-1 truncate font-bold ${u.ativo ? 'text-titulo' : ''}`}
+                >
+                  {u.nome}
+                </span>
+                <Situacao ativo={u.ativo} />
+              </div>
+              <p className="text-sm">
+                <span className="font-mono">{u.login}</span>
+                {u.pessoa && <> · {u.pessoa.nome}</>}
+              </p>
+              <Perfis u={u} />
+              <div className="flex flex-wrap gap-2">{acoes(u)}</div>
+            </li>
+          ))}
+          {lista.data && vistos.length === 0 && (
+            <li className="px-4 py-10 text-center text-suave">
+              {busca ? `Nenhum usuário com “${busca}”.` : 'Nenhum usuário cadastrado.'}
+            </li>
+          )}
+        </ul>
+        <div className="hidden min-h-0 overflow-auto md:block">
           <table className="w-full min-w-[46rem] text-left">
             <thead className="sticky top-0 z-10 bg-superficie">
               <tr>
@@ -120,51 +190,19 @@ export function Usuarios() {
                 >
                   <td className="px-4 py-2.5">
                     <span className="flex items-center gap-3 font-bold">
-                      {u.fotoEm ? (
-                        <img
-                          src={urlFoto(`/usuarios/${u.id}`, u.fotoEm)!}
-                          alt=""
-                          className={`size-8 shrink-0 rounded-full object-cover ${u.ativo ? '' : 'grayscale'}`}
-                        />
-                      ) : (
-                        <span
-                          aria-hidden
-                          className={`grid size-8 shrink-0 place-items-center rounded-full text-xs ${u.ativo ? 'bg-primaria/15 text-primaria' : 'bg-superficie-2'}`}
-                        >
-                          {iniciais(u.nome)}
-                        </span>
-                      )}
+                      <Avatar u={u} />
                       <span className={u.ativo ? 'text-titulo' : ''}>{u.nome}</span>
                     </span>
                   </td>
                   <td className="px-4 py-2.5 font-mono text-sm">{u.login}</td>
                   <td className="px-4 py-2.5">
-                    <span className="flex flex-wrap gap-1">
-                      {u.perfis.map((p) => (
-                        <span
-                          key={p}
-                          className="etiqueta"
-                          style={u.ativo ? estiloPerfil(p) : undefined}
-                        >
-                          {PERFIS[p]}
-                        </span>
-                      ))}
-                    </span>
+                    <Perfis u={u} />
                   </td>
                   <td className="px-4 py-2.5">{u.pessoa?.nome ?? '—'}</td>
                   <td className="px-4 py-2.5">
                     <Situacao ativo={u.ativo} />
                   </td>
-                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                    <button className="botao-fantasma botao-pequeno" onClick={() => setEditando(u)}>
-                      <Icone nome="lapis" className="h-4 w-4" />
-                      Editar
-                    </button>
-                    <button className="botao-fantasma botao-pequeno" onClick={() => setSenhaDe(u)}>
-                      <Icone nome="cadeado" className="h-4 w-4" />
-                      Trocar senha
-                    </button>
-                  </td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">{acoes(u)}</td>
                 </tr>
               ))}
               {lista.data && vistos.length === 0 && (
@@ -209,7 +247,7 @@ export function Usuarios() {
 /** Rodapé dos formulários em janela: Cancelar e o botão de enviar. */
 function Rodape(props: { aoCancelar: () => void; ocupado: boolean; texto: string }) {
   return (
-    <div className="flex justify-end gap-2 border-t border-borda pt-4">
+    <div className="rodape-janela">
       <button type="button" className="botao-leve" onClick={props.aoCancelar}>
         Cancelar
       </button>

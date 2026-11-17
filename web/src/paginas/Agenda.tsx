@@ -2,16 +2,18 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import {
   api,
+  consultaAgenda,
   consultaEu,
   consultaConfig,
   consultaProfissionais,
+  horaBR,
   isoLocal,
   mensagemDeErro,
   somarDias,
   type Agendamento,
   useOcultos,
 } from '../api'
-import { avisar, esquecer, useSalvo } from '../estado'
+import { avisar, esquecer, useAgora, useSalvo } from '../estado'
 import { pode } from '../../../shared/permissoes'
 import {
   CATEGORIAS,
@@ -30,6 +32,7 @@ import { CartaoConsulta } from '../componentes/CartaoConsulta'
 import { COR_PADRAO } from './Profissionais'
 import { ListaRetornos, NovoRetorno } from '../componentes/Retornos'
 import { Icone } from '../componentes/Icones'
+import { SalaEspera, TempoEspera, tomEspera } from '../componentes/SalaEspera'
 
 type Visao = 'dia' | 'semana' | 'mes'
 const VISOES: Record<Visao, string> = { dia: 'Dia', semana: 'Semana', mes: 'Mês' }
@@ -115,6 +118,9 @@ function LegendaCategorias() {
 const nomeDe = (a: Agendamento) => a.paciente?.nome ?? a.titulo ?? 'Compromisso'
 
 /** Com um balão aberto, o bloco dele ganha contorno e os outros apagam; desmarcada fica apagada. */
+/** Paciente já chegou e ainda não foi chamado. */
+const esperando = (a: Agendamento) => a.status === 'EM_ESPERA' && !a.desmarcadoEm && !!a.checkinEm
+
 const realce = (a: Agendamento, destaque?: number) =>
   a.id === destaque
     ? 'z-20 ring-2 ring-primaria ring-offset-1 ring-offset-superficie shadow-lg'
@@ -249,15 +255,7 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
   }, [visao])
 
   const [de, ate] = periodo(visao, data)
-  const lista = useQuery({
-    queryKey: ['agenda', de, ate, comDesmarcadas],
-    queryFn: async () =>
-      (
-        await api.get<Agendamento[]>('/agenda', {
-          params: { de, ate, desmarcadas: comDesmarcadas ? 1 : undefined },
-        })
-      ).data,
-  })
+  const lista = useQuery(consultaAgenda(de, ate, comDesmarcadas))
   const termo = (busca ?? '').trim().toLocaleLowerCase('pt-BR')
   const achados = prof.profissionais.filter((p) =>
     p.nome.toLocaleLowerCase('pt-BR').includes(termo),
@@ -536,7 +534,8 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
               <span className="hidden sm:inline">Alertas de retorno ▾</span>
             </button>
             {janela === 'retornos' && (
-              <div className="absolute right-0 z-40 mt-1 w-72 max-w-[calc(100vw-2rem)] shadow-lg">
+              // Celular: o botão fica no meio da linha e a janela saía pela esquerda; ocupa a largura da tela, logo abaixo dele.
+              <div className="absolute right-0 z-40 mt-1 w-72 max-w-[calc(100vw-2rem)] shadow-lg max-sm:fixed max-sm:inset-x-4 max-sm:w-auto max-sm:max-w-none">
                 <ListaRetornos />
               </div>
             )}
@@ -546,10 +545,17 @@ export function Agenda({ filtrosNoTopo = false }: { filtrosNoTopo?: boolean }) {
       )}
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        {/* Com filtros no topo não há lateral: a sala de espera vira uma, só quando há alguém. */}
+        {filtrosNoTopo && (
+          <aside className="empty:hidden lg:w-72 lg:shrink-0">
+            <SalaEspera />
+          </aside>
+        )}
         {!filtrosNoTopo && (
           // Mesma altura da tabela (VisaoDia acima="13.25rem"): os alertas ocupam o que sobra.
           <aside className="flex flex-col gap-4 lg:h-[calc(100vh-13.25rem)] lg:w-64 lg:shrink-0">
             {/* key: ao trocar de mês na agenda, o minicalendário volta para esse mês */}
+            <SalaEspera />
             <MiniCalendario key={data.slice(0, 7)} data={data} hoje={hoje} aoEscolher={setData} />
             <div className="cartao space-y-2">
               <div className="relative flex items-center justify-between gap-2">
@@ -735,12 +741,8 @@ function VisaoDia(props: {
   aoSoltar: (a: Agendamento, inicio: string, profissionalId: number) => void
 }) {
   const corDe = useCorDe()
-  const [agora, setAgora] = useState(() => new Date())
+  const agora = useAgora()
   const [foco, setFoco] = useState<number | null>(null) // linha sob o mouse
-  useEffect(() => {
-    const t = setInterval(() => setAgora(new Date()), 30_000)
-    return () => clearInterval(t)
-  }, [])
   const base = paraMinutos(HORARIOS[0])
   const minutosAgora = agora.getHours() * 60 + agora.getMinutes()
   const fimDia = paraMinutos(HORARIOS.at(-1)!) + INTERVALO
@@ -766,7 +768,11 @@ function VisaoDia(props: {
     return <p className="cartao text-suave">Nenhum profissional selecionado.</p>
 
   return (
-    <div className="cartao overflow-auto p-0" style={{ maxHeight: `calc(100vh - ${props.acima})` }}>
+    // Celular (max-lg:max-h-none!, vence o style): a grade só rola de lado; na vertical rola a página.
+    <div
+      className="cartao overflow-auto p-0 max-lg:max-h-none!"
+      style={{ maxHeight: `calc(100vh - ${props.acima})` }}
+    >
       <div
         className="sticky top-0 z-30 grid w-max min-w-full sm:w-auto bg-superficie"
         style={grade}
@@ -865,6 +871,8 @@ function VisaoDia(props: {
                   Math.max(1, (paraMinutos(a.fim) - paraMinutos(a.inicio)) / INTERVALO) * ALTURA
                 // Sobrepostos dividem a coluna; o encaixe ganha etiqueta e contorno tracejado.
                 const { coluna, colunas, encaixe } = lado.get(a.id)!
+                const espera = esperando(a)
+                const tom = espera ? tomEspera(a.checkinEm!, agora) : ''
                 return (
                   <button
                     key={a.id}
@@ -872,7 +880,7 @@ function VisaoDia(props: {
                     draggable={props.podeEditar && !a.desmarcadoEm}
                     onDragStart={(e) => e.dataTransfer.setData('text/plain', String(a.id))}
                     onClick={(e) => props.aoAbrir(a, e.currentTarget)}
-                    className={`@container absolute z-10 flex flex-col justify-center overflow-hidden rounded-md border-l-4 px-1.5 text-left text-xs leading-tight shadow-sm hover:z-20 hover:brightness-95 ${
+                    className={`@container absolute z-10 flex flex-col justify-center overflow-hidden rounded-md ${espera ? 'border-2 border-l-[6px]' : 'border-l-4'} px-1.5 text-left text-xs leading-tight shadow-sm hover:z-20 hover:brightness-95 ${
                       encaixe ? 'outline-2 -outline-offset-2 outline-aviso outline-dashed' : ''
                     } ${a.desmarcadoEm ? 'line-through' : ''} ${realce(a, props.destaque)}`}
                     style={{
@@ -880,8 +888,13 @@ function VisaoDia(props: {
                       height: altura - 4,
                       left: `calc(${(coluna / colunas) * 100}% + 4px)`,
                       width: `calc(${100 / colunas}% - ${colunas > 1 ? 6 : 8}px)`,
-                      backgroundColor: clara(corDe(a), 35),
-                      borderLeftColor: a.desmarcadoEm ? 'var(--perigo)' : STATUS[a.status].cor,
+                      backgroundColor: espera ? clara(tom, 16) : clara(corDe(a), 35),
+                      borderColor: espera ? tom : undefined,
+                      borderLeftColor: espera
+                        ? tom
+                        : a.desmarcadoEm
+                          ? 'var(--perigo)'
+                          : STATUS[a.status].cor,
                     }}
                     title={`${encaixe ? 'Encaixe: ' : ''}${nomeDe(a)}, ${a.inicio}–${a.fim} · ${a.desmarcadoEm ? 'Desmarcado' : STATUS[a.status].rotulo}`}
                   >
@@ -890,10 +903,18 @@ function VisaoDia(props: {
                         Encaixe
                       </span>
                     )}
-                    <span className="truncate">
-                      <span className="font-bold">{nomeDe(a)}</span>, {a.inicio}–{a.fim}
+                    {/* Na espera: o tempo fica ao lado do nome, e cabe até no bloco de 15 min. */}
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="min-w-[2.5rem] flex-1 truncate">
+                        <span className="font-bold">{nomeDe(a)}</span>, {a.inicio}
+                        {!espera && `–${a.fim}`}
+                      </span>
+                      {espera && <TempoEspera checkinEm={a.checkinEm!} />}
                     </span>
-                    {altura > ALTURA && a.tipo === 'CONSULTA' && (
+                    {altura > ALTURA && espera && (
+                      <span className="truncate text-suave">Chegou às {horaBR(a.checkinEm!)}</span>
+                    )}
+                    {altura > ALTURA && a.tipo === 'CONSULTA' && !espera && (
                       <span className="truncate text-suave">
                         {a.desmarcadoEm ? 'Desmarcado' : STATUS[a.status].rotulo}
                       </span>
@@ -941,6 +962,7 @@ function VisaoSemana(props: {
   aoDia: (d: string) => void
 }) {
   const corDe = useCorDe()
+  const agora = useAgora()
   const dias = Array.from({ length: 6 }, (_, i) => somarDias(props.de, i)) // domingo fechado
   return (
     // Cabe na tela: a lista de cada dia rola por dentro, a página não cresce.
@@ -981,20 +1003,27 @@ function VisaoSemana(props: {
                   {props.carregando ? 'Carregando…' : 'Sem agendamentos'}
                 </p>
               )}
-              {doDia.map((a) => (
-                <button
-                  key={a.id}
-                  onClick={(e) => props.aoAbrir(a, e.currentTarget)}
-                  className={`block w-full truncate rounded-md border-l-4 px-1.5 py-1 text-left text-xs hover:brightness-95 ${a.desmarcadoEm ? 'line-through' : ''} ${realce(a, props.destaque)}`}
-                  style={{
-                    backgroundColor: `${corDe(a)}26`,
-                    borderLeftColor: a.desmarcadoEm ? 'var(--perigo)' : STATUS[a.status].cor,
-                  }}
-                  title={`${a.profissional.nome} · ${a.desmarcadoEm ? 'Desmarcado' : STATUS[a.status].rotulo}`}
-                >
-                  <span className="font-bold tabular-nums">{a.inicio}</span> {nomeDe(a)}
-                </button>
-              ))}
+              {doDia.map((a) => {
+                const tom = esperando(a) ? tomEspera(a.checkinEm!, agora) : ''
+                return (
+                  <button
+                    key={a.id}
+                    onClick={(e) => props.aoAbrir(a, e.currentTarget)}
+                    className={`flex w-full min-w-0 items-center gap-1 rounded-md ${tom ? 'border-2 border-l-[6px]' : 'border-l-4'} px-1.5 py-1 text-left text-xs hover:brightness-95 ${a.desmarcadoEm ? 'line-through' : ''} ${realce(a, props.destaque)}`}
+                    style={{
+                      backgroundColor: tom ? clara(tom, 16) : `${corDe(a)}26`,
+                      borderColor: tom || undefined,
+                      borderLeftColor:
+                        tom || (a.desmarcadoEm ? 'var(--perigo)' : STATUS[a.status].cor),
+                    }}
+                    title={`${a.profissional.nome} · ${a.desmarcadoEm ? 'Desmarcado' : STATUS[a.status].rotulo}`}
+                  >
+                    <span className="font-bold tabular-nums">{a.inicio}</span>
+                    <span className="truncate">{nomeDe(a)}</span>
+                    {tom && <TempoEspera checkinEm={a.checkinEm!} className="ml-auto" />}
+                  </button>
+                )
+              })}
             </div>
           </div>
         )

@@ -338,7 +338,7 @@ export function Protetico() {
                         <div className="flex items-center gap-2 border-t border-borda p-2">
                           {anterior && (
                             <button
-                              className="botao-leve botao-icone size-8 shrink-0"
+                              className="botao-leve botao-icone md:size-8 shrink-0"
                               title={`Voltar para ${ETAPAS[anterior]}`}
                               aria-label={`Voltar ${t.paciente.nome} para ${ETAPAS[anterior]}`}
                               onClick={() => mover.mutate({ id: t.id, etapa: anterior })}
@@ -661,7 +661,7 @@ function FormTrabalho(props: {
         )}
       </fieldset>
       {props.podeEditar && (
-        <div className="flex justify-between gap-2">
+        <div className="rodape-janela justify-between">
           {t && props.podeCriar ? (
             <button
               type="button"

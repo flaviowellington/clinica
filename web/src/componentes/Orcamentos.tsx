@@ -113,6 +113,29 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
   const podeExcluir = (o: Orcamento) => pode(eu.perfis, 'orcamento.editar') && o.status === 'ABERTO'
+  /** Lixeira do orçamento; `extra` só na tabela (lá ela aparece ao passar o mouse na linha). */
+  const botaoExcluir = (o: Orcamento, extra = '') =>
+    podeExcluir(o) && (
+      <button
+        type="button"
+        className={`botao-fantasma botao-icone shrink-0 text-suave hover:text-perigo ${extra}`}
+        aria-label={`Excluir orçamento nº ${o.id}`}
+        title="Excluir orçamento"
+        disabled={excluir.isPending}
+        onClick={async (e) => {
+          e.stopPropagation()
+          if (
+            await confirmar(`Excluir o orçamento nº ${o.id}?`, {
+              titulo: 'Excluir orçamento',
+              botao: 'Excluir',
+            })
+          )
+            excluir.mutate(o.id)
+        }}
+      >
+        <Icone nome="lixeira" className="h-4 w-4" />
+      </button>
+    )
 
   return (
     <section className="cartao space-y-3">
@@ -125,8 +148,53 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
         )}
       </div>
       {lista.data?.length === 0 && <p className="text-suave">Nenhum orçamento ainda.</p>}
+      {/* Celular: um cartão por orçamento (nº, data e situação em cima; tratamento; profissional e valor);
+          a lixeira fica sempre à vista, sem depender de passar o mouse. Tabela só do md em diante. */}
       {!!lista.data?.length && (
-        <div className="overflow-x-auto">
+        <ul className="-mx-4 divide-y divide-borda border-y border-borda md:hidden">
+          <li className="px-4 py-1">
+            <label className="flex min-h-11 items-center gap-3 text-suave">
+              <input
+                type="checkbox"
+                checked={todos}
+                onChange={() => setMarcados(todos ? [] : lista.data.map((o) => o.id))}
+              />
+              Selecionar todos
+            </label>
+          </li>
+          {lista.data.map((o) => (
+            <li key={o.id} className="flex items-start gap-1 py-2 pr-2 pl-1">
+              <label className="grid size-11 shrink-0 place-items-center">
+                <input
+                  type="checkbox"
+                  aria-label={`Selecionar orçamento nº ${o.id}`}
+                  checked={marcados.includes(o.id)}
+                  onChange={() => alternar(o.id)}
+                />
+              </label>
+              <button
+                type="button"
+                className="min-w-0 flex-1 space-y-1 py-1.5 text-left"
+                onClick={() => setAberto(o)}
+              >
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <strong className="text-titulo">Nº {o.id}</strong>
+                  <span className="text-suave">{dataBR(o.criadoEm)}</span>
+                  <SeloOrcamento status={o.status} />
+                </span>
+                <span className="block truncate">{resumoItens(o.itens)}</span>
+                <span className="flex justify-between gap-2 text-sm">
+                  <span className="truncate text-suave">{o.profissional.nome}</span>
+                  <strong className="shrink-0">{reais(o.totalCentavos)}</strong>
+                </span>
+              </button>
+              {botaoExcluir(o)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {!!lista.data?.length && (
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-left">
             <thead className="border-b border-borda text-suave">
               <tr>
@@ -171,27 +239,7 @@ export function OrcamentosPaciente({ paciente }: { paciente: Paciente }) {
                   <td className="px-3 py-2">{o.profissional.nome}</td>
                   <td className="px-3 py-2 font-medium">{reais(o.totalCentavos)}</td>
                   <td className="px-1 py-1 text-right">
-                    {podeExcluir(o) && (
-                      <button
-                        type="button"
-                        className="botao-fantasma botao-icone text-suave opacity-0 group-hover:opacity-100 hover:text-perigo focus-visible:opacity-100"
-                        aria-label={`Excluir orçamento nº ${o.id}`}
-                        title="Excluir orçamento"
-                        disabled={excluir.isPending}
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          if (
-                            await confirmar(`Excluir o orçamento nº ${o.id}?`, {
-                              titulo: 'Excluir orçamento',
-                              botao: 'Excluir',
-                            })
-                          )
-                            excluir.mutate(o.id)
-                        }}
-                      >
-                        <Icone nome="lixeira" className="h-4 w-4" />
-                      </button>
-                    )}
+                    {botaoExcluir(o, 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
                   </td>
                 </tr>
               ))}
@@ -480,7 +528,8 @@ function EditorOrcamento(props: {
     // Mesmo formato do "Adicionar" da agenda: altura fixa, colunas que rolam por dentro e
     // rodapé sempre à vista, para os botões nunca ficarem escondidos.
     <div className="flex flex-col gap-4 lg:h-[min(760px,calc(100dvh-11rem))]">
-      <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+      {/* grid-cols-1 (minmax(0,1fr)): sem ela a coluna cresce até o conteúdo e a janela rola de lado no celular. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
         {/* ---------- O que entra ---------- */}
         <div className="flex min-h-0 flex-col gap-5">
           <Passo n={1} id="passo-profissional" titulo="Profissional" feito={!!profissionalId}>
@@ -545,7 +594,7 @@ function EditorOrcamento(props: {
                     <div>
                       {i.porDente === false ? (
                         <span
-                          className="campo block truncate text-center text-sm font-bold text-primaria"
+                          className="campo block truncate text-center font-bold md:text-sm text-primaria"
                           title="Procedimento completo: vale para a boca toda"
                         >
                           Boca toda

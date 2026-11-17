@@ -19,11 +19,7 @@ type Excluido = {
 }
 
 /** Sem acento e em minúsculas, para a busca achar "joão" digitando "joao". */
-const normal = (s: string) =>
-  s
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
+const normal = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
 
 /** R-050: tudo que foi excluído (pacientes, consultas, orçamentos...), para o administrador restaurar. */
 export function Lixeira() {
@@ -57,6 +53,32 @@ export function Lixeira() {
       normal([i.titulo, i.detalhe, i.paciente, i.rotulo].join(' ')).includes(termo),
   )
 
+  // Pedaços usados no cartão (celular) e na tabela.
+  type Linha = (typeof filtrados)[number]
+  const registro = (i: Linha) => (
+    <>
+      <p className="flex flex-wrap items-center gap-2 font-bold text-titulo">
+        {i.titulo}
+        {i.ids.length > 1 && (
+          <span className="etiqueta etiqueta-primaria">{i.ids.length} dentes</span>
+        )}
+      </p>
+      {i.detalhe && <p className="text-sm text-suave">{i.detalhe}</p>}
+    </>
+  )
+  const quando = (i: Linha) =>
+    new Date(i.excluidoEm).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+  const botaoRestaurar = (i: Linha) => (
+    <button
+      className="botao-leve botao-pequeno"
+      disabled={restaurar.isPending}
+      onClick={() => restaurar.mutate(i)}
+    >
+      <Icone nome="girar" className="h-4 w-4" />
+      Restaurar
+    </button>
+  )
+
   return (
     <div className="space-y-5">
       <header>
@@ -79,7 +101,11 @@ export function Lixeira() {
             <div className="flex w-full flex-wrap gap-2 sm:w-auto">
               <label className="w-full sm:w-56">
                 <span className="sr-only">Tipo de registro</span>
-                <select className="campo py-1.5" value={tipo} onChange={(e) => setTipo(e.target.value)}>
+                <select
+                  className="campo py-1.5"
+                  value={tipo}
+                  onChange={(e) => setTipo(e.target.value)}
+                >
                   <option value="">Todos os tipos ({todos.length})</option>
                   {tipos.map((x) => (
                     <option key={x.t} value={x.t}>
@@ -112,12 +138,36 @@ export function Lixeira() {
           <div className="flex flex-col items-center gap-2 px-4 py-12 text-center text-suave">
             <Icone nome="lixeira" className="h-10 w-10 opacity-40" />
             <p className="font-bold">A lixeira está vazia.</p>
-            <p className="text-sm">O que for excluído no sistema aparece aqui até ser restaurado.</p>
+            <p className="text-sm">
+              O que for excluído no sistema aparece aqui até ser restaurado.
+            </p>
           </div>
         )}
 
+        {/* Celular: cartões (tipo e registro em cima; paciente e quando embaixo; Restaurar no pé). */}
         {!!todos.length && (
-          <div className="overflow-x-auto">
+          <ul className={`divide-y divide-borda md:hidden ${lista.isFetching ? 'opacity-60' : ''}`}>
+            {filtrados.map((i) => (
+              <li key={`${i.tipo}-${i.id}`} className="space-y-2 px-4 py-3">
+                <span className="etiqueta">{i.rotulo}</span>
+                {registro(i)}
+                <p className="text-sm text-suave">
+                  {i.paciente && <>{i.paciente} · </>}
+                  excluído em {quando(i)}
+                  {i.excluidoPor && <> por {i.excluidoPor}</>}
+                </p>
+                {botaoRestaurar(i)}
+              </li>
+            ))}
+            {filtrados.length === 0 && (
+              <li className="px-4 py-10 text-center text-suave">
+                Nenhum registro excluído com esse filtro.
+              </li>
+            )}
+          </ul>
+        )}
+        {!!todos.length && (
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[48rem] text-left">
               <thead>
                 <tr>
@@ -140,34 +190,16 @@ export function Lixeira() {
                     <td className="px-4 py-2.5 whitespace-nowrap">
                       <span className="etiqueta">{i.rotulo}</span>
                     </td>
-                    <td className="px-4 py-2.5">
-                      <p className="flex items-center gap-2 font-bold text-titulo">
-                        {i.titulo}
-                        {i.ids.length > 1 && (
-                          <span className="etiqueta etiqueta-primaria">{i.ids.length} dentes</span>
-                        )}
-                      </p>
-                      {i.detalhe && <p className="text-sm text-suave">{i.detalhe}</p>}
-                    </td>
+                    <td className="px-4 py-2.5">{registro(i)}</td>
                     <td className="px-4 py-2.5">{i.paciente ?? '—'}</td>
                     <td className="px-4 py-2.5 whitespace-nowrap">
-                      <span className="etiqueta etiqueta-perigo">
-                        {new Date(i.excluidoEm).toLocaleString('pt-BR', {
-                          dateStyle: 'short',
-                          timeStyle: 'short',
-                        })}
-                      </span>
-                      {i.excluidoPor && <p className="mt-1 text-xs text-suave">por {i.excluidoPor}</p>}
+                      <span className="etiqueta etiqueta-perigo">{quando(i)}</span>
+                      {i.excluidoPor && (
+                        <p className="mt-1 text-xs text-suave">por {i.excluidoPor}</p>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                      <button
-                        className="botao-leve botao-pequeno"
-                        disabled={restaurar.isPending}
-                        onClick={() => restaurar.mutate(i)}
-                      >
-                        <Icone nome="girar" className="h-4 w-4" />
-                        Restaurar
-                      </button>
+                      {botaoRestaurar(i)}
                     </td>
                   </tr>
                 ))}

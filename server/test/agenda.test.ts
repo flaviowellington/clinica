@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { db } from '../src/db'
 import { entrarComo, PACIENTE, urlBase, usarServidor, type Cliente } from './ajuda'
 import { HORARIOS } from '../../shared/agenda'
+import { atualizarAtrasos } from '../src/agenda'
 
 usarServidor()
 
@@ -138,6 +139,41 @@ describe('PT-30 e PT-31 status e check-in', () => {
     const { marcar } = await preparar(api)
     const { corpo: c } = await marcar()
     expect((await api('PATCH', `/api/agenda/${c.id}/status`, { status: 'XYZ' })).status).toBe(400)
+  })
+})
+
+describe('status automáticos: Atrasado e Faltou', () => {
+  it('confirmada sem chegar: atrasa no horário e falta 1 h depois; o resto não muda', async () => {
+    const api = await entrarComo('RECEPCAO')
+    const { marcar } = await preparar(api)
+    const caso = async (data: string, inicio: string, status: string) => {
+      const { corpo } = await marcar()
+      await db.agendamento.update({
+        where: { id: corpo.id },
+        data: { data: new Date(`${data}T00:00:00Z`), inicio, status: status as 'AGENDADO' },
+      })
+      return corpo.id as number
+    }
+    const ids = {
+      atrasa: await caso('2026-11-16', '13:00', 'CONFIRMADO'),
+      falta: await caso('2026-11-16', '12:15', 'CONFIRMADO'),
+      atrasadoFalta: await caso('2026-11-16', '12:30', 'ATRASADO'),
+      ontem: await caso('2026-11-15', '17:00', 'CONFIRMADO'),
+      cedo: await caso('2026-11-16', '14:00', 'CONFIRMADO'),
+      agendado: await caso('2026-11-16', '12:00', 'AGENDADO'),
+      espera: await caso('2026-11-16', '12:00', 'EM_ESPERA'),
+    }
+    // 13:30 em São Paulo.
+    expect(await atualizarAtrasos(new Date('2026-11-16T13:30:00-03:00'))).toBe(4)
+    const status = async (id: number) =>
+      (await db.agendamento.findUnique({ where: { id } }))!.status
+    expect(await status(ids.atrasa)).toBe('ATRASADO')
+    expect(await status(ids.falta)).toBe('FALTOU')
+    expect(await status(ids.atrasadoFalta)).toBe('FALTOU')
+    expect(await status(ids.ontem)).toBe('FALTOU')
+    expect(await status(ids.cedo)).toBe('CONFIRMADO')
+    expect(await status(ids.agendado)).toBe('AGENDADO')
+    expect(await status(ids.espera)).toBe('EM_ESPERA')
   })
 })
 

@@ -55,6 +55,9 @@ const CAMINHOS = {
   arrastar: 'M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01',
   baixar: 'M12 4v11M7 10l5 5 5-5M5 20h14',
   lapis: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+  relogio: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
+  iniciar: 'M8 5l11 7-11 7z',
+  feito: 'M5 12l5 5L20 7',
 } as const
 
 export type NomeIcone = keyof typeof CAMINHOS

@@ -190,7 +190,7 @@ export function FormPaciente(props: {
       </Secao>
 
       {/* Rodapé fixo: o botão de salvar fica sempre à vista enquanto rola o formulário. */}
-      <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-between gap-3 border-t border-borda bg-superficie px-5 py-3">
+      <div className="rodape-janela justify-between gap-3">
         <span className="text-xs text-suave">* obrigatórios</span>
         <button className="botao" disabled={!podeCadastrar({ nome, nascimento }) || props.enviando}>
           {props.enviando ? 'Salvando…' : props.textoBotao}

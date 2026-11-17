@@ -35,13 +35,29 @@ export const STATUS = {
   EM_ESPERA: { rotulo: 'Em espera', cor: '#d97706' },
   EM_ATENDIMENTO: { rotulo: 'Em atendimento', cor: '#7c3aed' },
   ATENDIDO: { rotulo: 'Atendido', cor: '#15803d' },
-  ATRASADO: { rotulo: 'Atrasado', cor: '#ea580c' },
+  // Magenta, não laranja: não pode parecer "Em espera" na borda do bloco.
+  ATRASADO: { rotulo: 'Atrasado', cor: '#be185d' },
   FALTOU: { rotulo: 'Faltou', cor: '#dc2626' },
 } as const
 export type StatusAgenda = keyof typeof STATUS
 
 /** Status que significam que o paciente já chegou: bloqueiam excluir (R-034). */
 export const COM_CHECKIN: StatusAgenda[] = ['EM_ESPERA', 'EM_ATENDIMENTO', 'ATENDIDO']
+
+/** A partir daqui a espera aparece em vermelho. */
+export const ESPERA_LONGA = 30 // min
+
+/** Minutos desde a chegada (check-in). */
+export const minutosDeEspera = (checkinEm: string | Date, agora: Date) =>
+  Math.max(0, Math.floor((agora.getTime() - new Date(checkinEm).getTime()) / 60_000))
+
+/** O próximo passo do atendimento, para o botão principal do cartão; null quando acabou. */
+export function proximoStatus(s: StatusAgenda): { status: StatusAgenda; rotulo: string } | null {
+  if (s === 'EM_ESPERA') return { status: 'EM_ATENDIMENTO', rotulo: 'Chamar para atendimento' }
+  if (s === 'EM_ATENDIMENTO') return { status: 'ATENDIDO', rotulo: 'Finalizar atendimento' }
+  if (s === 'ATENDIDO') return null
+  return { status: 'EM_ESPERA', rotulo: 'Paciente chegou' }
+}
 
 /** Categorias da clínica estudada, com a cor do bloco na grade (E-002). */
 export const CATEGORIAS = {

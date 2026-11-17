@@ -16,6 +16,7 @@ import { reais } from '../../../shared/financeiro'
 import { normalizar } from '../../../shared/regras'
 import { CampoData } from '../componentes/CampoData'
 import { Icone } from '../componentes/Icones'
+import { useAosPoucos } from '../componentes/CarregarMais'
 import { PeriodoSuspenso, ProfissionaisSuspenso, Suspenso, useIntervalo } from './FinanceiroAbas'
 import { COR_PADRAO } from './Profissionais'
 
@@ -97,6 +98,8 @@ export function OrcamentosAbertos() {
       )
     })
     .sort((a, b) => b.criadoEm.localeCompare(a.criadoEm) || b.id - a.id)
+  // No celular a lista não tem rolagem própria: 20 por vez para o painel não ficar lá embaixo.
+  const aosPoucos = useAosPoucos(visiveis, `${termo}|${visiveis.length}`, 20)
   // Sem escolha (ou o escolhido saiu da lista), mostra o primeiro.
   const sel = visiveis.find((o) => o.id === escolhido) ?? visiveis[0]
   return (
@@ -151,7 +154,7 @@ export function OrcamentosAbertos() {
         {/* ---------- Lista ---------- */}
         <nav
           aria-label="Orçamentos"
-          className={`cartao flex max-h-[calc(100vh-13rem)] min-w-0 flex-[1_1_22rem] flex-col p-0 ${lista.isFetching ? 'opacity-60' : ''}`}
+          className={`cartao flex min-w-0 lg:max-h-[calc(100vh-13rem)] flex-[1_1_22rem] flex-col p-0 ${lista.isFetching ? 'opacity-60' : ''}`}
         >
           <div className="flex items-center gap-2 border-b border-borda p-3">
             <label className="relative flex-1">
@@ -170,8 +173,8 @@ export function OrcamentosAbertos() {
               />
             </label>
           </div>
-          <div className="flex flex-col gap-0.5 overflow-y-auto p-2">
-            {visiveis.map((o) => {
+          <div className="flex flex-col gap-0.5 p-2 lg:overflow-y-auto">
+            {aosPoucos.itens.map((o) => {
               const dias = diasDesde(o.criadoEm)
               const ativo = o.id === sel?.id
               return (
@@ -223,6 +226,7 @@ export function OrcamentosAbertos() {
                     : 'Nenhum orçamento em aberto neste período.'}
               </p>
             )}
+            {aosPoucos.mais}
           </div>
         </nav>
 

@@ -55,13 +55,13 @@ export function Dialogo(props: {
       // has-[.dialogo-largo]: o conteúdo pode pedir a janela larga sozinho (ex.: usuário + profissional).
       className={`m-auto has-[.dialogo-largo]:w-[min(1000px,calc(100%-2rem))] scroll-pt-6 scroll-pb-24 scroll-smooth ${props.largo ? 'w-[min(1000px,calc(100%-2rem))]' : 'w-[min(640px,calc(100%-2rem))]'} rounded-2xl border border-borda bg-superficie p-0 text-texto outline-none backdrop:bg-black/40`}
     >
-      <div className="flex items-center justify-between border-b border-borda px-5 py-3">
+      <div className="flex items-center justify-between gap-2 border-b border-borda py-1.5 pr-2 pl-5">
         <h2 className="text-lg font-semibold">{props.titulo}</h2>
         <button
           type="button"
           onClick={props.aoFechar}
           aria-label="Fechar"
-          className="text-xl text-suave"
+          className="grid size-11 shrink-0 place-items-center rounded-full text-2xl text-suave hover:bg-superficie-2 hover:text-texto"
         >
           ×
         </button>

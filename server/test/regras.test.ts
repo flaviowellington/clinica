@@ -8,7 +8,13 @@ import {
   podeCadastrar,
 } from '../../shared/regras'
 import { pode } from '../../shared/permissoes'
-import { clicarHorario, ladoALado, paraHora } from '../../shared/agenda'
+import {
+  clicarHorario,
+  ladoALado,
+  minutosDeEspera,
+  paraHora,
+  proximoStatus,
+} from '../../shared/agenda'
 import { agruparProcedimentos, facesDoDente, normalizarFaces } from '../../shared/prontuario'
 import { descontoDoPercentual, percentualDoDesconto } from '../../shared/orcamentos'
 
@@ -214,5 +220,20 @@ describe('cadastro desatualizado (aviso anual)', () => {
   it('não avisa antes de completar 1 ano', () => {
     expect(cadastroDesatualizado('2025-11-17T12:00:00Z', hoje)).toBe(false)
     expect(cadastroDesatualizado('2026-11-16T09:00:00Z', hoje)).toBe(false)
+  })
+})
+
+describe('sala de espera', () => {
+  const chegou = '2026-11-17T14:03:00'
+  it('conta os minutos desde a chegada, sem negativo', () => {
+    expect(minutosDeEspera(chegou, new Date('2026-11-17T14:15:40'))).toBe(12)
+    expect(minutosDeEspera(chegou, new Date('2026-11-17T14:00:00'))).toBe(0)
+  })
+  it('o botão do cartão leva ao próximo passo do atendimento', () => {
+    expect(proximoStatus('CONFIRMADO')?.status).toBe('EM_ESPERA')
+    expect(proximoStatus('ATRASADO')?.status).toBe('EM_ESPERA')
+    expect(proximoStatus('EM_ESPERA')?.status).toBe('EM_ATENDIMENTO')
+    expect(proximoStatus('EM_ATENDIMENTO')?.status).toBe('ATENDIDO')
+    expect(proximoStatus('ATENDIDO')).toBeNull()
   })
 })

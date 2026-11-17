@@ -505,7 +505,7 @@ function Secao(props: {
       <header className="flex items-start gap-1.5">
         <button
           type="button"
-          className="botao-fantasma botao-icone -ml-1 size-7 shrink-0 cursor-grab text-suave active:cursor-grabbing"
+          className="botao-fantasma botao-icone -ml-1 md:size-7 shrink-0 cursor-grab text-suave active:cursor-grabbing"
           aria-label={`Mover o gráfico ${props.titulo}`}
           title="Arraste para mudar a posição (ou use as setas do teclado)"
           onPointerDown={() => setPega(true)}

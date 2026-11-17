@@ -65,7 +65,8 @@ export const ABAS = [
 ] as const satisfies readonly { id: string; rotulo: string; acao: Acao }[]
 
 /** Lista longa rola dentro do cartão, não a página (cabeçalho e abas ficam à vista). */
-const ROLAGEM = 'max-h-[calc(100dvh-19rem)] min-h-40 overflow-y-auto'
+// Rolagem própria só no computador; no celular a lista rola com a página (RESPONSIVIDADE, regra 4).
+const ROLAGEM = 'lg:max-h-[calc(100dvh-19rem)] lg:min-h-40 lg:overflow-y-auto'
 type Aba = (typeof ABAS)[number]['id']
 
 export function Configuracoes() {
@@ -565,7 +566,7 @@ function Procedimentos() {
             texto={busca ? 'Confira o nome ou limpe a busca.' : undefined}
           />
         ) : (
-          <div className="max-h-[calc(100dvh-24rem)] min-h-40 overflow-auto">
+          <div className="overflow-x-auto lg:max-h-[calc(100dvh-24rem)] lg:min-h-40 lg:overflow-auto">
             <table className="w-full min-w-[44rem] text-left">
               <thead className="sticky top-0 z-10 bg-superficie shadow-[inset_0_-1px_0_var(--borda)]">
                 <tr>
@@ -920,7 +921,7 @@ function EditarLaboratorio(props: {
           </div>
 
           <div className="overflow-hidden rounded-xl border border-borda">
-            <div className="max-h-[calc(100dvh-34rem)] min-h-40 overflow-auto">
+            <div className="overflow-x-auto lg:max-h-[calc(100dvh-34rem)] lg:min-h-40 lg:overflow-auto">
               <table className="w-full min-w-[30rem] text-left">
                 <thead className="sticky top-0 z-10 bg-superficie shadow-[inset_0_-1px_0_var(--borda)]">
                   <tr>
@@ -956,7 +957,7 @@ function EditarLaboratorio(props: {
                       <td className="px-2 py-2">
                         <button
                           type="button"
-                          className="botao-fantasma botao-icone size-8 text-perigo hover:bg-perigo/10"
+                          className="botao-fantasma botao-icone md:size-8 text-perigo hover:bg-perigo/10"
                           aria-label={`Remover trabalho ${i + 1}`}
                           title="Remover"
                           onClick={() => setTrabalhos(trabalhos.filter((_, k) => k !== i))}
@@ -1006,7 +1007,7 @@ function EditarLaboratorio(props: {
           colado
         >
           {props.ordens.length > 0 && (
-            <ul className="max-h-72 divide-y divide-borda overflow-y-auto">
+            <ul className="divide-y divide-borda lg:max-h-72 lg:overflow-y-auto">
               {[...props.ordens]
                 .sort((a, b) => b.id - a.id)
                 .map((o) => (
@@ -1170,7 +1171,7 @@ function EditarModeloAnamnese(props: {
     >
       <EditorAnamnese
         inicial={props.modelo?.perguntas ?? [{ texto: '', tipo: 'SIM_NAO' }]}
-        classeLista={`${props.padrao ? 'max-h-[calc(100dvh-27rem)]' : 'max-h-[calc(100dvh-32rem)]'} min-h-40 overflow-y-auto pr-1`}
+        classeLista={`${props.padrao ? 'lg:max-h-[calc(100dvh-27rem)]' : 'lg:max-h-[calc(100dvh-32rem)]'} lg:min-h-40 lg:overflow-y-auto lg:pr-1`}
         salvando={props.salvando}
         aoSalvar={(perguntas) => props.aoSalvar(nome.trim(), perguntas)}
         aoCancelar={props.aoCancelar}
@@ -1277,7 +1278,7 @@ export function EditorAnamnese(props: {
               <span className="flex-1" />
               <button
                 type="button"
-                className="botao-fantasma botao-icone size-8"
+                className="botao-fantasma botao-icone md:size-8"
                 disabled={!i}
                 onClick={() => mover(i, -1)}
                 aria-label={`Subir pergunta ${i + 1}`}
@@ -1287,7 +1288,7 @@ export function EditorAnamnese(props: {
               </button>
               <button
                 type="button"
-                className="botao-fantasma botao-icone size-8"
+                className="botao-fantasma botao-icone md:size-8"
                 disabled={i === perguntas.length - 1}
                 onClick={() => mover(i, 1)}
                 aria-label={`Descer pergunta ${i + 1}`}
@@ -1297,7 +1298,7 @@ export function EditorAnamnese(props: {
               </button>
               <button
                 type="button"
-                className="botao-fantasma botao-icone size-8 text-perigo hover:bg-perigo/10"
+                className="botao-fantasma botao-icone md:size-8 text-perigo hover:bg-perigo/10"
                 onClick={() => setPerguntas(perguntas.filter((_, k) => k !== i))}
                 aria-label={`Remover pergunta ${i + 1}`}
                 title="Remover"
@@ -1509,7 +1510,7 @@ function ModelosFixos() {
             <span className="sr-only">{MODELOS_DOCUMENTO[id].titulo}</span>
             <textarea
               name={id}
-              className="campo h-[calc(100dvh-34rem)] min-h-48 resize-none font-serif text-base leading-relaxed"
+              className="campo h-80 min-h-48 resize-none lg:h-[calc(100dvh-34rem)] font-serif text-base leading-relaxed"
               rows={10}
               defaultValue={c.data[id]}
               required
@@ -1620,7 +1621,7 @@ function ListaEspecialidades({ inicial }: { inicial: string[] }) {
         </button>
       </form>
       {!lista.length && <Vazio icone="etiqueta" titulo="Nenhuma especialidade cadastrada" />}
-      <ul className="max-h-[calc(100dvh-25rem)] min-h-40 divide-y divide-borda overflow-y-auto">
+      <ul className="divide-y divide-borda lg:max-h-[calc(100dvh-25rem)] lg:min-h-40 lg:overflow-y-auto">
         {lista.map((e) => (
           <li key={e} className="flex items-center gap-3 px-4 py-2 hover:bg-primaria-clara">
             <span className="flex-1 font-bold text-titulo">{e}</span>
@@ -1929,7 +1930,7 @@ function EditarPermissoes({ salvo, descontoSalvo }: { salvo: Matriz; descontoSal
           {atual && (
             <section
               aria-label={`Módulo ${atual.nome}`}
-              className="max-h-[60dvh] min-w-0 flex-1 overflow-y-auto rounded-2xl border border-borda xl:max-h-none"
+              className="min-w-0 flex-1 rounded-2xl border border-borda lg:max-h-[60dvh] lg:overflow-y-auto xl:max-h-none"
             >
               <div className="sticky top-0 z-10 flex flex-col gap-2 border-b border-borda bg-superficie px-5 py-3 md:flex-row md:items-center md:justify-between md:gap-4">
                 <h3 className="text-lg font-bold text-titulo">{atual.nome}</h3>
@@ -2083,7 +2084,7 @@ function PainelDesconto(props: { escolhidos: number[]; aoMudar: (ids: number[]) 
   return (
     <section
       aria-label="Desconto"
-      className="max-h-[60dvh] min-w-0 flex-1 overflow-y-auto rounded-2xl border border-borda xl:max-h-none"
+      className="min-w-0 flex-1 rounded-2xl border border-borda lg:max-h-[60dvh] lg:overflow-y-auto xl:max-h-none"
     >
       <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-borda bg-superficie p-5">
         <h3 className="text-xl font-bold text-titulo">Desconto em orçamentos</h3>

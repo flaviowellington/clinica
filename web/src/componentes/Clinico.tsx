@@ -59,6 +59,7 @@ import { SeloTipoProcedimento } from '../paginas/Configuracoes'
 import { Link } from '@tanstack/react-router'
 import { whatsapp } from '../paginas/Pacientes'
 import { CampoEspecialidade } from '../paginas/Profissionais'
+import { useAosPoucos } from './CarregarMais'
 
 const LISTA_DENTES = [...DENTES_VALIDOS].map(String)
 
@@ -996,11 +997,14 @@ function TabelaProcedimentos(props: {
     }
   }
 
+  // 20 blocos por vez: um paciente antigo tem dezenas de lançamentos (recomeça ao mudar o filtro).
+  const aosPoucos = useAosPoucos(blocos, props.grupos.length, 20)
+
   // Um cartão por lançamento: os dentes em destaque à esquerda, na cor da situação.
   // Serve tanto na coluna estreita ao lado do odontograma quanto na largura toda.
   return (
     <ul className="-mx-1 space-y-2 overflow-x-hidden overflow-y-auto px-1 pb-1">
-      {blocos.map((b) => {
+      {aosPoucos.itens.map((b) => {
         if (b.length === 1) return cartao(b[0])
         const i = b[0][0]
         const todos = b.flat()
@@ -1037,6 +1041,7 @@ function TabelaProcedimentos(props: {
           </li>
         )
       })}
+      {aosPoucos.mais && <li>{aosPoucos.mais}</li>}
     </ul>
   )
 
@@ -2278,7 +2283,7 @@ export function PlanoFichaClinica({ paciente }: { paciente: Paciente }) {
               </button>
             )}
           </div>
-          <div className="max-h-[60vh] divide-y divide-borda overflow-x-hidden overflow-y-auto rounded-xl border border-borda print:max-h-none print:overflow-visible">
+          <div className="divide-y divide-borda overflow-x-hidden rounded-xl lg:max-h-[60vh] lg:overflow-y-auto border border-borda print:max-h-none print:overflow-visible">
             {pendentes.map(cartao)}
           </div>
         </section>
@@ -2304,7 +2309,7 @@ export function PlanoFichaClinica({ paciente }: { paciente: Paciente }) {
           </div>
         )}
         {!!naoEnviados.length && (
-          <div className="max-h-[35vh] overflow-x-hidden overflow-y-auto print:max-h-none print:overflow-visible">
+          <div className="overflow-x-hidden lg:max-h-[35vh] lg:overflow-y-auto print:max-h-none print:overflow-visible">
             <TabelaProcedimentos
               paciente={paciente}
               grupos={agruparProcedimentos(naoEnviados)}
@@ -2326,7 +2331,7 @@ export function PlanoFichaClinica({ paciente }: { paciente: Paciente }) {
         {pedidos.data && !assinados.length && (
           <p className="px-4 py-3 text-suave">Nenhum plano assinado ainda.</p>
         )}
-        <div className="max-h-[60vh] divide-y divide-borda overflow-x-hidden overflow-y-auto print:max-h-none print:overflow-visible">
+        <div className="divide-y divide-borda overflow-x-hidden lg:max-h-[60vh] lg:overflow-y-auto print:max-h-none print:overflow-visible">
           {assinados.map(cartao)}
         </div>
       </section>
@@ -2918,7 +2923,7 @@ export function FichasEspecialidade({ paciente }: { paciente: Paciente }) {
             aoClicar: () => irPara('todas'),
           })}
           {emPlanejamentos && (
-            <ul className="max-h-[50vh] space-y-0.5 overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1 border-t border-borda p-1.5">
+            <ul className="space-y-0.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto border-t border-borda p-1.5">
               {lista.isPending && <li className="px-2.5 py-2 text-xs text-suave">Carregando…</li>}
               {fichas.map((f) => {
                 const atual = aberta === f.id
