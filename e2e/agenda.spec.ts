@@ -92,6 +92,8 @@ test('PT-20, PT-29, PT-31, PT-34 e PT-35: marcar, fazer check-in e excluir', asy
   await expect(page.getByText(/Chegou às/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Excluir' })).toBeDisabled()
   await page.getByLabel('Status').selectOption('AGENDADO')
+  // Trocar o status fecha o painel quando grava: espera fechar antes de abrir de novo.
+  await expect(page.getByLabel('Status')).toBeHidden()
   await bloco.click()
   await page.getByRole('button', { name: 'Excluir' }).click()
   await expect(page.getByText(/Isso não pode ser desfeito/)).toBeVisible()

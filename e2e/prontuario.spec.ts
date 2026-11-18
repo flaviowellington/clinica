@@ -33,6 +33,9 @@ async function abrirFicha(page: Page, login: string) {
     .getByRole('navigation', { name: 'Menu principal' })
     .getByRole('link', { name: 'Pacientes' })
     .click()
+  // Busca pelo nome: a lista abre por "acessados recentemente", e os outros testes e2e
+  // abrem pacientes deles, empurrando a Ana para fora da primeira página.
+  await page.getByRole('searchbox', { name: /Buscar paciente/ }).fill('Ana Fictícia Oliveira')
   await page.getByRole('link', { name: 'Ana Fictícia Oliveira' }).click()
   await expect(page.getByRole('heading', { name: /Ana Fictícia Oliveira/ })).toBeVisible()
 }

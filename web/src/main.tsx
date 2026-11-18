@@ -59,7 +59,7 @@ import { Dialogo } from './componentes/Dialogo'
 import { ABAS } from './abas'
 import { GRUPOS } from '../../shared/relatorios'
 import { Icone, type NomeIcone } from './componentes/Icones'
-import { useNaEspera } from './componentes/SalaEspera'
+import { ChamadosRecepcao, useNaEspera } from './componentes/SalaEspera'
 
 const queryClient = new QueryClient({
   // Sem recarregar ao voltar para a janela: cada leitura da ficha grava um acesso.
@@ -164,7 +164,7 @@ function useTempoReal() {
       if (assunto === 'chamado') {
         const { paciente, profissional } = JSON.parse(e.data)
         const texto = `${profissional} chamou ${paciente}`
-        avisar(texto, false, 20_000)
+        // O aviso na tela é o ChamadosRecepcao (fica até confirmar); aqui só o do sistema.
         if ('Notification' in window && Notification.permission === 'granted')
           new Notification('Paciente chamado', { body: texto, tag: texto })
       }
@@ -639,6 +639,7 @@ function Layout() {
           <Outlet />
         </div>
       </main>
+      <ChamadosRecepcao />
     </div>
   )
 }

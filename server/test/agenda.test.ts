@@ -3,6 +3,7 @@ import { db } from '../src/db'
 import { entrarComo, PACIENTE, urlBase, usarServidor, type Cliente } from './ajuda'
 import { HORARIOS } from '../../shared/agenda'
 import { atualizarAtrasos } from '../src/agenda'
+import { hojeNaClinica } from '../../shared/regras'
 
 usarServidor()
 
@@ -313,7 +314,11 @@ describe('chamar o paciente avisa a recepção', () => {
     const naRecepcao = await ouvir(recepcao.cookie)
     const noFinanceiro = await ouvir(financeiro.cookie)
     await new Promise((r) => setTimeout(r, 100)) // conexões registradas
-    await recepcao('PATCH', `/api/agenda/${a.id}/status`, { status: 'EM_ATENDIMENTO' })
+    const chamou = await recepcao('POST', `/api/agenda/${a.id}/chamar`)
+    expect(chamou.status).toBe(200)
+    // Chamado fica pendente na espera até a recepção confirmar.
+    expect(chamou.corpo.status).toBe('EM_ESPERA')
+    expect(chamou.corpo.chamadoEm).toBeTruthy()
     await new Promise((r) => setTimeout(r, 200))
     naRecepcao.fechar()
     noFinanceiro.fechar()
@@ -326,6 +331,18 @@ describe('chamar o paciente avisa a recepção', () => {
     expect(naRecepcao.texto()).toContain(chamado)
     expect(noFinanceiro.texto()).not.toContain('chamado')
     expect(noFinanceiro.texto()).toContain('"assunto":"agenda"')
+  })
+
+  it('a recepção confirma que chamou: vira "Em atendimento" e o chamado some', async () => {
+    const recepcao = await entrarComo('RECEPCAO')
+    const { marcar } = await preparar(recepcao)
+    const { corpo: a } = await marcar()
+    expect((await recepcao('POST', `/api/agenda/${a.id}/chamar`)).status).toBe(400) // não chegou
+    await recepcao('PATCH', `/api/agenda/${a.id}/status`, { status: 'EM_ESPERA' })
+    await recepcao('POST', `/api/agenda/${a.id}/chamar`)
+    const r = await recepcao('PATCH', `/api/agenda/${a.id}/status`, { status: 'EM_ATENDIMENTO' })
+    expect(r.corpo.status).toBe('EM_ATENDIMENTO')
+    expect(r.corpo.chamadoEm).toBeNull()
   })
 
   it('não avisa em outras trocas de status', async () => {
@@ -360,7 +377,7 @@ describe('chamar o paciente avisa a recepção', () => {
       })
     expect((await editar(recepcao.usuario, ['FINANCEIRO'])).status).toBe(200)
     expect((await editar(outra.usuario, ['RECEPCAO'], false)).status).toBe(200)
-    await admin('PATCH', `/api/agenda/${a.id}/status`, { status: 'EM_ATENDIMENTO' })
+    await admin('POST', `/api/agenda/${a.id}/chamar`)
     await new Promise((r) => setTimeout(r, 200))
     tirada.fechar()
     inativada.fechar()
@@ -368,5 +385,111 @@ describe('chamar o paciente avisa a recepção', () => {
     expect(tirada.texto()).toContain('"assunto":"config"') // recarrega as próprias permissões
     expect(tirada.texto()).not.toContain('chamado')
     expect(inativada.texto()).not.toContain('chamado')
+  })
+})
+
+describe('sala de espera: check-in de consulta de qualquer dia', () => {
+  /** Consulta direto no banco: a API não deixa marcar no passado. */
+  async function consultas(api: Awaited<ReturnType<typeof entrarComo>>, dias: number[]) {
+    const dentista = await db.pessoa.create({
+      data: { tipo: 'PROFISSIONAL', nome: 'Dra. Espera', nomeBusca: 'dra. espera' },
+    })
+    const { corpo: paciente } = await api('POST', '/api/pacientes', PACIENTE)
+    const hoje = new Date(`${hojeNaClinica()}T00:00:00Z`)
+    const lista = await Promise.all(
+      dias.map((d, i) =>
+        db.agendamento.create({
+          data: {
+            data: new Date(hoje.getTime() + d * 86_400_000),
+            inicio: HORARIOS[i % HORARIOS.length],
+            fim: HORARIOS[(i % HORARIOS.length) + 1] ?? '18:00',
+            profissionalId: dentista.id,
+            pacienteId: paciente.id,
+            criadoPorId: api.usuario.id,
+          },
+        }),
+      ),
+    )
+    return { dentista, ids: lista.map((a) => a.id) }
+  }
+  const naEspera = async (api: Cliente, dentistaId: number) =>
+    (
+      (await api('GET', '/api/agenda/espera')).corpo as {
+        id: number
+        profissional: { id: number }
+        chamadoEm: string | null
+      }[]
+    ).filter((a) => a.profissional.id === dentistaId)
+
+  it('consultas de ontem, hoje e amanhã aparecem juntas, todas', async () => {
+    const recepcao = await entrarComo('RECEPCAO')
+    const { dentista, ids } = await consultas(recepcao, [-1, 0, 1, 7, -30])
+    for (const id of ids)
+      expect(
+        (await recepcao('PATCH', `/api/agenda/${id}/status`, { status: 'EM_ESPERA' })).status,
+      ).toBe(200)
+    expect((await naEspera(recepcao, dentista.id)).map((a) => a.id).sort()).toEqual([...ids].sort())
+  })
+
+  it('check-in antigo (de outro dia) não fica preso na sala', async () => {
+    const recepcao = await entrarComo('RECEPCAO')
+    const { dentista, ids } = await consultas(recepcao, [-1])
+    await db.agendamento.update({
+      where: { id: ids[0] },
+      data: { status: 'EM_ESPERA', checkinEm: new Date(Date.now() - 2 * 86_400_000) },
+    })
+    expect(await naEspera(recepcao, dentista.id)).toEqual([])
+  })
+
+  it('permutações caóticas: o que a API diz bate com o modelo depois de cada rodada', async () => {
+    const recepcao = await entrarComo('RECEPCAO')
+    const outraRecepcao = await entrarComo('RECEPCAO')
+    const { dentista, ids } = await consultas(recepcao, [-2, -1, 0, 0, 1, 3])
+    const quem = [recepcao, outraRecepcao]
+    // Sorteio com semente: falhou, dá para repetir igual.
+    let semente = Number(process.env.SEMENTE ?? 20261117)
+    const sorte = (n: number) => (semente = (semente * 1103515245 + 12345) % 2 ** 31) % n
+    type Estado = { status: string; chamado: boolean }
+    const modelo = new Map<number, Estado>(
+      ids.map((id) => [id, { status: 'AGENDADO', chamado: false }]),
+    )
+    const acoes = ['chegou', 'chamar', 'confirmar', 'voltar', 'finalizar'] as const
+
+    for (let rodada = 0; rodada < 25; rodada++) {
+      // Rajada: várias ações ao mesmo tempo, cada uma num agendamento diferente.
+      const alvos = [...ids].sort(() => sorte(3) - 1).slice(0, 1 + sorte(ids.length))
+      await Promise.all(
+        alvos.map(async (id) => {
+          const api = quem[sorte(2)]
+          const acao = acoes[sorte(acoes.length)]
+          const m = modelo.get(id)!
+          if (acao === 'chamar') {
+            const r = await api('POST', `/api/agenda/${id}/chamar`)
+            if (m.status === 'EM_ESPERA') {
+              expect(r.status, `rodada ${rodada}: chamar ${id}`).toBe(200)
+              m.chamado = true
+            } else expect(r.status, `rodada ${rodada}: chamar ${id} fora da espera`).toBe(400)
+            return
+          }
+          const status = {
+            chegou: 'EM_ESPERA',
+            confirmar: 'EM_ATENDIMENTO',
+            voltar: 'AGENDADO',
+            finalizar: 'ATENDIDO',
+          }[acao]
+          const r = await api('PATCH', `/api/agenda/${id}/status`, { status })
+          expect(r.status, `rodada ${rodada}: ${acao} ${id}`).toBe(200)
+          if (status !== 'EM_ESPERA') m.chamado = false
+          m.status = status
+        }),
+      )
+      const espera = await naEspera(outraRecepcao, dentista.id)
+      const esperado = ids.filter((id) => modelo.get(id)!.status === 'EM_ESPERA').sort()
+      expect(espera.map((a) => a.id).sort(), `rodada ${rodada}`).toEqual(esperado)
+      for (const a of espera)
+        expect(!!a.chamadoEm, `rodada ${rodada}: chamado de ${a.id}`).toBe(
+          modelo.get(a.id)!.chamado,
+        )
+    }
   })
 })

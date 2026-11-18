@@ -48,6 +48,8 @@ const PADRAO = {
   'fotos.ver': CLINICO,
   'profissional.ver': TODOS,
   'profissional.editar': ADM,
+  // Abrir a ficha do profissional (o card em Profissionais); sem isso, só vê a lista.
+  'profissional.abrir': ADM,
   // Financeiro da clínica: só Adm e Financeiro; os outros veem só os orçamentos abertos (orcamento.ver).
   'financeiro.ver': GESTAO,
   'financeiro.editar': GESTAO,
@@ -192,6 +194,7 @@ export const MODULOS: { nome: string; ver: Acao; itens: Item[] }[] = [
     nome: 'Profissionais',
     ver: 'profissional.ver',
     itens: [
+      { acao: 'profissional.abrir', modulo: 'Ficha', rotulo: 'Abrir a ficha do profissional' },
       {
         acao: 'profissional.editar',
         modulo: 'Cadastro',

@@ -234,6 +234,8 @@ model Agendamento {
   /// Check-in e início da espera, gravados ao passar para "Em espera" (R-031).
   checkinEm    DateTime?
   esperaInicio DateTime?
+  /// O profissional chamou da sala de espera; a recepção ainda não confirmou que encaminhou.
+  chamadoEm    DateTime?
 
   /// Avisos ao paciente: começam em "Não enviar" (R-027).
   confirmacao Canal @default(NAO_ENVIAR)

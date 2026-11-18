@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { api, consultaConfig, mensagemDeErro } from '../api'
+import { api, consultaConfig, consultaEu, mensagemDeErro } from '../api'
+import { pode } from '../../../shared/permissoes'
 import { avisar } from '../estado'
 import { Dialogo } from '../componentes/Dialogo'
 import { CampoCelular, CampoEmail } from '../componentes/CampoMascara'
@@ -321,6 +322,8 @@ export function CamposProfissional({
 export function Profissionais() {
   const [busca, setBusca] = useState('')
   const [ativos, setAtivos] = useState(true)
+  const { data: eu } = useSuspenseQuery(consultaEu)
+  const podeAbrir = pode(eu.perfis, 'profissional.abrir')
 
   const lista = useQuery({
     queryKey: ['profissionais', busca, ativos],
@@ -334,13 +337,9 @@ export function Profissionais() {
   const ativosDaLista = lista.data?.filter((p) => p.ativo) ?? []
   const inativosDaLista = lista.data?.filter((p) => !p.ativo) ?? []
 
-  const cartao = (p: Profissional) => (
-    <Link
-      key={p.id}
-      to="/profissionais/$id"
-      params={{ id: String(p.id) }}
-      className={`cartao group flex cursor-pointer flex-col gap-4 overflow-hidden p-0 transition duration-150 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primaria focus-visible:outline-none active:translate-y-0 ${p.ativo ? 'hover:border-primaria/50 hover:shadow-lg' : 'border-2 border-dashed bg-superficie-2 hover:border-suave hover:shadow-md'}`}
-    >
+  const cartao = (p: Profissional) => {
+    const conteudo = (
+      <>
       {/* Faixa na cor da agenda; listrada e sem cor no inativo. */}
       <div
         aria-hidden
@@ -400,12 +399,33 @@ export function Profissionais() {
           </dd>
         </div>
       </dl>
-      <span className="mt-auto flex items-center justify-end gap-1 border-t border-borda px-4 py-2.5 text-sm font-bold text-primaria group-hover:bg-primaria-clara">
-        Abrir ficha
-        <Icone nome="direita" className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-      </span>
-    </Link>
-  )
+      </>
+    )
+    // Sem permissão de abrir a ficha: o card fica só de leitura.
+    if (!podeAbrir)
+      return (
+        <div
+          key={p.id}
+          className={`cartao flex flex-col gap-4 overflow-hidden p-0 pb-3 ${p.ativo ? '' : 'border-2 border-dashed bg-superficie-2'}`}
+        >
+          {conteudo}
+        </div>
+      )
+    return (
+      <Link
+        key={p.id}
+        to="/profissionais/$id"
+        params={{ id: String(p.id) }}
+        className={`cartao group flex cursor-pointer flex-col gap-4 overflow-hidden p-0 transition duration-150 hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primaria focus-visible:outline-none active:translate-y-0 ${p.ativo ? 'hover:border-primaria/50 hover:shadow-lg' : 'border-2 border-dashed bg-superficie-2 hover:border-suave hover:shadow-md'}`}
+      >
+        {conteudo}
+        <span className="mt-auto flex items-center justify-end gap-1 border-t border-borda px-4 py-2.5 text-sm font-bold text-primaria group-hover:bg-primaria-clara">
+          Abrir ficha
+          <Icone nome="direita" className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+        </span>
+      </Link>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-5 lg:h-[calc(100dvh-2rem)]">

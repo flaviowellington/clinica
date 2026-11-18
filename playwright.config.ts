@@ -1,8 +1,13 @@
 import { defineConfig } from '@playwright/test'
 import dotenv from 'dotenv'
 
-// O teste ponta a ponta usa o banco de TESTE, nunca o de desenvolvimento.
+// O teste ponta a ponta usa o banco do e2e (DATABASE_URL_E2E), nunca o de desenvolvimento.
 const env = dotenv.config({ path: 'server/.env', quiet: true }).parsed ?? {}
+// Banco só do e2e: o npm test apaga o DATABASE_URL_TESTE a cada teste, e os dois rodam juntos.
+if (!env.DATABASE_URL_E2E)
+  throw new Error('Defina DATABASE_URL_E2E em server/.env (veja .env.example)')
+if (env.DATABASE_URL_E2E === env.DATABASE_URL_TESTE)
+  throw new Error('DATABASE_URL_E2E tem que ser outro banco, não o DATABASE_URL_TESTE')
 
 export default defineConfig({
   testDir: 'e2e',
@@ -25,7 +30,7 @@ export default defineConfig({
       command: 'npm run e2e:servidor -w server',
       url: 'http://localhost:3101/api/saude',
       // Vários testes em paralelo do mesmo IP passam do limite de 600 pedidos/min.
-      env: { DATABASE_URL: env.DATABASE_URL_TESTE, PORTA: '3101', LIMITE_API_POR_MINUTO: '100000' },
+      env: { DATABASE_URL: env.DATABASE_URL_E2E, PORTA: '3101', LIMITE_API_POR_MINUTO: '100000' },
       // Só os erros do servidor aparecem no console (o seed fala muito).
       stdout: 'ignore',
       stderr: 'pipe',

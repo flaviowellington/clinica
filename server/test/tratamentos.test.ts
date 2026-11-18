@@ -268,7 +268,7 @@ describe('PT-10 a PT-19 orçamento', () => {
         p.vencimento.toISOString().slice(0, 10),
         p.forma,
       ]),
-    ).toEqual([[1, 40000, new Date().toISOString().slice(0, 10), null]])
+    ).toEqual([[1, 40000, new Date().toLocaleDateString('sv-SE'), null]]) // dia local: depois das 21h o UTC já é amanhã
     expect((await api('PUT', `/api/orcamentos/${r.corpo.id}`, { itens: [] })).status).toBe(409)
   })
 

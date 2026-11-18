@@ -22,13 +22,13 @@ Monorepo npm (workspaces `server` e `web`), Node 22 (`.nvmrc`), TypeScript em tu
 
 - `npm run dev`: sobe API (porta 3001) e front (5173) juntos.
 - `npm test`: testes da API. `npm run test:permissoes`: conferência de permissões por perfil.
-- `npm run e2e`: Playwright; sobe sozinho API na 3101 e front na 5199 com o banco de teste.
+- `npm run e2e`: Playwright; sobe sozinho API na 3101 e front na 5199 com o banco do e2e (pode rodar junto com o `npm test`).
 - `npm run lint` e `npm run format` (ESLint + Prettier).
 - Banco (`-w server`): `db:migrar` (nova migração), `db:seed` (dados fictícios), `db:seed:logins` (um login por perfil), `db:reset` (apaga e recria com seed).
 
 ## Configuração
 
-Tudo em `server/.env` (modelo em `server/.env.example`, fora do git). `DATABASE_URL` é o banco de desenvolvimento; `DATABASE_URL_TESTE` é o dos testes e é apagado a cada rodada, então nunca aponte os dois para o mesmo banco. A senha dos usuários do seed vem de `SEED_SENHA_ADMIN` e afins. E-mail (SMTP), WhatsApp, SMS e n8n também são configurados ali; o `LEIA-ME.md` explica o e-mail.
+Tudo em `server/.env` (modelo em `server/.env.example`, fora do git). `DATABASE_URL` é o banco de desenvolvimento; `DATABASE_URL_TESTE` é o dos testes da API e `DATABASE_URL_E2E` o do Playwright; os dois são apagados a cada rodada, então nunca aponte dois deles para o mesmo banco. A senha dos usuários do seed vem de `SEED_SENHA_ADMIN` e afins. E-mail (SMTP), WhatsApp, SMS e n8n também são configurados ali; o `LEIA-ME.md` explica o e-mail.
 
 ## Regras do projeto
 

@@ -4,11 +4,10 @@ import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import {
   api,
-  consultaAgenda,
+  consultaEspera,
   consultaEu,
   consultaProfissionais,
   horaBR,
-  isoLocal,
   mensagemDeErro,
   type Agendamento,
 } from '../api'
@@ -55,23 +54,83 @@ export function useTrocarStatus(aoTerminar?: () => void) {
   })
 }
 
+/** O profissional chama da espera: a recepção é avisada e confirma (useChamadosPendentes). */
+export function useChamar() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => (await api.post<Agendamento>(`/agenda/${id}/chamar`)).data,
+    onSuccess: (novo) => {
+      qc.setQueriesData<unknown>({ queryKey: ['agenda'] }, (l: unknown) =>
+        Array.isArray(l) ? l.map((x: Agendamento) => (x.id === novo.id ? novo : x)) : l,
+      )
+      avisar('Recepção avisada')
+      qc.invalidateQueries({ queryKey: ['agenda'] })
+    },
+    onError: (e) => avisar(mensagemDeErro(e), true),
+  })
+}
+
+/** Recepção: chamados de hoje que ainda não confirmou, do mais antigo para o mais novo. */
+export function useChamadosPendentes() {
+  const { data: eu } = useSuspenseQuery(consultaEu)
+  const ver = eu.perfis.includes('RECEPCAO') && pode(eu.perfis, 'agenda.ver')
+  const { data } = useQuery({ ...consultaEspera, enabled: ver })
+  // `enabled` só evita a busca: o cache é o mesmo da sala do profissional.
+  if (!ver) return []
+  return (data ?? [])
+    .filter((a) => a.status === 'EM_ESPERA' && a.chamadoEm && a.paciente)
+    .sort((a, b) => a.chamadoEm!.localeCompare(b.chamadoEm!))
+}
+
+/** Aviso fixo da recepção: "Fulano chamou Beltrano" até confirmar que encaminhou. */
+export function ChamadosRecepcao() {
+  const lista = useChamadosPendentes()
+  const trocar = useTrocarStatus()
+  if (!lista.length) return null
+  return (
+    <div
+      role="alert"
+      className="fixed inset-x-4 top-4 z-40 space-y-2 md:inset-x-auto md:right-4 md:w-96"
+    >
+      {lista.map((a) => (
+        <div key={a.id} className="cartao flex flex-col gap-3 border-2 border-aviso shadow-lg">
+          <p className="flex items-start gap-2">
+            <Icone nome="relogio" className="mt-0.5 h-5 w-5 shrink-0 text-aviso" />
+            <span className="min-w-0">
+              <span className="block font-extrabold text-titulo">
+                {a.profissional.nome} chamou {a.paciente!.nome}
+              </span>
+              <span className="block text-sm text-suave">
+                Encaminhe o paciente · chamado às {horaBR(a.chamadoEm!)}
+              </span>
+            </span>
+          </p>
+          <button
+            type="button"
+            className="botao min-h-11"
+            disabled={trocar.isPending}
+            onClick={() => trocar.mutate({ id: a.id, status: 'EM_ATENDIMENTO' })}
+          >
+            Confirmar que chamei
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /**
- * Consultas de hoje com o paciente na espera, por ordem de chegada.
+ * Pacientes que chegaram hoje (consulta de qualquer dia) e esperam, por ordem de chegada.
  * Só para o profissional da consulta: cada um vê as dele; quem não é profissional não vê nada.
  */
 export function useNaEspera() {
   const { data: eu } = useSuspenseQuery(consultaEu)
   const ver = pode(eu.perfis, 'agenda.ver')
   const meuId = useQuery({ ...consultaProfissionais, enabled: ver }).data?.meuId ?? null
-  const hoje = isoLocal(new Date())
-  const { data } = useQuery({ ...consultaAgenda(hoje, hoje), enabled: ver && meuId !== null })
+  const { data } = useQuery({ ...consultaEspera, enabled: ver && meuId !== null })
   const lista = (data ?? [])
     .filter(
-      (a) =>
-        a.status === 'EM_ESPERA' &&
-        a.checkinEm &&
-        a.paciente &&
-        a.profissional.id === meuId,
+      (a) => a.status === 'EM_ESPERA' && a.checkinEm && a.paciente && a.profissional.id === meuId,
     )
     .sort((a, b) => a.checkinEm!.localeCompare(b.checkinEm!))
   return { lista, podeChamar: pode(eu.perfis, 'agenda.editar') }
@@ -80,6 +139,7 @@ export function useNaEspera() {
 /** Cartão da agenda com quem está esperando. Some quando não há ninguém. */
 export function SalaEspera() {
   const { lista, podeChamar } = useNaEspera()
+  const chamar = useChamar()
   const trocar = useTrocarStatus()
   // Celular: começa recolhido, para a grade aparecer na primeira tela.
   const [aberto, setAberto] = useState(() => matchMedia('(min-width: 1024px)').matches)
@@ -102,22 +162,26 @@ export function SalaEspera() {
         <span className="rounded-full bg-aviso px-2 text-sm font-extrabold text-superficie tabular-nums">
           {lista.length}
         </span>
-        <Icone nome="direita" className="h-4 w-4 shrink-0 text-suave transition group-open:rotate-90" />
+        <Icone
+          nome="direita"
+          className="h-4 w-4 shrink-0 text-suave transition group-open:rotate-90"
+        />
       </summary>
       <ul className="space-y-2 px-3 pb-3">
         {lista.map((a, i) => (
           <li
             key={a.id}
-            className="flex items-center gap-2 rounded-xl p-2.5"
+            className="flex flex-col gap-2 rounded-xl p-2.5"
             style={{
               backgroundColor: `color-mix(in srgb, ${tomEspera(a.checkinEm!, agora)} 14%, var(--superficie))`,
             }}
           >
-            <div className="min-w-0 flex-1 space-y-1">
+            {/* Nome inteiro (quebra linha); ações no pé do cartão. */}
+            <div className="min-w-0 space-y-1">
               <Link
                 to="/pacientes/$id"
                 params={{ id: String(a.paciente!.id) }}
-                className="block truncate font-extrabold text-titulo hover:underline"
+                className="block font-extrabold break-words text-titulo hover:underline"
               >
                 {a.paciente!.nome}
               </Link>
@@ -126,15 +190,43 @@ export function SalaEspera() {
               </p>
               <TempoEspera checkinEm={a.checkinEm!} />
             </div>
-            {podeChamar && (
-              <button
-                type="button"
-                className={`${i === 0 ? 'botao' : 'botao-leve'} min-h-11 shrink-0 px-3`}
-                disabled={trocar.isPending}
-                onClick={() => trocar.mutate({ id: a.id, status: 'EM_ATENDIMENTO' })}
-              >
-                Chamar
-              </button>
+            {a.chamadoEm ? (
+              // Chamou e prefere ir buscar: confirma ele mesmo, sem esperar a recepção.
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="flex-1 text-xs font-bold text-suave">Aguardando recepção</span>
+                {podeChamar && (
+                  <button
+                    type="button"
+                    className="botao-leve botao-pequeno"
+                    disabled={trocar.isPending}
+                    onClick={() => trocar.mutate({ id: a.id, status: 'EM_ATENDIMENTO' })}
+                  >
+                    Eu chamei
+                  </button>
+                )}
+              </div>
+            ) : (
+              podeChamar && (
+                // "Chamar" passa pela recepção; "Eu vou chamar" já começa o atendimento.
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="botao-leve botao-pequeno flex-1"
+                    disabled={trocar.isPending}
+                    onClick={() => trocar.mutate({ id: a.id, status: 'EM_ATENDIMENTO' })}
+                  >
+                    Eu vou chamar
+                  </button>
+                  <button
+                    type="button"
+                    className={`${i === 0 ? 'botao' : 'botao-leve'} botao-pequeno flex-1`}
+                    disabled={chamar.isPending}
+                    onClick={() => chamar.mutate(a.id)}
+                  >
+                    Chamar
+                  </button>
+                </div>
+              )
             )}
           </li>
         ))}
@@ -143,9 +235,10 @@ export function SalaEspera() {
   )
 }
 
-/** Faixa no topo da ficha: só para o profissional da consulta de hoje. */
+/** Faixa no topo da ficha: só para o profissional da consulta. */
 export function FaixaEspera({ pacienteId }: { pacienteId: number }) {
   const { lista, podeChamar } = useNaEspera()
+  const chamar = useChamar()
   const trocar = useTrocarStatus()
   const a = lista.find((x) => x.paciente!.id === pacienteId)
   if (!a) return null
@@ -159,23 +252,48 @@ export function FaixaEspera({ pacienteId }: { pacienteId: number }) {
       </span>
       <div className="min-w-0 flex-[1_1_14rem]">
         <p className="font-extrabold text-titulo">
-          Na sala de espera há{' '}
-          <TempoEspera checkinEm={a.checkinEm!} className="align-middle" />
+          Na sala de espera há <TempoEspera checkinEm={a.checkinEm!} className="align-middle" />
         </p>
         <p className="text-sm text-suave">
           Chegou às {horaBR(a.checkinEm!)} · consulta com você às {a.inicio}
         </p>
       </div>
-      {podeChamar && (
-        <button
-          type="button"
-          className="botao min-h-11"
-          disabled={trocar.isPending}
-          onClick={() => trocar.mutate({ id: a.id, status: 'EM_ATENDIMENTO' })}
-        >
-          <Icone nome="iniciar" className="h-4 w-4" />
-          Iniciar atendimento
-        </button>
+      {a.chamadoEm ? (
+        <>
+          <span className="text-sm font-bold text-suave">Chamado · aguardando recepção</span>
+          {podeChamar && (
+            <button
+              type="button"
+              className="botao-leve min-h-11"
+              disabled={trocar.isPending}
+              onClick={() => trocar.mutate({ id: a.id, status: 'EM_ATENDIMENTO' })}
+            >
+              Eu chamei
+            </button>
+          )}
+        </>
+      ) : (
+        podeChamar && (
+          <>
+            <button
+              type="button"
+              className="botao min-h-11"
+              disabled={chamar.isPending}
+              onClick={() => chamar.mutate(a.id)}
+            >
+              <Icone nome="iniciar" className="h-4 w-4" />
+              Chamar paciente
+            </button>
+            <button
+              type="button"
+              className="botao-leve min-h-11"
+              disabled={trocar.isPending}
+              onClick={() => trocar.mutate({ id: a.id, status: 'EM_ATENDIMENTO' })}
+            >
+              Eu vou chamar
+            </button>
+          </>
+        )
       )}
     </div>
   )

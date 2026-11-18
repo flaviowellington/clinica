@@ -78,6 +78,7 @@ const MATRIZ: [modulo: string, metodo: string, caminho: string, quem: string][] 
   ['Lixeira', 'GET', '/api/lixeira', 'A'],
   ['Lixeira', 'POST', '/api/lixeira/paciente/999999/restaurar', 'A'],
   ['Profissionais', 'GET', '/api/profissionais', 'RFPA'],
+  ['Profissionais', 'GET', '/api/profissionais/999999', 'A'],
   ['Profissionais', 'POST', '/api/profissionais', 'A'],
 ]
 

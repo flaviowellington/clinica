@@ -95,7 +95,7 @@ rotasProfissionais.put('/:id', exigir('profissional.editar'), async (req, res) =
   res.json(p)
 })
 
-rotasProfissionais.get('/:id', exigir('profissional.ver'), async (req, res) => {
+rotasProfissionais.get('/:id', exigir('profissional.abrir'), async (req, res) => {
   const p = await db.pessoa.findFirst({
     where: { id: id(req), tipo: 'PROFISSIONAL', excluidoEm: null },
     select: camposProfissional,

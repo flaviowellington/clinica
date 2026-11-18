@@ -70,13 +70,15 @@ for (const login of ['admin', 'dentista1', 'recepcao1', 'financeiro', 'gestor'])
         .first()
         .click({ timeout: 5000 })
     })
+    // Abrir a ficha do profissional é do Administrador (profissional.abrir); os outros só veem a lista.
+    const fichas = page.getByRole('main').locator('a[href^="/profissionais/"]')
     await abrir('profissional', async () => {
       await clicar('/profissionais')
-      await page
-        .getByRole('main')
-        .locator('a[href^="/profissionais/"]')
-        .first()
-        .click({ timeout: 5000 })
+      if (['admin', 'gestor'].includes(login)) await fichas.first().click({ timeout: 5000 })
+      else {
+        await expect(page.getByRole('main').getByText('Dra. Fictícia Andrade')).toBeVisible()
+        await expect(fichas).toHaveCount(0)
+      }
     })
 
     expect(falhas).toEqual([])

@@ -119,6 +119,8 @@ export interface Agendamento {
   primeiraConsulta: boolean
   status: StatusAgenda
   checkinEm: string | null
+  /** O profissional chamou da espera e a recepção ainda não confirmou. */
+  chamadoEm: string | null
   criadoEm: string
   paciente: { id: number; nome: string; celular: string | null } | null
   profissional: { id: number; nome: string }
@@ -129,7 +131,13 @@ export interface Agendamento {
   emAtrasoCentavos?: number
 }
 
-/** Agendamentos do período; a sala de espera usa a mesma chave para o dia de hoje. */
+/** Sala de espera: check-in feito hoje, de consulta de qualquer dia (GET /agenda/espera). */
+export const consultaEspera = queryOptions({
+  queryKey: ['agenda', 'espera'],
+  queryFn: async () => (await api.get<Agendamento[]>('/agenda/espera')).data,
+})
+
+/** Agendamentos do período. */
 export const consultaAgenda = (de: string, ate: string, desmarcadas = false) =>
   queryOptions({
     queryKey: ['agenda', de, ate, desmarcadas],

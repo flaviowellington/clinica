@@ -133,6 +133,26 @@ rotasAgenda.get('/', exigir('agenda.ver'), async (req, res) => {
   )
 })
 
+/**
+ * Sala de espera: quem fez check-in hoje e não foi atendido, seja qual for a data da consulta
+ * (o paciente pode chegar no dia errado). Check-in de outro dia esquecido não aparece.
+ */
+rotasAgenda.get('/espera', exigir('agenda.ver'), async (_req, res) => {
+  // ponytail: -03:00 fixo (Brasil sem horário de verão desde 2019); voltando, usar o fuso da clínica.
+  const inicioDoDia = new Date(`${hojeNaClinica()}T00:00:00-03:00`)
+  const lista = await db.agendamento.findMany({
+    where: {
+      excluidoEm: null,
+      desmarcadoEm: null,
+      status: 'EM_ESPERA',
+      checkinEm: { gte: inicioDoDia },
+    },
+    include: comDados,
+    orderBy: { checkinEm: 'asc' },
+  })
+  res.json(lista.map(paraTela))
+})
+
 rotasAgenda.post('/', exigir('agenda.editar'), async (req, res) => {
   const b = lerCorpo(AgendamentoDto, req.body, res)
   if (!b) return
@@ -214,17 +234,34 @@ rotasAgenda.patch('/:id/status', exigir('agenda.editar'), async (req, res) => {
       status,
       checkinEm: chegou ? (a.checkinEm ?? agora) : null,
       esperaInicio: chegou ? (a.esperaInicio ?? agora) : null,
+      // Saiu da espera (a recepção confirmou o chamado, ou mudou à mão): o chamado acabou.
+      chamadoEm: status === 'EM_ESPERA' ? a.chamadoEm : null,
       alteradoPorId: usuarioDe(res).id,
     },
     include: comDados,
   })
-  // Chamou da sala de espera: a recepção é avisada para encaminhar o paciente.
-  if (a.status === 'EM_ESPERA' && status === 'EM_ATENDIMENTO' && atualizado.paciente)
-    avisarPerfil('RECEPCAO', {
-      assunto: 'chamado',
-      paciente: atualizado.paciente.nome,
-      profissional: atualizado.profissional.nome,
-    })
+  res.json(paraTela(atualizado))
+})
+
+/**
+ * O profissional chama da sala de espera: a recepção é avisada e confirma que encaminhou
+ * (aí o status vira "Em atendimento" pelo PATCH /status).
+ */
+rotasAgenda.post('/:id/chamar', exigir('agenda.editar'), async (req, res) => {
+  const a = await acharAgendamento(req)
+  if (!a) return res.status(404).json(NAO_ACHOU)
+  if (a.status !== 'EM_ESPERA' || !a.pacienteId)
+    return res.status(400).json({ erro: 'O paciente não está na sala de espera.' })
+  const atualizado = await db.agendamento.update({
+    where: { id: a.id },
+    data: { chamadoEm: a.chamadoEm ?? new Date(), alteradoPorId: usuarioDe(res).id },
+    include: comDados,
+  })
+  avisarPerfil('RECEPCAO', {
+    assunto: 'chamado',
+    paciente: atualizado.paciente!.nome,
+    profissional: atualizado.profissional.nome,
+  })
   res.json(paraTela(atualizado))
 })
 
