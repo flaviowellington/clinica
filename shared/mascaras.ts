@@ -63,4 +63,5 @@ export function mascaraCelular(valor: string, apagando = false) {
 }
 
 /** Vazio ou só o DDI, sem número: o campo conta como vazio. */
-export const celularVazio = (valor: string) => /^\s*(\+\d*)?\s*\(?\s*$/.test(valor)
+// trim() em vez de \s* nas pontas: três \s* seguidos davam ReDoS (tempo ao cubo).
+export const celularVazio = (valor: string) => /^(\+\d*)?\s*\(?$/.test(valor.trim())

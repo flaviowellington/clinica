@@ -3,7 +3,7 @@ import { randomInt } from 'node:crypto'
 import bcrypt from 'bcrypt'
 import { Router, type Request, type Response } from 'express'
 import { db } from './db'
-import { abrirSessao, conferirSenha, exigir, gerarHash, usuarioDe } from './auth'
+import { abrirSessao, conferirSenha, derrubarSessoes, exigir, gerarHash, usuarioDe } from './auth'
 import { emailConfigurado, enviarEmail } from './mensagens'
 import { lerConfig } from './configuracoes'
 import { podeDarDesconto } from '../../shared/permissoes'
@@ -149,7 +149,11 @@ rotasUsuarios.post('/:id/senha', exigir('usuario.gerenciar'), async (req, res) =
   if (!u) return res.status(404).json({ erro: 'Usuário não encontrado.' })
   const b = lerCorpo(SenhaDto, req.body, res, null)
   if (!b) return
-  await db.usuario.update({ where: { id: u.id }, data: { senhaHash: await gerarHash(b.senha) } })
+  await db.usuario.update({
+    where: { id: u.id },
+    data: { senhaHash: await gerarHash(b.senha), ...derrubarSessoes },
+  })
+  atualizarConectado(u.id, [], false) // a pessoa entra de novo com a senha nova
   res.json({ mensagem: 'Senha alterada.' })
 })
 
@@ -194,7 +198,13 @@ rotasEu.post('/senha', async (req, res) => {
   if (!b) return
   if (!(await conferirSenha(eu.login, b.atual)))
     return res.status(400).json({ erro: 'A senha atual está incorreta.' })
-  await db.usuario.update({ where: { id: eu.id }, data: { senhaHash: await gerarHash(b.nova) } })
+  // Derruba os outros aparelhos (quem roubou a sessão cai); este recebe um cookie novo.
+  const novo = await db.usuario.update({
+    where: { id: eu.id },
+    data: { senhaHash: await gerarHash(b.nova), ...derrubarSessoes },
+  })
+  atualizarConectado(eu.id, [], false)
+  abrirSessao(res, novo)
   res.json({ mensagem: 'Senha alterada.' })
 })
 
@@ -268,16 +278,18 @@ rotasRecuperarSenha.post('/redefinir', async (req, res) => {
       await db.usuario.update({ where: { id: u.id }, data: { codigoTentativas: { increment: 1 } } })
     return res.status(400).json({ erro: 'Código incorreto ou vencido. Confira ou peça um novo.' })
   }
-  await db.usuario.update({
+  const novo = await db.usuario.update({
     where: { id: u.id },
     data: {
       senhaHash: await gerarHash(b.senha),
       codigoHash: null,
       codigoExpira: null,
       codigoTentativas: 0,
+      ...derrubarSessoes,
     },
   })
-  abrirSessao(res, u.id)
+  atualizarConectado(u.id, [], false)
+  abrirSessao(res, novo)
   res.json(await dadosDoEu(u))
 })
 

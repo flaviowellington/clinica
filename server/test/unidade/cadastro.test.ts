@@ -166,6 +166,14 @@ describe('máscaras', () => {
     ['+55 (1', false],
     ['11', false],
   ])('celularVazio("%s") → %s', (v, ok) => expect(celularVazio(v)).toBe(ok))
+
+  // ReDoS: com três \s* seguidos, 200 mil espaços (cabem no corpo de 200 KB) travavam a API por dias.
+  it('responde na hora com um campo enorme de espaços', () => {
+    const t = performance.now()
+    expect(celularVazio(' '.repeat(200_000) + '!')).toBe(false)
+    expect(celularVazio('+55' + ' '.repeat(200_000) + '(' + ' '.repeat(200_000))).toBe(true)
+    expect(performance.now() - t).toBeLessThan(100)
+  })
 })
 
 describe('dinheiro', () => {

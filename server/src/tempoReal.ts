@@ -10,9 +10,17 @@ import { usuarioDe } from './auth'
 // trocar por Postgres LISTEN/NOTIFY. Os perfis são lidos ao conectar e trocados por
 // atualizarConectado quando o administrador edita o usuário.
 const conectados = new Map<Response, { usuarioId: number; perfis: Perfil[] }>()
+const MAX_CONEXOES_POR_USUARIO = 10
 
 /** GET /api/eventos: mantém a conexão aberta e manda um "ping" para ela não cair. */
 export function abrirEventos(req: Request, res: Response) {
+  // Cada aba abre uma; o limite impede um login de esgotar a memória abrindo milhares.
+  // Recusada com 429, o EventSource do navegador não insiste (só reconecta depois de um 200).
+  const u = usuarioDe(res)
+  let doUsuario = 0
+  for (const c of conectados.values()) if (c.usuarioId === u.id) doUsuario++
+  if (doUsuario >= MAX_CONEXOES_POR_USUARIO)
+    return res.status(429).json({ erro: 'Abas demais abertas com este login.' })
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
@@ -20,7 +28,6 @@ export function abrirEventos(req: Request, res: Response) {
     'X-Accel-Buffering': 'no', // proxy (nginx) não segura os avisos
   })
   res.write('retry: 3000\n\n')
-  const u = usuarioDe(res)
   conectados.set(res, { usuarioId: u.id, perfis: u.perfis as Perfil[] })
   const ping = setInterval(() => res.write(': ping\n\n'), 25_000)
   req.on('close', () => {

@@ -2,7 +2,9 @@
 // comportamento SEGURO: falhar aqui é uma vulnerabilidade aberta, não um teste quebrado.
 // Os testes de força bruta ficam no fim: depois deles o IP do teste fica bloqueado 15 min.
 import { request } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { criarApp } from '../src/app'
 import { cliente, entrarComo, PACIENTE, urlBase, usarServidor } from './ajuda'
 
 usarServidor()
@@ -97,7 +99,10 @@ describe('A07 autenticação e sessão', () => {
 
   it('cookie de sessão é HttpOnly e SameSite=Strict', async () => {
     const adm = await entrarComo('ADMINISTRADOR')
-    const r = await cliente()('POST', '/api/entrar', { login: adm.usuario.login, senha: 'senha-de-teste' })
+    const r = await cliente()('POST', '/api/entrar', {
+      login: adm.usuario.login,
+      senha: 'senha-de-teste',
+    })
     expect(r.cookie).toMatch(/HttpOnly/i)
     expect(r.cookie).toMatch(/SameSite=Strict/i)
   })
@@ -114,6 +119,49 @@ describe('A07 autenticação e sessão', () => {
     const r = await eu('POST', '/api/eu/senha', { atual: 'senha-de-teste', nova: 'nova-senha-123' })
     expect(r.status).toBe(200)
     expect((await outraAba('GET', '/api/eu')).status).toBe(401)
+    // Quem trocou recebe um cookie novo e continua dentro.
+    expect((await cliente(r.cookie.split(';')[0])('GET', '/api/eu')).status).toBe(200)
+  })
+
+  it('administrador trocando a senha de alguém derruba as sessões dessa pessoa', async () => {
+    const adm = await entrarComo('ADMINISTRADOR')
+    const rec = await entrarComo('RECEPCAO')
+    const r = await adm('POST', `/api/usuarios/${rec.usuario.id}/senha`, { senha: 'outra-senha-1' })
+    expect(r.status).toBe(200)
+    expect((await rec('GET', '/api/eu')).status).toBe(401)
+    expect((await adm('GET', '/api/eu')).status).toBe(200)
+  })
+})
+
+describe('proxy confiável (PROXY_CONFIAVEL)', () => {
+  /** Sobe outra API com o proxy ligado e tenta 11 logins errados de um IP. */
+  async function chutarAtras(proxy: string | undefined) {
+    const antes = process.env.PROXY_CONFIAVEL
+    if (proxy) process.env.PROXY_CONFIAVEL = proxy
+    else delete process.env.PROXY_CONFIAVEL
+    const s = criarApp().listen(0)
+    process.env.PROXY_CONFIAVEL = antes
+    await new Promise((ok) => s.once('listening', ok))
+    const url = `http://localhost:${(s.address() as AddressInfo).port}/api/entrar`
+    const entrar = (ip: string) =>
+      fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+        body: JSON.stringify({ login: 'ninguem', senha: 'chute' }),
+      }).then((r) => r.status)
+    for (let i = 0; i < 11; i++) await entrar('203.0.113.7')
+    const atacante = await entrar('203.0.113.7')
+    const outro = await entrar('198.51.100.9')
+    await new Promise((ok) => s.close(ok))
+    return { atacante, outro }
+  }
+
+  it('atrás do proxy, o atacante bloqueado não bloqueia os outros IPs', async () => {
+    expect(await chutarAtras('1')).toEqual({ atacante: 429, outro: 401 })
+  })
+
+  it('sem proxy configurado, X-Forwarded-For é ignorado (não dá para fingir outro IP)', async () => {
+    expect(await chutarAtras(undefined)).toEqual({ atacante: 429, outro: 429 })
   })
 })
 
@@ -162,7 +210,7 @@ describe('A03 injeção', () => {
       "' OR '1'='1",
       "123' OR 1=1--",
       "%' ; SELECT pg_sleep(3) --",
-      "123); SELECT pg_sleep(3); --",
+      '123); SELECT pg_sleep(3); --',
     ]) {
       const t = Date.now()
       const r = await rec('GET', `/api/pacientes?busca=${encodeURIComponent(busca)}`)
@@ -186,7 +234,9 @@ describe('A03 injeção', () => {
     const dentista = await entrarComo('ADMINISTRADOR')
     const p = await dentista('POST', '/api/pacientes', PACIENTE)
     const html = new TextEncoder().encode('<html><script>alert(document.cookie)</script></html>')
-    const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>')
+    const svg = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>',
+    )
     const url = `/api/pacientes/${p.corpo.id}/arquivos?categoria=DOCUMENTO&nome=x.html`
     for (const [corpo, tipo] of [
       [html, 'image/png'],
@@ -204,7 +254,10 @@ describe('DoS de aplicação', () => {
     const abortar = new AbortController()
     const status = await Promise.all(
       Array.from({ length: 30 }, () =>
-        fetch(urlBase() + '/api/eventos', { headers: { cookie: eu.cookie }, signal: abortar.signal })
+        fetch(urlBase() + '/api/eventos', {
+          headers: { cookie: eu.cookie },
+          signal: abortar.signal,
+        })
           .then((r) => r.status)
           .catch(() => 0),
       ),

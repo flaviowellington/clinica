@@ -6,7 +6,16 @@ import cookieParser from 'cookie-parser'
 import { rateLimit } from 'express-rate-limit'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { abrirSessao, conferirSenha, COOKIE, exigirLogin, usuarioDe } from './auth'
+import {
+  abrirSessao,
+  conferirSenha,
+  COOKIE,
+  derrubarSessoes,
+  exigirLogin,
+  usuarioDe,
+  usuarioDoToken,
+} from './auth'
+import { db } from './db'
 import { rotasPacientes } from './pacientes'
 import { rotasLixeira } from './lixeira'
 import { rotasAgenda } from './agenda'
@@ -14,7 +23,7 @@ import { rotasFinanceiro, rotasProfissionais, rotasRelatorios } from './gestao'
 import { rotasFinanceiroContas } from './financeiro'
 import { rotasOrcamentos, rotasProcedimentos, rotasRetornos } from './tratamentos'
 import { rotasIntegracao } from './integracao'
-import { abrirEventos, avisarAoMudar } from './tempoReal'
+import { abrirEventos, atualizarConectado, avisarAoMudar } from './tempoReal'
 import { rotasFichaPaciente, rotasProntuario } from './prontuario'
 import { dadosDoEu, rotasEu, rotasRecuperarSenha, rotasUsuarios } from './usuarios'
 import { rotasConfiguracoes, rotasTabelaProcedimentos } from './configuracoes'
@@ -30,6 +39,11 @@ import { EntrarDto } from '../../shared/dtos'
 export function criarApp() {
   const app = express()
   app.disable('x-powered-by')
+  // Atrás de nginx/Cloudflare: quantos proxies confiar (ex.: 1) para ler o IP real do
+  // X-Forwarded-For. Sem isso, todos chegam com o IP do proxy e um atacante bloqueia o login
+  // de todos. Vazio (sem proxy): o cabeçalho é ignorado, para ninguém fingir outro IP.
+  const proxy = process.env.PROXY_CONFIAVEL
+  if (proxy) app.set('trust proxy', /^\d+$/.test(proxy) ? Number(proxy) : proxy)
   app.use(helmet())
   app.use(cors({ origin: process.env.ORIGEM_WEB ?? false, credentials: true }))
   app.use(cookieParser())
@@ -55,11 +69,14 @@ export function criarApp() {
       const usuario = await conferirSenha(b.login, b.senha)
       if (!usuario) return res.status(401).json({ erro: 'Usuário ou senha incorretos.' })
       res.locals.usuario = usuario // o log do login leva quem entrou
-      abrirSessao(res, usuario.id)
+      abrirSessao(res, usuario)
       res.json(await dadosDoEu(usuario))
     },
   )
 
+  // Pedir código sempre responde 200 (não revela quem tem conta), então conta todo pedido:
+  // senão dá para lotar o e-mail de alguém e zerar as tentativas com códigos novos.
+  app.use('/api/senha/codigo', rateLimit({ windowMs: 15 * 60_000, limit: 5 }))
   // Esqueci a senha: poucas tentativas por IP, para não adivinharem o código nem lotarem o e-mail.
   app.use(
     '/api/senha',
@@ -67,7 +84,13 @@ export function criarApp() {
     rotasRecuperarSenha,
   )
 
-  app.post('/api/sair', (_req, res) => {
+  // Sair derruba o token (em todos os aparelhos desse usuário): cookie copiado não serve mais.
+  app.post('/api/sair', async (req, res) => {
+    const u = await usuarioDoToken(req)
+    if (u) {
+      await db.usuario.update({ where: { id: u.id }, data: derrubarSessoes })
+      atualizarConectado(u.id, [], false)
+    }
     res.clearCookie(COOKIE)
     res.json({ ok: true })
   })
@@ -124,6 +147,8 @@ export function criarApp() {
   app.use((erro: Error & { type?: string }, _req: Request, res: Response, _next: NextFunction) => {
     if (erro.type === 'entity.parse.failed')
       return res.status(400).json({ erro: 'Dados inválidos.' })
+    if (erro.type === 'entity.too.large')
+      return res.status(413).json({ erro: 'O envio passou do tamanho máximo.' })
     console.error(erro)
     res.status(500).json({ erro: 'Erro inesperado. Tente de novo.' })
   })

@@ -126,6 +126,8 @@ model Usuario {
   codigoHash       String?
   codigoExpira     DateTime?
   codigoTentativas Int       @default(0)
+  /// Sobe ao sair ou trocar a senha: os logins (tokens) de antes deixam de valer.
+  sessaoVersao     Int       @default(0)
   perfis           Perfil[]
   ativo            Boolean   @default(true)
   /// Profissional ligado ao usuário (quando for dentista).
