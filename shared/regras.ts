@@ -102,8 +102,9 @@ export function podeCadastrar(d: DadosPaciente): boolean {
 
 // ponytail: fuso fixo de Brasília; virar configuração se a clínica ficar em outro fuso.
 /** Data de hoje (aaaa-mm-dd) no horário da clínica, não no do servidor (UTC). */
-export const hojeNaClinica = (agora = new Date()) =>
-  agora.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
+// Formatador criado uma vez: toLocaleDateString com fuso monta um novo a cada chamada (lento).
+const DATA_NA_CLINICA = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' })
+export const hojeNaClinica = (agora = new Date()) => DATA_NA_CLINICA.format(agora)
 
 /** Cadastro sem nenhuma atualização há 1 ano ou mais: hora de conferir os dados e a foto com o paciente. */
 export function cadastroDesatualizado(alteradoEm: string | Date, hoje = new Date()): boolean {

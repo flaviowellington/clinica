@@ -396,21 +396,14 @@ function NotaDoPaciente(props: {
     <div className="flex flex-col gap-4 xl:h-full xl:min-h-0">
       {/* 1 · Destinatário: uma faixa só; o formulário abre nela e rola se passar da metade. */}
       <section
-        className="cartao shrink-0 space-y-3 px-4 py-3 xl:max-h-[55%] xl:overflow-y-auto"
+        className="cartao @container shrink-0 space-y-3 px-4 py-3 xl:max-h-[55%] xl:overflow-y-auto"
         aria-labelledby="nf-dest"
       >
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {/* Título e ações numa linha; os dados embaixo em colunas fixas, para todo paciente ficar igual. */}
+        <div className="flex items-center gap-3">
           <h2 id="nf-dest" className="text-base whitespace-nowrap">
             1 · Destinatário
           </h2>
-          {!editando && (
-            <dl className="grid min-w-0 flex-1 basis-80 gap-x-5 gap-y-2 sm:grid-cols-[auto_auto_auto_minmax(0,1fr)]">
-              <Linha rotulo="Em nome de" valor={TOMADORES_NF[t.tomador]} />
-              <Linha rotulo="Nome" valor={t.nome} />
-              <Linha rotulo={t.rotuloDoc} valor={t.doc} />
-              <Linha rotulo="Endereço" valor={t.endereco} />
-            </dl>
-          )}
           <div className="ml-auto flex items-center gap-3">
             {!editando && !t.falta.length && (
               <span className="etiqueta etiqueta-sucesso whitespace-nowrap">✓ Completo</span>
@@ -427,6 +420,14 @@ function NotaDoPaciente(props: {
             )}
           </div>
         </div>
+        {!editando && (
+          <dl className="grid gap-x-5 gap-y-2 @md:grid-cols-2 @4xl:grid-cols-[9.5rem_minmax(0,1fr)_11rem_minmax(0,1.6fr)]">
+            <Linha rotulo="Em nome de" valor={TOMADORES_NF[t.tomador]} />
+            <Linha rotulo="Nome" valor={t.nome} />
+            <Linha rotulo={t.rotuloDoc} valor={t.doc} />
+            <Linha rotulo="Endereço" valor={t.endereco} />
+          </dl>
+        )}
         {editando ? (
           <NotaFiscalPaciente
             key={JSON.stringify(pac.notaFiscal)}

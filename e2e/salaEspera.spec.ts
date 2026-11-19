@@ -32,6 +32,8 @@ const naFila = (page: Page, nomes: string[]) =>
 test('fila de espera simultânea: recepção faz check-in, dentistas chamam, recepção é avisada', async ({
   browser,
 }) => {
+  // Vários navegadores ao mesmo tempo: com os workers em paralelo passava dos 30 s.
+  test.slow()
   const [recepcao1, recepcao2, dra1, dra2] = await Promise.all([
     abrir(browser, 'recepcao1'),
     abrir(browser, 'recepcao2'),

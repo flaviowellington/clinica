@@ -75,6 +75,8 @@ test('permissões: Recepção vê só as abas da sua função', async ({ page })
 test('odontograma: faces marcadas vão preenchidas ao procedimento; dentição mista guarda o progresso', async ({
   page,
 }) => {
+  // ~23 s sozinho: com os workers em paralelo passava dos 30 s.
+  test.slow()
   await abrirFicha(page, 'admin')
   await page.getByRole('button', { name: 'Odontograma', exact: true }).click()
 
