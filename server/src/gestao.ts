@@ -15,7 +15,7 @@ import { acharRelatorio, type Filtros } from '../../shared/relatorios'
 import { STATUS, lerHorariosSemana } from '../../shared/agenda'
 import { GERADORES_FINANCEIRO } from './financeiro'
 import { GERADORES_EXTRA, naAgenda, type Gerador } from './relatorios'
-import { AtivoDto, LancamentoDto, ProfissionalDto } from '../../shared/dtos'
+import { AtivoDto, ehDataIso, LancamentoDto, ProfissionalDto } from '../../shared/dtos'
 import { lerCorpo } from './dto'
 
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
@@ -26,7 +26,7 @@ const id = (req: Request) => Number(req.params.id) || 0
 function periodo(req: Request) {
   const de = String(req.query.de ?? '')
   const ate = String(req.query.ate ?? de)
-  if (isNaN(Date.parse(de)) || isNaN(Date.parse(ate))) return null
+  if (!ehDataIso(de) || !ehDataIso(ate)) return null
   return { gte: dia(de), lte: dia(ate) }
 }
 

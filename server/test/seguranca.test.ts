@@ -37,6 +37,18 @@ describe('A05 configuração: cabeçalhos e CORS', () => {
     expect(h.get('strict-transport-security')).toMatch(/max-age=\d+/)
   })
 
+  // Achados do OWASP ZAP: curinga "https:" na CSP e falta de Permissions-Policy.
+  // blob: em img-src é a prévia do recorte de foto (RecorteFoto), que a CSP bloqueava.
+  it('CSP sem curinga, com blob: nas imagens, e Permissions-Policy fechado', async () => {
+    const h = (await fetch(urlBase() + '/api/saude')).headers
+    const csp = h.get('content-security-policy') ?? ''
+    expect(csp).not.toMatch(/\shttps:/)
+    expect(csp).toMatch(/img-src 'self' data: blob:/)
+    expect(h.get('permissions-policy')).toMatch(/camera=\(self\)/)
+    expect(h.get('permissions-policy')).toMatch(/microphone=\(\)/)
+    expect(h.get('permissions-policy')).toMatch(/geolocation=\(\)/)
+  })
+
   it('não libera CORS para site estranho', async () => {
     const r = await fetch(urlBase() + '/api/eu', { headers: { origin: 'https://evil.example' } })
     expect(r.headers.get('access-control-allow-origin')).not.toBe('https://evil.example')
@@ -220,6 +232,22 @@ describe('A03 injeção', () => {
     }
   })
 
+  // Achado do OWASP ZAP: Date.parse aceita "2026-01-01'" e a data montada depois saía inválida (500).
+  it('data com aspa ou lixo no período dá 400, nunca erro interno', async () => {
+    const adm = await entrarComo('ADMINISTRADOR')
+    const lixo = encodeURIComponent("2026-01-01'")
+    for (const p of [
+      `/api/agenda?de=${lixo}&ate=2026-01-02`,
+      `/api/financeiro/fluxo?de=${lixo}&ate=2026-01-31`,
+      `/api/financeiro/analise?de=2026-01-01&ate=${lixo}`,
+      `/api/financeiro/extrato?de=${lixo}&ate=2026-01-31`,
+      `/api/financeiro/orcamentos-abertos?de=${lixo}&ate=2026-01-31`,
+      `/api/relatorios/agenda-geral?de=${lixo}&ate=2026-01-31`,
+      `/api/painel?de=2026-01-01&ate=2026-01-31&anteriorDe=${lixo}&anteriorAte=2025-12-31`,
+    ])
+      expect((await adm('GET', p)).status, p).toBeLessThan(500)
+  })
+
   it('poluição de protótipo pelo JSON não contamina o servidor', async () => {
     const rec = await entrarComo('RECEPCAO')
     await fetch(urlBase() + '/api/pacientes', {
@@ -249,6 +277,25 @@ describe('A03 injeção', () => {
 })
 
 describe('DoS de aplicação', () => {
+  // CVE-2026-111497 (node2shell): Brotli do Node estoura ao descompactar corpo enorme.
+  // Navegador nunca manda corpo compactado, então a API recusa qualquer um (sem descompactar).
+  it('recusa corpo compactado (br, gzip, deflate) sem descompactar', async () => {
+    const { brotliCompressSync, gzipSync, deflateSync } = await import('node:zlib')
+    const json = Buffer.from(JSON.stringify({ login: 'x', senha: 'y' }))
+    for (const [enc, corpo] of [
+      ['br', brotliCompressSync(json)],
+      ['gzip', gzipSync(json)],
+      ['deflate', deflateSync(json)],
+    ] as const) {
+      const r = await fetch(urlBase() + '/api/entrar', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-encoding': enc },
+        body: corpo,
+      })
+      expect(r.status, enc).toBe(415)
+    }
+  })
+
   it('um usuário não consegue abrir conexões de tempo real sem limite', async () => {
     const eu = await entrarComo('RECEPCAO')
     const abortar = new AbortController()

@@ -3,6 +3,7 @@ import { Router } from 'express'
 import { db } from './db'
 import { exigir } from './auth'
 import { periodo } from './financeiro'
+import { ehDataIso } from '../../shared/dtos'
 import { HORARIOS, INTERVALO, paraMinutos } from '../../shared/agenda'
 import { hojeNaClinica } from '../../shared/regras'
 
@@ -151,7 +152,7 @@ rotasPainel.get('/', exigir('painel.ver'), async (req, res) => {
   const data = periodo(req)
   if (!data) return res.status(400).json({ erro: 'Período inválido.' })
   const [antDe, antAte] = [String(req.query.anteriorDe ?? ''), String(req.query.anteriorAte ?? '')]
-  const ant = Date.parse(antDe) && Date.parse(antAte) ? { gte: dia(antDe), lte: dia(antAte) } : null
+  const ant = ehDataIso(antDe) && ehDataIso(antAte) ? { gte: dia(antDe), lte: dia(antAte) } : null
   const hoje = hojeNaClinica()
   // 12 meses que terminam no mês do fim do período.
   const fim = isoDe(data.lte)

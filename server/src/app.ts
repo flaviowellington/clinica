@@ -44,11 +44,33 @@ export function criarApp() {
   // de todos. Vazio (sem proxy): o cabeçalho é ignorado, para ninguém fingir outro IP.
   const proxy = process.env.PROXY_CONFIAVEL
   if (proxy) app.set('trust proxy', /^\d+$/.test(proxy) ? Number(proxy) : proxy)
-  app.use(helmet())
+  // CSP do helmet, sem o curinga "https:" (o front não carrega nada de fora) e com blob: nas
+  // imagens (prévia do recorte de foto). Estilo inline fica: o bundle injeta <style>.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          'font-src': ["'self'", 'data:'],
+          'style-src': ["'self'", "'unsafe-inline'"],
+          'img-src': ["'self'", 'data:', 'blob:'],
+        },
+      },
+    }),
+  )
+  // Recursos do navegador: só a câmera (foto de perfil), e só nesta origem.
+  app.use((_req, res, next) => {
+    res.set(
+      'Permissions-Policy',
+      'camera=(self), microphone=(), geolocation=(), payment=(), usb=()',
+    )
+    next()
+  })
   app.use(cors({ origin: process.env.ORIGEM_WEB ?? false, credentials: true }))
   app.use(cookieParser())
-  app.use(express.json({ limit: '200kb' }))
-  app.use(express.urlencoded({ extended: false, limit: '200kb' }))
+  // inflate: false recusa corpo compactado (415) sem descompactar: navegador nunca manda, e
+  // descompactar abria o CVE-2026-111497 (node2shell, Brotli do Node) e "bombas" de gzip.
+  app.use(express.json({ limit: '200kb', inflate: false }))
+  app.use(express.urlencoded({ extended: false, limit: '200kb', inflate: false }))
   // LIMITE_API_POR_MINUTO: só o e2e e o teste de carga sobem; em produção fica o padrão.
   app.use(
     '/api',
@@ -149,6 +171,8 @@ export function criarApp() {
       return res.status(400).json({ erro: 'Dados inválidos.' })
     if (erro.type === 'entity.too.large')
       return res.status(413).json({ erro: 'O envio passou do tamanho máximo.' })
+    if (erro.type === 'encoding.unsupported')
+      return res.status(415).json({ erro: 'Envio compactado não é aceito.' })
     console.error(erro)
     res.status(500).json({ erro: 'Erro inesperado. Tente de novo.' })
   })

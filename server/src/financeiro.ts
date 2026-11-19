@@ -16,6 +16,7 @@ import {
   ConciliarDto,
   ContaBancariaDto,
   ContaFinanceiraDto,
+  ehDataIso,
 } from '../../shared/dtos'
 import { lerCorpo } from './dto'
 import { doProfissional, naAgenda, type Gerador } from './relatorios'
@@ -28,7 +29,7 @@ const DIA_MS = 86_400_000
 export function periodo(req: Request) {
   const de = String(req.query.de ?? '')
   const ate = String(req.query.ate ?? de)
-  if (isNaN(Date.parse(de)) || isNaN(Date.parse(ate))) return null
+  if (!ehDataIso(de) || !ehDataIso(ate)) return null
   return { gte: dia(de), lte: dia(ate) }
 }
 
@@ -190,8 +191,7 @@ rotasFinanceiroContas.post(
 rotasFinanceiroContas.get('/analise', exigir('financeiro.ver'), async (req, res) => {
   const de = String(req.query.de ?? '')
   const ate = String(req.query.ate ?? de)
-  if (isNaN(Date.parse(de)) || isNaN(Date.parse(ate)))
-    return res.status(400).json({ erro: 'Período inválido.' })
+  if (!ehDataIso(de) || !ehDataIso(ate)) return res.status(400).json({ erro: 'Período inválido.' })
   const profissionalId = Number(req.query.profissionalId) || undefined
   // Janela larga em UTC; o dia certo sai do fuso da clínica logo abaixo.
   const janela = {
@@ -341,7 +341,7 @@ rotasFinanceiroContas.get(
 rotasFinanceiroContas.get('/orcamentos-abertos', exigir('orcamento.ver'), async (req, res) => {
   const de = typeof req.query.de === 'string' ? req.query.de : ''
   const ate = typeof req.query.ate === 'string' ? req.query.ate : de
-  const comPeriodo = !isNaN(Date.parse(de)) && !isNaN(Date.parse(ate))
+  const comPeriodo = ehDataIso(de) && ehDataIso(ate)
   const lista = await db.orcamento.findMany({
     where: {
       status: 'ABERTO',

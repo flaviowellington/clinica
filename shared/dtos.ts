@@ -46,7 +46,8 @@ export const idOpcional = z.preprocess(numeroPositivo, z.number().nullable())
 export const idObrigatorio = (mensagem: string) =>
   z.preprocess((v) => numeroPositivo(v) ?? undefined, z.number({ error: mensagem }))
 
-const ehDataIso = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v))
+/** aaaa-mm-dd que existe. Date.parse sozinho aceita lixo como "2026-01-01'" (dava 500). */
+export const ehDataIso = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v))
 
 /** Data aaaa-mm-dd obrigatória. */
 export const data = (mensagem = 'Data inválida.') =>

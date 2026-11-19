@@ -509,7 +509,7 @@ rotasFichaPaciente.get('/:id/arquivos', async (req, res) => {
 rotasFichaPaciente.post(
   '/:id/arquivos',
   exigir('prontuario.editar'),
-  express.raw({ type: () => true, limit: TAMANHO_MAXIMO }),
+  express.raw({ type: () => true, limit: TAMANHO_MAXIMO, inflate: false }), // node2shell: ver app.ts
   async (req, res) => {
     const categoria = categoriaDe(req.query.categoria)
     const tipo = String(req.headers['content-type'] ?? '')

@@ -14,6 +14,7 @@ import {
   DesmarcarDto,
   HorarioAgendaDto,
   StatusAgendaDto,
+  ehDataIso,
 } from '../../shared/dtos'
 import { lerCorpo } from './dto'
 import type { Prisma } from './generated/prisma/client'
@@ -95,8 +96,7 @@ rotasAgenda.get('/profissionais', exigir('agenda.ver'), async (_req, res) => {
 rotasAgenda.get('/', exigir('agenda.ver'), async (req, res) => {
   const de = String(req.query.de ?? '')
   const ate = String(req.query.ate ?? de)
-  if (isNaN(Date.parse(de)) || isNaN(Date.parse(ate)))
-    return res.status(400).json({ erro: 'Período inválido.' })
+  if (!ehDataIso(de) || !ehDataIso(ate)) return res.status(400).json({ erro: 'Período inválido.' })
   await atualizarAtrasos()
   const ids = String(req.query.profissionais ?? '')
     .split(',')
