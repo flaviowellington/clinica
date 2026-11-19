@@ -127,6 +127,13 @@ export function CartaoConsulta(props: {
         </div>
       </div>
 
+      {a.paciente?.fotoEm === null && (
+        <p className="flex items-center gap-2 rounded-xl border-2 border-aviso bg-aviso/10 px-3 py-2 font-bold text-titulo">
+          <Icone nome="foto" className="h-5 w-5 shrink-0 text-aviso" />
+          Paciente ainda sem foto de perfil
+        </p>
+      )}
+
       {a.paciente && (
         <div className="flex items-center gap-3">
           <Quadro icone="pacientes" />

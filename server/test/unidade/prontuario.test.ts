@@ -291,6 +291,12 @@ describe('preencherModelo (documentos)', () => {
       expect(saida).not.toMatch(/\{\w+\}/)
     }
   })
+  it('atestado e declaração seguem o formulário da clínica (RG, horário, CID, serviço)', () => {
+    const { atestado, comparecimento } = MODELOS_DOCUMENTO
+    for (const v of ['{rg}', '{horario}', '{fim}', '{dias}', '{cid}'])
+      expect(atestado.texto).toContain(v)
+    for (const v of ['{horario}', '{fim}', '{servico}']) expect(comparecimento.texto).toContain(v)
+  })
   it('as variáveis próprias de cada modelo aparecem no texto', () => {
     for (const m of Object.values(MODELOS_DOCUMENTO))
       for (const v of m.variaveis) expect(m.texto).toContain(`{${v}}`)

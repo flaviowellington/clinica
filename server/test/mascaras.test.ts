@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { mascaraCelular, mascaraCpf, mascaraRg } from '../../shared/mascaras'
+import {
+  completarHora,
+  mascaraCelular,
+  mascaraCpf,
+  mascaraHora,
+  mascaraRg,
+} from '../../shared/mascaras'
 import { celular, email, erroDe } from '../../shared/dtos'
 
 describe('máscara de CPF', () => {
@@ -70,5 +76,22 @@ describe('DTO de e-mail e celular (padrão dos formulários)', () => {
     expect(email.parse('  a@b.co ')).toBe('a@b.co')
     expect(email.parse('')).toBeNull()
     expect(erroDe(email, 'a@b')).toBe('E-mail inválido.')
+  })
+})
+
+describe('máscara de hora', () => {
+  it('põe os dois-pontos enquanto digita e aceita no máximo 4 dígitos', () => {
+    expect(mascaraHora('14')).toBe('14:')
+    expect(mascaraHora('1430')).toBe('14:30')
+    expect(mascaraHora('14305')).toBe('14:30')
+    expect(mascaraHora('1a4')).toBe('14:')
+  })
+  it('ao apagar não devolve os dois-pontos', () => {
+    expect(mascaraHora('14', true)).toBe('14')
+  })
+  it('com 3 dígitos completa com zero na frente ao sair do campo', () => {
+    expect(completarHora('93:0')).toBe('09:30')
+    expect(completarHora('14:30')).toBe('14:30')
+    expect(completarHora('')).toBe('')
   })
 })

@@ -15,6 +15,7 @@ import {
 } from '../api'
 import { avisar } from '../estado'
 import { pode } from '../../../shared/permissoes'
+import { completarHora, mascaraHora } from '../../../shared/mascaras'
 import {
   MODELOS_DOCUMENTO,
   preencherModelo,
@@ -41,7 +42,20 @@ interface Profissional {
   cro: string | null
 }
 
-const ROTULO_VARIAVEL = { horario: 'Horário do atendimento', dias: 'Afastamento' }
+/** Campos que o dentista digita em cada documento: rótulo e exemplo. */
+const VARIAVEIS = {
+  horario: ['Início do atendimento', '14:00'],
+  fim: ['Fim do atendimento', '15:00'],
+  dias: ['Dias de afastamento', '2'],
+  cid: ['CID', 'K08.8'],
+  servico: ['Serviços realizados', 'limpeza'],
+} as const
+/** Horários no formato 00:00; dias só com números (até 2 dígitos). */
+const MASCARA: Partial<Record<keyof typeof VARIAVEIS, (s: string, apagando: boolean) => string>> = {
+  horario: mascaraHora,
+  fim: mascaraHora,
+  dias: (s) => s.replace(/\D/g, '').slice(0, 2),
+}
 /** Cor do ícone de cada modelo, para reconhecer o tipo na lista sem ler. */
 const TOM: Record<string, string> = {
   atestado: 'bg-aviso/15 text-aviso',
@@ -173,7 +187,7 @@ function Passo({ n, texto }: { n: number; texto: string }) {
   )
 }
 
-/** Escolhe o modelo e as variáveis; o editor abre com o texto pronto e só salva depois de uma edição. */
+/** Escolhe o modelo e as variáveis; o editor abre com o texto pronto para revisar e salvar. */
 function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
   const qc = useQueryClient()
   const profissionais = useQuery({
@@ -192,7 +206,9 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
   const padrao = modelo.startsWith('p:') ? padroes[Number(modelo.slice(2))] : undefined
   const fixo = (padrao ? 'atestado' : modelo) as ModeloDocumento
   const variaveis = padrao
-    ? (['horario', 'dias'] as const).filter((v) => padrao.texto.includes(`{${v}}`))
+    ? (Object.keys(VARIAVEIS) as (keyof typeof VARIAVEIS)[]).filter((v) =>
+        padrao.texto.includes(`{${v}}`),
+      )
     : MODELOS_DOCUMENTO[fixo].variaveis
   const [escolhido, setEscolhido] = useState<number | '' | null>(null)
   const profissionalId = escolhido ?? meuId
@@ -228,11 +244,13 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
       cidade: clinica?.cidade,
       paciente: props.paciente.nome,
       cpf: cpfBR(props.paciente.cpf),
+      rg: props.paciente.rg,
       profissional: prof?.nome ?? eu.nome,
       // Aceita o CRO cadastrado com ou sem o prefixo "CRO".
       cro: prof?.cro && (/^cro/i.test(prof.cro) ? prof.cro : `CRO ${prof.cro}`),
       data: dataBR(isoLocal(new Date())),
       ...valores,
+      dias: valores.dias && `${valores.dias} ${valores.dias === '1' ? 'dia' : 'dias'}`,
     })
   }
 
@@ -282,10 +300,9 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
             onChange={(e) => setTexto(e.target.value)}
             autoFocus
           />
-          <span className="ajuda">
-            {texto.includes('________') && 'Complete os trechos “________” que ficaram sem valor. '}
-            O botão Salvar libera depois da primeira edição.
-          </span>
+          {texto.includes('________') && (
+            <span className="ajuda">Complete os trechos “________” que ficaram sem valor.</span>
+          )}
         </label>
         <div className="flex flex-wrap justify-between gap-2">
           <button className="botao-leve" onClick={() => setInicial(null)}>
@@ -294,7 +311,7 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
           </button>
           <button
             className="botao"
-            disabled={texto === inicial || !texto.trim() || salvar.isPending}
+            disabled={!texto.trim() || salvar.isPending}
             onClick={() => salvar.mutate(texto)}
           >
             {salvar.isPending ? 'Salvando…' : 'Salvar'}
@@ -365,12 +382,21 @@ function NovoDocumento(props: { paciente: Paciente; aoTerminar: () => void }) {
         </label>
         {variaveis.map((v) => (
           <label key={v}>
-            <span className="rotulo">{ROTULO_VARIAVEL[v]}</span>
+            <span className="rotulo">{VARIAVEIS[v][0]}</span>
             <input
               className="campo"
               value={valores[v] ?? ''}
-              onChange={(e) => setValores({ ...valores, [v]: e.target.value })}
-              placeholder={v === 'horario' ? '14:00' : '1 dia'}
+              inputMode={v === 'cid' || v === 'servico' ? undefined : 'numeric'}
+              onChange={(e) => {
+                const novo = e.target.value
+                const apagando = novo.length < (valores[v] ?? '').length
+                setValores({ ...valores, [v]: MASCARA[v]?.(novo, apagando) ?? novo })
+              }}
+              onBlur={() =>
+                (v === 'horario' || v === 'fim') &&
+                setValores({ ...valores, [v]: completarHora(valores[v] ?? '') })
+              }
+              placeholder={VARIAVEIS[v][1]}
             />
           </label>
         ))}

@@ -275,19 +275,21 @@ export const STATUS_DENTE_FICHA = [
 export const MODELOS_DOCUMENTO = {
   atestado: {
     titulo: 'Atestado',
-    variaveis: ['horario', 'dias'] as const,
+    variaveis: ['horario', 'fim', 'dias', 'cid'] as const,
     texto:
-      'Atesto, para os devidos fins, que {paciente}, CPF {cpf}, esteve sob meus cuidados ' +
-      'profissionais no dia {data}, às {horario}, devendo permanecer afastado(a) de suas ' +
-      'atividades por {dias}.\n\n{cidade}, {data}.\n\n\n{profissional}\n{cro}',
+      'Atesto, para os devidos fins, que {paciente}, portador(a) do RG nº {rg}, esteve sob ' +
+      'meus cuidados profissionais no dia de hoje, no horário das {horario} às {fim} horas, e ' +
+      'necessita de afastamento de suas atividades a partir desta data por {dias}.\n\n' +
+      // A NOTA do RGPS e a linha de assinatura já vêm impressas na arte do atestado.
+      'Motivo de doença. CID: {cid}\n\n{cidade}, {data}.\n\n{profissional}\n{cro}',
   },
   comparecimento: {
     titulo: 'Declaração de comparecimento',
-    variaveis: ['horario'] as const,
+    variaveis: ['horario', 'fim', 'servico'] as const,
     texto:
-      'Declaro, para os devidos fins, que {paciente}, CPF {cpf}, compareceu a esta clínica ' +
-      'no dia {data}, às {horario}, para atendimento odontológico.\n\n{cidade}, {data}.\n\n\n' +
-      '{profissional}\n{cro}',
+      'Declaro, para os devidos fins, que o(a) Sr.(a) {paciente} compareceu em nossa clínica ' +
+      'no dia {data}, das {horario} às {fim} horas, para atendimento dos serviços de ' +
+      '{servico}.\n\n{cidade}, {data}.\n\n{profissional}\n{cro}',
   },
   receita: {
     titulo: 'Receita',

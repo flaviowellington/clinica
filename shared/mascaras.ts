@@ -34,6 +34,16 @@ export const mascaraCnpj = (valor: string, apagando = false) =>
     apagando,
   )
 
+/** 00:00, só dígitos, no máximo 4. */
+export const mascaraHora = (valor: string, apagando = false) =>
+  agrupar(valor.replace(/\D/g, '').slice(0, 4), [2, 2], [':'], apagando)
+
+/** Ao sair do campo: 3 dígitos ganham o zero na frente (930 → 09:30). */
+export function completarHora(valor: string) {
+  const d = valor.replace(/\D/g, '')
+  return d.length === 3 ? mascaraHora('0' + d) : valor
+}
+
 /** 00.000.000, e com 9 caracteres 000.000.000; aceita letras e símbolos, o que passar fica como digitado. */
 export function mascaraRg(valor: string, apagando = false) {
   const s = valor.replace(/\./g, '')

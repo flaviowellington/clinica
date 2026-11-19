@@ -20,6 +20,7 @@ import { TIPO_PROCEDIMENTO, tipoProcedimento } from '../../../shared/orcamentos'
 import { normalizar, REGIMES_TRIBUTARIOS } from '../../../shared/regras'
 import {
   MODELOS_DOCUMENTO,
+  preencherModelo,
   TIPOS_PERGUNTA,
   type Pergunta,
   type TipoPergunta,
@@ -41,6 +42,7 @@ import { CampoEspecialidade } from './Profissionais'
 import { Situacao } from './Pacientes'
 import { CampoCnpj, CampoCpf, CampoEmail } from '../componentes/CampoMascara'
 import { CamposEndereco } from '../componentes/NotaFiscal'
+import { FolhaTimbrada } from '../componentes/FolhaTimbrada'
 import { ETAPAS, type Etapa } from '../../../shared/protetico'
 import { Importacao } from './Importacao'
 import {
@@ -1336,24 +1338,68 @@ export function EditorAnamnese(props: {
 }
 
 // ── Modelos de documento ────────────────────────────────────────────────────
-const VARIAVEIS_DOCUMENTO = ['paciente', 'cpf', 'profissional', 'cro', 'data', 'cidade', 'clinica']
+const VARIAVEIS_DOCUMENTO = [
+  'paciente',
+  'cpf',
+  'rg',
+  'profissional',
+  'cro',
+  'data',
+  'cidade',
+  'clinica',
+]
 
-function ModelosDocumento() {
-  return (
-    <div className="grid items-start gap-5 xl:grid-cols-2">
-      <DocumentosPadrao />
-      <ModelosFixos />
-    </div>
-  )
+type ModeloFixo = keyof typeof MODELOS_DOCUMENTO
+const MODELOS_FIXOS = Object.keys(MODELOS_DOCUMENTO) as ModeloFixo[]
+/** Campos que o profissional digita na hora, quando aparecem no texto. */
+const VARIAVEIS_DIGITADAS = ['horario', 'fim', 'dias', 'cid', 'servico']
+const TEXTO_NOVO = '\n\n{cidade}, {data}.\n\n\n{profissional}\n{cro}'
+
+/** Texto do modelo com dados de exemplo, para a prévia (nada de paciente de verdade). */
+function useExemplo() {
+  const clinica = useQuery(consultaConfig('clinica')).data
+  return (texto: string) =>
+    preencherModelo(texto, {
+      paciente: 'Maria Exemplo da Silva',
+      cpf: '000.000.000-00',
+      rg: '00.000.000',
+      profissional: 'Dr(a). Nome do Dentista',
+      cro: 'CRO 00000',
+      data: dataBR(new Date().toISOString()),
+      cidade: clinica?.cidade || 'Cidade',
+      clinica: clinica?.nome,
+      horario: '14:00',
+      fim: '15:00',
+      dias: '2 dias',
+      cid: 'K08.8',
+      servico: 'limpeza',
+    })
 }
 
-/** Documentos de texto fixo: o profissional escolhe, confere os dados e vai para o prontuário. */
-function DocumentosPadrao() {
+/** Botão "Prévia" das linhas da lista. */
+const BotaoPrevia = (props: { aoClicar: () => void }) => (
+  <button className="botao-fantasma botao-pequeno" onClick={props.aoClicar}>
+    <Icone nome="documento" className="h-4 w-4" />
+    Prévia
+  </button>
+)
+
+/**
+ * Atestado, declaração e receita (não podem ser excluídos) e os documentos criados pela
+ * clínica. Na ficha, o profissional escolhe, confere os dados e o documento vai para o prontuário.
+ */
+function ModelosDocumento() {
   const c = useQuery(consultaConfig('documentosPadrao'))
+  const fixos = useQuery(consultaConfig('documentos'))
   const salvar = useSalvar('documentosPadrao', 'Documentos padrão salvos')
-  const [editando, setEditando] = useState<number | 'novo' | null>(null)
-  if (!c.data) return <Carregando />
+  const salvarFixo = useSalvar('documentos', 'Modelo salvo')
+  const [editando, setEditando] = useState<number | 'novo' | ModeloFixo | null>(null)
+  const [previa, setPrevia] = useState<(DocumentoPadrao & { modelo: string }) | null>(null)
+  const exemplo = useExemplo()
+  if (!c.data || !fixos.data) return <Carregando />
   const lista = c.data
+  const textosFixos = fixos.data
+  const fixoAberto = typeof editando === 'string' && editando !== 'novo' ? editando : null
   const gravar = (nova: DocumentoPadrao[]) =>
     salvar.mutateAsync(nova).then(
       () => setEditando(null),
@@ -1372,14 +1418,36 @@ function DocumentosPadrao() {
         }
         colado
       >
-        {!lista.length && (
-          <Vazio
-            icone="arquivo"
-            titulo="Nenhum documento padrão"
-            texto="Crie, por exemplo, as orientações pós-cirúrgicas da clínica."
-          />
-        )}
         <ul className={`divide-y divide-borda ${ROLAGEM}`}>
+          {MODELOS_FIXOS.map((id) => (
+            <li
+              key={id}
+              className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 hover:bg-primaria-clara"
+            >
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primaria-clara text-primaria">
+                <Icone nome="arquivo" className="h-5 w-5" />
+              </span>
+              <div className="min-w-40 flex-1">
+                <p className="truncate font-bold text-titulo">{MODELOS_DOCUMENTO[id].titulo}</p>
+                <p className="truncate text-suave">{textosFixos[id].replace(/\s+/g, ' ')}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                <BotaoPrevia
+                  aoClicar={() =>
+                    setPrevia({
+                      modelo: id,
+                      nome: MODELOS_DOCUMENTO[id].titulo,
+                      texto: textosFixos[id],
+                    })
+                  }
+                />
+                <button className="botao-fantasma botao-pequeno" onClick={() => setEditando(id)}>
+                  <Icone nome="lapis" className="h-4 w-4" />
+                  Editar
+                </button>
+              </div>
+            </li>
+          ))}
           {lista.map((d, i) => (
             <li
               key={d.nome}
@@ -1388,11 +1456,12 @@ function DocumentosPadrao() {
               <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-secundaria-clara text-titulo">
                 <Icone nome="arquivo" className="h-5 w-5" />
               </span>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-40 flex-1">
                 <p className="truncate font-bold text-titulo">{d.nome}</p>
                 <p className="truncate text-suave">{d.texto.replace(/\s+/g, ' ')}</p>
               </div>
               <div className="flex items-center gap-1">
+                <BotaoPrevia aoClicar={() => setPrevia({ ...d, modelo: 'padrao' })} />
                 <button className="botao-fantasma botao-pequeno" onClick={() => setEditando(i)}>
                   <Icone nome="lapis" className="h-4 w-4" />
                   Editar
@@ -1421,9 +1490,27 @@ function DocumentosPadrao() {
         titulo={editando === 'novo' ? 'Novo documento padrão' : 'Editar documento padrão'}
         largo
       >
-        {editando !== null && (
+        {fixoAberto && (
+          <FormDocumentoPadrao
+            documento={{
+              nome: MODELOS_DOCUMENTO[fixoAberto].titulo,
+              texto: textosFixos[fixoAberto],
+            }}
+            modelo={fixoAberto}
+            salvando={salvarFixo.isPending}
+            aoCancelar={() => setEditando(null)}
+            aoSalvar={(d) =>
+              salvarFixo.mutateAsync({ ...textosFixos, [fixoAberto]: d.texto }).then(
+                () => setEditando(null),
+                () => {},
+              )
+            }
+          />
+        )}
+        {(editando === 'novo' || typeof editando === 'number') && (
           <FormDocumentoPadrao
             documento={editando === 'novo' ? undefined : lista[editando]}
+            modelo="padrao"
             salvando={salvar.isPending}
             aoCancelar={() => setEditando(null)}
             aoSalvar={(d) =>
@@ -1434,105 +1521,82 @@ function DocumentosPadrao() {
           />
         )}
       </Dialogo>
+      <Dialogo aberto={!!previa} aoFechar={() => setPrevia(null)} titulo="Prévia do documento">
+        {previa && (
+          <div className="space-y-3">
+            <p className="text-sm text-suave">Com dados de exemplo no lugar das variáveis.</p>
+            <FolhaTimbrada
+              modelo={previa.modelo}
+              titulo={previa.nome}
+              texto={exemplo(previa.texto)}
+            />
+          </div>
+        )}
+      </Dialogo>
     </>
   )
 }
 
 function FormDocumentoPadrao(props: {
   documento?: DocumentoPadrao
+  /** "padrao" ou atestado/declaração/receita (esses não mudam de nome). */
+  modelo: string
   salvando: boolean
   aoSalvar: (d: DocumentoPadrao) => void
   aoCancelar: () => void
 }) {
+  const exemplo = useExemplo()
+  const [nome, setNome] = useState(props.documento?.nome ?? '')
+  const [texto, setTexto] = useState(props.documento?.texto ?? TEXTO_NOVO)
   return (
     <form
-      className="space-y-4"
+      className="grid items-start gap-5 lg:grid-cols-2"
       onSubmit={(e) => {
         e.preventDefault()
         const f = new FormData(e.currentTarget)
         props.aoSalvar({ nome: String(f.get('nome')), texto: String(f.get('texto')) })
       }}
     >
-      <label className="block">
-        <span className="rotulo">Nome *</span>
-        <input
-          name="nome"
-          className="campo"
-          defaultValue={props.documento?.nome}
-          maxLength={120}
-          required
-          autoFocus
-          placeholder="Ex.: Orientações pós-extração"
-        />
-        <span className="ajuda">É o título que sai no documento impresso.</span>
-      </label>
-      <label className="block">
-        <span className="rotulo">Texto *</span>
-        <textarea
-          name="texto"
-          className="campo font-serif text-base leading-relaxed"
-          rows={12}
-          defaultValue={
-            props.documento?.texto ?? '\n\n{cidade}, {data}.\n\n\n{profissional}\n{cro}'
-          }
-          required
-        />
-      </label>
-      <p className="text-sm text-suave">
-        Variáveis: <Variaveis nomes={[...VARIAVEIS_DOCUMENTO, 'horario', 'dias']} />. Com{' '}
-        <code>{'{horario}'}</code> ou <code>{'{dias}'}</code> no texto, o profissional informa o
-        valor na hora.
-      </p>
-      <Rodape ocupado={props.salvando} aoCancelar={props.aoCancelar} />
-    </form>
-  )
-}
-
-/** Atestado, declaração e receita: abrem num editor para o profissional completar. */
-function ModelosFixos() {
-  const c = useQuery(consultaConfig('documentos'))
-  const salvar = useSalvar('documentos', 'Modelos salvos')
-  const ids = Object.keys(MODELOS_DOCUMENTO) as (keyof typeof MODELOS_DOCUMENTO)[]
-  const [aberto, setAberto] = useState(ids[0])
-  if (!c.data) return <Carregando />
-  return (
-    <Secao
-      titulo="Modelos para preencher"
-      descricao="Abrem num editor para o profissional completar antes de salvar."
-    >
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault()
-          salvar.mutate(Object.fromEntries(new FormData(e.currentTarget)))
-        }}
-      >
-        <Abas
-          abas={ids.map((id) => ({ id, rotulo: MODELOS_DOCUMENTO[id].titulo }))}
-          atual={aberto}
-          aoTrocar={setAberto}
-        />
-        {/* Todos ficam no formulário (escondidos) para o Salvar enviar os três. */}
-        {ids.map((id) => (
-          <label key={id} className={id === aberto ? 'block' : 'hidden'}>
-            <span className="sr-only">{MODELOS_DOCUMENTO[id].titulo}</span>
-            <textarea
-              name={id}
-              className="campo h-80 min-h-48 resize-none lg:h-[calc(100dvh-34rem)] font-serif text-base leading-relaxed"
-              rows={10}
-              defaultValue={c.data[id]}
-              required
-            />
-          </label>
-        ))}
+      <div className="space-y-4">
+        <label className="block">
+          <span className="rotulo">Nome *</span>
+          <input
+            name="nome"
+            className="campo"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            maxLength={120}
+            required
+            readOnly={props.modelo !== 'padrao'}
+            autoFocus={props.modelo === 'padrao'}
+            placeholder="Ex.: Orientações pós-extração"
+          />
+          <span className="ajuda">É o título que sai no documento impresso.</span>
+        </label>
+        <label className="block">
+          <span className="rotulo">Texto *</span>
+          <textarea
+            name="texto"
+            className="campo font-serif text-base leading-relaxed"
+            rows={12}
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            required
+          />
+        </label>
         <p className="text-sm text-suave">
-          Variáveis:{' '}
-          <Variaveis nomes={[...VARIAVEIS_DOCUMENTO, ...MODELOS_DOCUMENTO[aberto].variaveis]} />.
-          Cada uma é trocada pelo valor ao gerar o documento.
+          Variáveis: <Variaveis nomes={[...VARIAVEIS_DOCUMENTO, ...VARIAVEIS_DIGITADAS]} />.
+          Horário, fim, dias, CID e serviço o profissional informa na hora de gerar o documento.
         </p>
-        <Rodape ocupado={salvar.isPending} texto="Salvar modelos" />
-      </form>
-    </Secao>
+      </div>
+      <div className="space-y-2 lg:sticky lg:top-0">
+        <p className="rotulo">Prévia</p>
+        <FolhaTimbrada modelo={props.modelo} titulo={nome} texto={exemplo(texto)} />
+      </div>
+      <div className="lg:col-span-2">
+        <Rodape ocupado={props.salvando} aoCancelar={props.aoCancelar} />
+      </div>
+    </form>
   )
 }
 

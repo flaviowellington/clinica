@@ -3,6 +3,7 @@ import { useVoltar } from '../estado'
 import { useQuery } from '@tanstack/react-query'
 import { api, dataBR, mensagemDeErro } from '../api'
 import type { Documento } from '../componentes/Documentos'
+import { FolhaTimbrada, papelDe } from '../componentes/FolhaTimbrada'
 
 /** Documento do prontuário (atestado, declaração, receita), pronto para imprimir. */
 export function DocumentoImpresso() {
@@ -31,15 +32,16 @@ export function DocumentoImpresso() {
           Imprimir
         </button>
       </div>
-      <article className="cartao space-y-6 p-10 print:border-0 print:p-0">
-        <header className="border-b border-borda pb-4">
-          <h1 className="text-center text-2xl font-semibold uppercase">{d.titulo}</h1>
-        </header>
-        <p className="font-serif text-base leading-relaxed whitespace-pre-wrap">{d.texto}</p>
-        <p className="text-xs text-suave print:hidden">
-          Gerado em {dataBR(d.criadoEm)} por {d.criadoPor.nome}
-        </p>
-      </article>
+      <style>{`@page { size: ${papelDe(d.modelo)}; margin: 0 }`}</style>
+      <FolhaTimbrada
+        modelo={d.modelo}
+        titulo={d.titulo}
+        texto={d.texto}
+        className="print:fixed print:top-0 print:left-0 print:w-(--largura) print:max-w-none print:shadow-none"
+      />
+      <p className="text-center text-xs text-suave print:hidden">
+        Gerado em {dataBR(d.criadoEm)} por {d.criadoPor.nome}
+      </p>
     </div>
   )
 }

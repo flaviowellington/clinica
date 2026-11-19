@@ -122,7 +122,7 @@ export interface Agendamento {
   /** O profissional chamou da espera e a recepção ainda não confirmou. */
   chamadoEm: string | null
   criadoEm: string
-  paciente: { id: number; nome: string; celular: string | null } | null
+  paciente: { id: number; nome: string; celular: string | null; fotoEm?: string | null } | null
   profissional: { id: number; nome: string }
   criadoPor: { nome: string }
   desmarcadoEm: string | null

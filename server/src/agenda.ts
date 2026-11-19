@@ -23,7 +23,7 @@ import { hojeNaClinica } from '../../shared/regras'
 import { avisarPerfil, avisarTodos } from './tempoReal'
 
 const comDados = {
-  paciente: { select: { id: true, nome: true, celular: true } },
+  paciente: { select: { id: true, nome: true, celular: true, fotoEm: true } },
   profissional: { select: { id: true, nome: true } },
   criadoPor: { select: { nome: true } },
 } satisfies Prisma.AgendamentoInclude
