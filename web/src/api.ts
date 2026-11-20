@@ -117,6 +117,8 @@ export interface Agendamento {
   categoria: string | null
   observacoes: string | null
   primeiraConsulta: boolean
+  /** Marcada usando um retorno incluso de procedimento executado. */
+  retorno?: { id: number; nome: string } | null
   status: StatusAgenda
   checkinEm: string | null
   /** O profissional chamou da espera e a recepção ainda não confirmou. */

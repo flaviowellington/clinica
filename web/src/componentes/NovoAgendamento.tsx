@@ -131,6 +131,15 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
     props.inicial.paciente ?? null,
   )
   const [titulo, setTitulo] = useSalvo(`${r}.titulo`, '')
+  // Retorno incluso escolhido; o do paciente anterior não vale para o novo.
+  const [retornoEscolhido, setRetornoEscolhido] = useSalvo<{ paciente: number; id: number } | null>(
+    `${r}.retorno`,
+    null,
+  )
+  const retornoId =
+    retornoEscolhido && retornoEscolhido.paciente === paciente?.id ? retornoEscolhido.id : null
+  const setRetornoId = (id: number | null) =>
+    setRetornoEscolhido(id && paciente ? { paciente: paciente.id, id } : null)
   // Decisão da clínica: confirmação e lembrete por WhatsApp de saída (o estudo, R-027, vinha desligado).
   const [avisos, setAvisos] = useSalvo(`${r}.avisos`, {
     confirmacao: 'WHATSAPP',
@@ -203,6 +212,8 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
             fim: fimDe(m),
             profissionalId: m.profissionalId,
             categoria: m.categoria,
+            // Vários agendamentos: o retorno vale só para o primeiro.
+            retornoId: i === 0 && tipo === 'CONSULTA' ? retornoId : null,
           })
         } catch (e) {
           if (i) {
@@ -225,6 +236,7 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
             : 'Consulta marcada com sucesso',
       )
       qc.invalidateQueries({ queryKey: ['agenda'] })
+      qc.invalidateQueries({ queryKey: ['retornos', 'saldo'] })
       props.aoTerminar()
     },
     onError: (e) => avisar(e.message, true),
@@ -440,6 +452,14 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
                     Vários agendamentos
                   </label>
                 </div>
+                {paciente && (
+                  <EscolhaRetorno
+                    pacienteId={paciente.id}
+                    valor={retornoId}
+                    aoMudar={setRetornoId}
+                    erro={erros.retornoId}
+                  />
+                )}
               </Passo>
             ) : (
               <Passo n={1} id="passo-titulo" titulo="O que é" feito={!!titulo.trim()}>
@@ -830,6 +850,64 @@ export function NovoAgendamento(props: { inicial: Inicial; aoTerminar: () => voi
 
 const LISTRA =
   'bg-[repeating-linear-gradient(135deg,color-mix(in_srgb,var(--perigo)_22%,transparent)_0_3px,transparent_3px_8px)]'
+
+interface RetornoDisponivel {
+  id: number
+  nome: string
+  total: number
+  restantes: number
+}
+
+/** Retornos inclusos (de procedimentos executados) que o paciente ainda pode usar. */
+export const consultaSaldoRetornos = (pacienteId: number) => ({
+  queryKey: ['retornos', 'saldo', pacienteId],
+  queryFn: async () =>
+    (await api.get<RetornoDisponivel[]>('/retornos/saldo', { params: { pacienteId } })).data,
+})
+
+/** Retornos inclusos que o paciente ainda tem; escolher um marca a consulta como retorno. */
+function EscolhaRetorno(props: {
+  pacienteId: number
+  valor: number | null
+  aoMudar: (id: number | null) => void
+  erro?: string
+}) {
+  const { data = [] } = useQuery(consultaSaldoRetornos(props.pacienteId))
+  if (!data.length) return null
+  const total = data.reduce((s, r) => s + r.restantes, 0)
+  return (
+    <fieldset className="mt-3 rounded-xl border border-primaria/30 bg-primaria-clara/40 p-3">
+      <legend className="sr-only">Usar retorno</legend>
+      <p className="flex items-center gap-2 font-bold text-titulo">
+        <Icone nome="girar" className="h-4 w-4 text-primaria" />
+        {total === 1 ? 'Tem 1 retorno disponível' : `Tem ${total} retornos disponíveis`}
+      </p>
+      <div className="mt-1 text-sm">
+        {[null, ...data].map((r) => (
+          <label key={r?.id ?? 'nao'} className="flex min-h-11 cursor-pointer items-center gap-2">
+            <input
+              type="radio"
+              name="retorno"
+              checked={props.valor === (r?.id ?? null)}
+              onChange={() => props.aoMudar(r?.id ?? null)}
+            />
+            {r ? (
+              <span>
+                Usar retorno de <strong>{r.nome}</strong>{' '}
+                <span className="text-suave">
+                  ({r.restantes} de {r.total})
+                </span>
+              </span>
+            ) : (
+              'Não usar retorno'
+            )}
+          </label>
+        ))}
+      </div>
+      {props.erro && <p className="erro-campo">{props.erro}</p>}
+    </fieldset>
+  )
+}
 
 export function Passo(props: {
   n: number

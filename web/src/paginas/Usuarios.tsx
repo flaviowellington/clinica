@@ -300,7 +300,16 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
         e.preventDefault()
         const f = Object.fromEntries(new FormData(e.currentTarget))
         // "emailUsuario" no form: "email" é o do profissional criado junto.
-        const { cro, especialidade, celular, email, corAgenda, emailUsuario, ...resto } = f
+        const {
+          cro,
+          especialidade,
+          celular,
+          email,
+          corAgenda,
+          valorConsultaCentavos,
+          emailUsuario,
+          ...resto
+        } = f
         salvar.mutate({
           ...resto,
           email: emailUsuario,
@@ -308,7 +317,7 @@ function FormUsuario(props: { usuario?: Usuario; aoTerminar: () => void }) {
           pessoaId: Number(f.pessoaId) || null,
           ativo: u ? f.ativo === 'on' : true,
           ...(criaProfissional && {
-            profissional: { cro, especialidade, celular, email, corAgenda },
+            profissional: { cro, especialidade, celular, email, corAgenda, valorConsultaCentavos },
           }),
         })
       }}

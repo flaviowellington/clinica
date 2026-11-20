@@ -353,7 +353,7 @@ export function Aprovacoes() {
                       abertos
                       {sel.pagamentos.length > 0 &&
                         ` e o pagamento de ${reais(sel.pagamentos.reduce((s, g) => s + g.valorCentavos, 0))} sai do caixa`}
-                      .
+                      . O paciente perde os retornos ainda não usados.
                     </p>
                     <input
                       name="senha"

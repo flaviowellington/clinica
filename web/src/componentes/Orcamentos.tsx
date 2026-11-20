@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import {
   api,
+  consultaConfig,
   consultaEu,
+  isoLocal,
   consultaProfissionais,
   dataBR,
   errosDosCampos,
@@ -19,6 +21,7 @@ import {
   STATUS_ORCAMENTO,
   descontoDoPercentual,
   percentualDoDesconto,
+  precoPara,
   totalOrcamento,
   type StatusOrcamento,
 } from '../../../shared/orcamentos'
@@ -39,7 +42,7 @@ interface Item {
   /** Faces do dente quando o item veio do odontograma (ex.: "MO"). */
   faces?: string | null
   valorCentavos: number
-  /** Procedimento completo (boca toda): não tem dente. Só nos itens novos, vindos da tabela. */
+  /** Por procedimento: não tem dente. Só nos itens novos, vindos da tabela. */
   porDente?: boolean
   executadoEm?: string | null
   observacao?: string | null
@@ -69,7 +72,16 @@ interface Procedimento {
   nome: string
   especialidade: string | null
   valorCentavos: number
+  valorCriancaCentavos?: number | null
+  valorAdultoCentavos?: number | null
   porDente: boolean
+}
+
+/** Preço da tabela pela idade do paciente (Configurações › Procedimentos: "Criança até"). */
+export function usePreco(nascimento: string | null | undefined) {
+  const criancaAte = useQuery(consultaConfig('faixaEtaria')).data?.criancaAte ?? 12
+  const hoje = isoLocal(new Date())
+  return (p: Parameters<typeof precoPara>[0]) => precoPara(p, nascimento, criancaAte, hoje)
 }
 
 const COR_STATUS: Record<StatusOrcamento, string> = {
@@ -308,16 +320,13 @@ function resumoItens(itens: Item[]) {
     .join('; ')
 }
 
-const paraItem = (p: Procedimento): Item => ({
-  procedimentoId: p.id,
-  nome: p.nome,
-  dente: null,
-  valorCentavos: p.valorCentavos,
-  porDente: p.porDente,
-})
-
 /** Busca na tabela de preços com seleção de vários procedimentos e o total dos marcados. */
-function ListaProcedimentos(props: { botao: string; aoConfirmar: (ps: Procedimento[]) => void }) {
+function ListaProcedimentos(props: {
+  botao: string
+  preco: (p: Procedimento) => number
+  aoConfirmar: (ps: Procedimento[]) => void
+}) {
+  const { preco } = props
   const { data: eu } = useSuspenseQuery(consultaEu)
   const [busca, setBusca] = useState('')
   const [cadastrando, setCadastrando] = useState(false)
@@ -394,7 +403,7 @@ function ListaProcedimentos(props: { botao: string; aoConfirmar: (ps: Procedimen
                   </span>
                 </span>
                 <span className="font-bold whitespace-nowrap text-suave tabular-nums">
-                  {reais(p.valorCentavos)}
+                  {reais(preco(p))}
                 </span>
               </label>
             </li>
@@ -425,7 +434,7 @@ function ListaProcedimentos(props: { botao: string; aoConfirmar: (ps: Procedimen
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-auto text-sm">
               {marcados.length} {marcados.length === 1 ? 'selecionado' : 'selecionados'} · Total:{' '}
-              <strong>{reais(totalOrcamento(marcados))}</strong>
+              <strong>{reais(marcados.reduce((s, m) => s + preco(m), 0))}</strong>
             </span>
             <button
               type="button"
@@ -476,9 +485,19 @@ function EditorOrcamento(props: {
     o?.profissional.id ?? prof?.meuId ?? '',
   )
   const [observacoes, setObservacoes] = useState(o?.observacoes ?? '')
+  const preco = usePreco(props.paciente.nascimento)
   const escolher = (ps: Procedimento[]) =>
-    // R-012: valor da tabela, editável na linha.
-    setItens([...itens, ...ps.map(paraItem)])
+    // R-012: valor da tabela (pela idade do paciente), editável na linha.
+    setItens([
+      ...itens,
+      ...ps.map((p) => ({
+        procedimentoId: p.id,
+        nome: p.nome,
+        dente: null,
+        valorCentavos: preco(p),
+        porDente: p.porDente,
+      })),
+    ])
   const mudarItem = (n: number, d: Partial<Item>) =>
     setItens(itens.map((i, x) => (x === n ? { ...i, ...d } : i)))
 
@@ -549,7 +568,11 @@ function EditorOrcamento(props: {
             feito={itens.length > 0}
             className="flex min-h-0 flex-1 flex-col"
           >
-            <ListaProcedimentos botao="Adicionar ao orçamento" aoConfirmar={escolher} />
+            <ListaProcedimentos
+              botao="Adicionar ao orçamento"
+              preco={preco}
+              aoConfirmar={escolher}
+            />
           </Passo>
         </div>
 
@@ -595,9 +618,9 @@ function EditorOrcamento(props: {
                       {i.porDente === false ? (
                         <span
                           className="campo block truncate text-center font-bold md:text-sm text-primaria"
-                          title="Procedimento completo: vale para a boca toda"
+                          title="Por procedimento: cobra uma vez"
                         >
-                          Boca toda
+                          Por procedimento
                         </span>
                       ) : (
                         <CampoSugestoes

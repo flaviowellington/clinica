@@ -7,6 +7,7 @@ import { pode } from '../../../shared/permissoes'
 import { avisar } from '../estado'
 import { Dialogo } from '../componentes/Dialogo'
 import { CampoCelular, CampoEmail } from '../componentes/CampoMascara'
+import { CampoReais } from '../componentes/CampoReais'
 import { Icone } from '../componentes/Icones'
 import { CampoBusca } from '../componentes/BuscaPaciente'
 import { navegarLista } from '../componentes/navegarLista'
@@ -20,6 +21,7 @@ export interface Profissional {
   email: string | null
   celular: string | null
   corAgenda: string | null
+  valorConsultaCentavos: number | null
   ativo: boolean
   fotoEm: string | null
   horariosIndisponiveis: string[]
@@ -255,9 +257,13 @@ export function CamposProfissional({
   atual,
   erros,
 }: {
-  atual?: Pick<Profissional, 'cro' | 'especialidade' | 'celular' | 'email' | 'corAgenda'> | null
+  atual?: Pick<
+    Profissional,
+    'cro' | 'especialidade' | 'celular' | 'email' | 'corAgenda' | 'valorConsultaCentavos'
+  > | null
   erros: Record<string, string | undefined>
 }) {
+  const [valorConsulta, setValorConsulta] = useState(atual?.valorConsultaCentavos ?? 0)
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -314,6 +320,19 @@ export function CamposProfissional({
           defaultValue={atual?.corAgenda ?? COR_PADRAO}
         />
         <span className="ajuda">Usada nos agendamentos deste profissional.</span>
+      </div>
+      <div className="sm:max-w-60">
+        <CampoReais
+          id="p-valor-consulta"
+          rotulo="Valor da consulta"
+          valor={valorConsulta}
+          aoMudar={setValorConsulta}
+          erro={erros.valorConsultaCentavos}
+        />
+        <input type="hidden" name="valorConsultaCentavos" value={valorConsulta} />
+        <span className="ajuda">
+          Ao finalizar o atendimento, gera um orçamento com a consulta. Zero não gera.
+        </span>
       </div>
     </>
   )

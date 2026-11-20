@@ -226,9 +226,7 @@ export function CartaoConsulta(props: {
         </p>
       )}
       {a.observacoes && (
-        <p className="rounded-xl bg-superficie-2 px-3 py-2 whitespace-pre-wrap">
-          {a.observacoes}
-        </p>
+        <p className="rounded-xl bg-superficie-2 px-3 py-2 whitespace-pre-wrap">{a.observacoes}</p>
       )}
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-borda px-3 py-2.5">
@@ -246,6 +244,15 @@ export function CartaoConsulta(props: {
           <span className="etiqueta">Sem categoria</span>
         )}
         {a.primeiraConsulta && <span className="etiqueta etiqueta-info">Primeira consulta</span>}
+        {a.retorno && (
+          <span
+            className="etiqueta etiqueta-primaria"
+            title="Consulta marcada usando um retorno incluso"
+          >
+            <Icone nome="girar" className="h-3.5 w-3.5" />
+            Retorno · {a.retorno.nome}
+          </span>
+        )}
       </div>
 
       {/* Rodapé encosta nas bordas do balão (p-5). */}

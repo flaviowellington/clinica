@@ -19,6 +19,7 @@ import {
 import { lerCorpo } from './dto'
 import type { Prisma } from './generated/prisma/client'
 import { lerConfig } from './configuracoes'
+import { orcamentoDaConsulta, retornosDisponiveis } from './tratamentos'
 import { validarConfig } from '../../shared/configuracoes'
 import { hojeNaClinica } from '../../shared/regras'
 import { avisarPerfil, avisarTodos } from './tempoReal'
@@ -27,6 +28,7 @@ const comDados = {
   paciente: { select: { id: true, nome: true, celular: true, fotoEm: true } },
   profissional: { select: { id: true, nome: true } },
   criadoPor: { select: { nome: true } },
+  retorno: { select: { id: true, nome: true } },
 } satisfies Prisma.AgendamentoInclude
 
 type ComDados = Prisma.AgendamentoGetPayload<{ include: typeof comDados }>
@@ -176,6 +178,9 @@ rotasAgenda.post('/', exigir('agenda.editar'), async (req, res) => {
     if (!p) erros.pacienteId = 'Paciente não encontrado.'
     else if (!p.ativo) erros.pacienteId = 'Paciente inativo não pode ter consulta marcada.'
   }
+  const retornoId = compromisso || !d.pacienteId ? null : b.retornoId
+  if (retornoId && !(await retornosDisponiveis(d.pacienteId!)).some((r) => r.id === retornoId))
+    erros.retornoId = 'Este paciente não tem mais esse retorno.'
   if (Object.keys(erros).length) return res.status(400).json({ erro: 'Confira os campos.', erros })
 
   const categoria = b.categoria
@@ -189,6 +194,7 @@ rotasAgenda.post('/', exigir('agenda.editar'), async (req, res) => {
       categoria: categoria && categoria in (await lerConfig('categorias')) ? categoria : null,
       observacoes: b.observacoes,
       primeiraConsulta: b.primeiraConsulta,
+      retornoId,
       confirmacao: b.confirmacao,
       alerta: b.alerta,
       criadoPorId: usuarioDe(res).id,
@@ -240,6 +246,7 @@ rotasAgenda.patch('/:id/status', exigir('agenda.editar'), async (req, res) => {
     },
     include: comDados,
   })
+  if (status === 'ATENDIDO') await orcamentoDaConsulta(a, usuarioDe(res).id)
   res.json(paraTela(atualizado))
 })
 

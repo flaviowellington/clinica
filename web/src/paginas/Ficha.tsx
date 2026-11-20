@@ -18,6 +18,7 @@ import { Dialogo } from '../componentes/Dialogo'
 import { FormPaciente } from '../componentes/FormPaciente'
 import { FotoPerfil, salvarFoto, urlFoto, type FotoPendente } from '../componentes/FotoPerfil'
 import { NovoRetorno } from '../componentes/Retornos'
+import { consultaSaldoRetornos } from '../componentes/NovoAgendamento'
 import { Situacao } from './Pacientes'
 import { Icone, type NomeIcone } from '../componentes/Icones'
 import { OrcamentosPaciente } from '../componentes/Orcamentos'
@@ -418,6 +419,11 @@ function VisaoGeral({
     },
     onError: (e) => avisar(mensagemDeErro(e), true),
   })
+  const saldo = useQuery({
+    ...consultaSaldoRetornos(p.id),
+    enabled: pode(eu.perfis, 'agenda.ver'),
+  })
+  const inclusos = saldo.data?.reduce((s, x) => s + x.restantes, 0) ?? 0
   const r = resumo.data
   const verAnamnese = pode(eu.perfis, 'anamnese.ver')
   const atalho = (a: AbaFicha, texto: string) => (
@@ -518,7 +524,19 @@ function VisaoGeral({
 
         <div className="grid gap-4 sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
           <section className="cartao flex flex-col gap-2">
-            <h2 className="text-xs tracking-wide text-suave uppercase">Retorno</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-xs tracking-wide text-suave uppercase">Retorno</h2>
+              {inclusos > 0 && (
+                <span
+                  className="rounded-full bg-primaria-clara px-2 py-0.5 text-xs font-bold text-primaria"
+                  title={saldo.data
+                    ?.map((x) => `${x.nome}: ${x.restantes} de ${x.total}`)
+                    .join(' · ')}
+                >
+                  {inclusos} {inclusos === 1 ? 'disponível' : 'disponíveis'}
+                </span>
+              )}
+            </div>
             {r?.retornos.length ? (
               <ul className="space-y-1">
                 {r.retornos.map((x) => (

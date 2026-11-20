@@ -174,6 +174,18 @@ describe('configurações', () => {
     expect((await recepcao('GET', '/api/configuracoes/clinica')).status).toBe(200)
   })
 
+  it('idade máxima de criança: padrão 12, muda pela aba de procedimentos', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const url = '/api/configuracoes/faixaEtaria'
+    expect((await admin('GET', url)).corpo).toEqual({ criancaAte: 12 })
+    expect((await admin('PUT', url, { criancaAte: 10 })).corpo).toEqual({ criancaAte: 10 })
+    expect((await admin('GET', url)).corpo).toEqual({ criancaAte: 10 })
+    for (const criancaAte of [-1, 0, 19, 'doze', 10.5])
+      expect((await admin('PUT', url, { criancaAte })).status).toBe(400)
+    const recepcao = await entrarComo('RECEPCAO')
+    expect((await recepcao('PUT', url, { criancaAte: 8 })).status).toBe(403)
+  })
+
   it('valida cada assunto: mensagem sem {link} e anamnese sem perguntas são recusadas', async () => {
     const admin = await entrarComo('ADMINISTRADOR')
     expect((await admin('PUT', '/api/configuracoes/mensagens', { confirmacao: 'Oi' })).status).toBe(
@@ -282,6 +294,70 @@ describe('configurações', () => {
     expect((await admin('POST', '/api/procedimentos', { nome: '', valorCentavos: 1 })).status).toBe(
       400,
     )
+  })
+
+  it('tabela de procedimentos: retornos inclusos e alerta de retorno em dias ou meses', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const r = await admin('POST', '/api/procedimentos', {
+      nome: 'Placa fictícia',
+      valorAdultoCentavos: 180000,
+      retornos: 3,
+      alertaRetorno: 6,
+      alertaRetornoUnidade: 'MESES',
+    })
+    expect(r.corpo).toMatchObject({ retornos: 3, alertaRetorno: 6, alertaRetornoUnidade: 'MESES' })
+    // Sem prazo, a unidade não fica gravada; zero retornos é o mesmo que nenhum.
+    const semAlerta = await admin('PUT', `/api/procedimentos/${r.corpo.id}`, {
+      nome: 'Placa fictícia',
+      valorAdultoCentavos: 180000,
+      retornos: 0,
+      alertaRetorno: null,
+      alertaRetornoUnidade: 'DIAS',
+    })
+    expect(semAlerta.corpo).toMatchObject({
+      retornos: null,
+      alertaRetorno: null,
+      alertaRetornoUnidade: null,
+    })
+    const ruim = { nome: 'X', valorAdultoCentavos: 1 }
+    expect((await admin('POST', '/api/procedimentos', { ...ruim, retornos: -1 })).status).toBe(400)
+    expect(
+      (
+        await admin('POST', '/api/procedimentos', {
+          ...ruim,
+          alertaRetorno: 2,
+          alertaRetornoUnidade: 'ANOS',
+        })
+      ).status,
+    ).toBe(400)
+    expect((await admin('GET', '/api/procedimentos?todos=1')).corpo).toMatchObject([
+      { nome: 'Placa fictícia', retornos: null, alertaRetorno: null },
+    ])
+  })
+
+  it('tabela de procedimentos: preço de criança e de adulto, com benefícios', async () => {
+    const admin = await entrarComo('ADMINISTRADOR')
+    const ambos = await admin('POST', '/api/procedimentos', {
+      nome: 'Placa fictícia',
+      valorCriancaCentavos: 28000,
+      valorAdultoCentavos: 20000,
+      beneficios: ' 3 retornos ',
+    })
+    expect(ambos.status).toBe(201)
+    // O orçamento ainda usa um valor só: o de adulto, ou o de criança quando só há ele.
+    expect(ambos.corpo).toMatchObject({ valorCentavos: 20000, beneficios: '3 retornos' })
+    const crianca = await admin('POST', '/api/procedimentos', {
+      nome: 'Pulpotomia fictícia',
+      valorCriancaCentavos: 39000,
+      valorAdultoCentavos: null,
+    })
+    expect(crianca.corpo).toMatchObject({ valorCentavos: 39000, valorAdultoCentavos: null })
+    const semValor = await admin('POST', '/api/procedimentos', { nome: 'Sem preço' })
+    expect(semValor.status).toBe(400)
+    expect((await admin('GET', '/api/procedimentos?todos=1')).corpo).toMatchObject([
+      { nome: 'Placa fictícia', valorCriancaCentavos: 28000, valorAdultoCentavos: 20000 },
+      { nome: 'Pulpotomia fictícia', valorCriancaCentavos: 39000, beneficios: null },
+    ])
   })
 
   it('e-mail de teste sai pelo Nodemailer e fica registrado', async () => {

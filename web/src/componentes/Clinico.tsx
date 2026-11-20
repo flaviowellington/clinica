@@ -54,7 +54,7 @@ import { CampoSelect } from './CampoSelect'
 import { confirmar, confirmarDigitando } from './Confirmar'
 import { CampoSugestoes } from './CampoSugestoes'
 import { Passo } from './NovoAgendamento'
-import { useDesconto } from './Orcamentos'
+import { useDesconto, usePreco } from './Orcamentos'
 import { SeloTipoProcedimento } from '../paginas/Configuracoes'
 import { Link } from '@tanstack/react-router'
 import { whatsapp } from '../paginas/Pacientes'
@@ -80,6 +80,8 @@ interface ItemClinico {
   orcamentoDescontoCentavos: number
   /** Do cadastro do procedimento: falso = procedimento completo (boca toda). */
   porDente: boolean
+  /** Do cadastro do procedimento: o que está incluso no preço. */
+  beneficios: string | null
   /** Valor do item no orçamento (só origem ORCAMENTO). */
   valorCentavos: number | null
   /** Pedido para o paciente assinar; com assinadoEm, está autorizado. */
@@ -153,6 +155,20 @@ function useProcedimentos(pacienteId: number, vivo = false) {
     refetchInterval: vivo && INTERVALO_ASSINATURA,
     refetchOnWindowFocus: vivo,
   })
+}
+
+/** O que está incluso no preço (da tabela de procedimentos), no pé do cartão. */
+function Beneficios({ texto }: { texto: string | null }) {
+  if (!texto) return null
+  return (
+    <p className="mt-2 flex items-start gap-1.5 text-xs text-primaria">
+      <Icone nome="estrela" className="mt-px h-3.5 w-3.5 shrink-0" />
+      <span>
+        <span className="font-bold">Benefícios: </span>
+        {texto}
+      </span>
+    </p>
+  )
 }
 
 function Selo({ status }: { status: Status }) {
@@ -907,6 +923,7 @@ function TabelaProcedimentos(props: {
             {i.observacao}
           </p>
         )}
+        <Beneficios texto={i.beneficios} />
       </>
     )
   }
@@ -1076,7 +1093,7 @@ function TabelaProcedimentos(props: {
           {!i.porDente ? (
             <>
               <Icone nome="dente" className="h-4 w-4 text-primaria" />
-              <span className="mt-0.5 text-[9px] font-bold text-suave">boca toda</span>
+              <span className="mt-0.5 text-[9px] font-bold text-suave">por proced.</span>
             </>
           ) : dentes.length > 1 ? (
             <>
@@ -1094,11 +1111,6 @@ function TabelaProcedimentos(props: {
             <p className="font-bold text-titulo">{i.nome}</p>
             <Selo status={i.status} />
           </div>
-          {!i.porDente && (
-            <p className="mt-1 text-xs font-bold text-primaria">
-              Procedimento completo · boca toda ({dentes.length} dentes)
-            </p>
-          )}
           {i.porDente && dentes.length > 1 && (
             <p className="mt-2 flex flex-wrap gap-1">
               {dentes.map((d) => (
@@ -1261,6 +1273,8 @@ interface Procedimento {
   id: number
   nome: string
   valorCentavos: number
+  valorCriancaCentavos?: number | null
+  valorAdultoCentavos?: number | null
   /** Por dente: valor × dentes marcados; senão, procedimento completo (boca toda, cobra uma vez). */
   porDente: boolean
 }
@@ -1277,76 +1291,6 @@ function useTabelaNomes(nomes: string[], ativo: boolean) {
   })
   const daTabela = (n: string) => tabelas.flatMap((t) => t.data ?? []).find((t) => t.nome === n)
   return { tabelas, daTabela }
-}
-
-const rotuloDenticao = (tipo: EscolhaDenticao) =>
-  tipo === 'MISTA' ? 'mista' : tipo === 'DECIDUA' ? 'decídua' : 'permanente'
-
-/**
- * Procedimento completo (boca toda): mostra a dentição com todos os dentes marcados, arcada
- * superior e inferior. Dente removido no odontograma fica de fora (riscado).
- */
-function PainelBocaToda(props: {
-  nomes: string[]
-  superior: string[]
-  inferior: string[]
-  removidos: Set<string>
-  denticao: EscolhaDenticao
-  /** Escolha da dentição (nos planejamentos), acima dos dentes. */
-  extra?: React.ReactNode
-}) {
-  const n = [...props.superior, ...props.inferior].filter((d) => !props.removidos.has(d)).length
-  return (
-    <section
-      aria-label="Dentes do procedimento completo"
-      className="space-y-3 rounded-xl border-2 border-primaria/40 bg-primaria-clara/30 p-3"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="grid size-7 place-items-center rounded-full bg-primaria text-sobre-primaria">
-          <Icone nome="dente" className="h-4 w-4" />
-        </span>
-        <p className="font-bold text-titulo">Procedimento completo · boca toda</p>
-        <span className="etiqueta etiqueta-primaria">
-          {n} dentes · dentição {rotuloDenticao(props.denticao)}
-        </span>
-      </div>
-      <p className="text-sm text-suave">
-        <strong className="text-texto">{props.nomes.join(', ')}</strong>{' '}
-        {props.nomes.length > 1 ? 'vão' : 'vai'} em todos os dentes marcados abaixo, sem escolher
-        dente a dente.
-      </p>
-      {props.extra}
-      {[props.superior, props.inferior].map((linha, k) => (
-        <div key={k}>
-          <p className="mb-1 text-xs font-bold text-suave">{k ? 'Inferior' : 'Superior'}</p>
-          <ul
-            className="flex flex-wrap gap-1"
-            aria-label={k ? 'Arcada inferior' : 'Arcada superior'}
-          >
-            {linha.map((d) =>
-              props.removidos.has(d) ? (
-                <li
-                  key={d}
-                  title={`${d}: removido no odontograma, fica de fora`}
-                  className="min-w-8 rounded-md border border-dashed border-borda px-1.5 py-1 text-center text-xs font-bold text-suave line-through"
-                >
-                  {d}
-                </li>
-              ) : (
-                <li
-                  key={d}
-                  aria-label={`Dente ${d} marcado`}
-                  className="min-w-8 rounded-md bg-primaria px-1.5 py-1 text-center text-xs font-extrabold text-sobre-primaria"
-                >
-                  {d}
-                </li>
-              ),
-            )}
-          </ul>
-        </div>
-      ))}
-    </section>
-  )
 }
 
 type PropsForm = Parameters<typeof FormProcedimento>[0]
@@ -1552,7 +1496,11 @@ function FormProcedimento(props: {
   // "A realizar" novo vira orçamento em aberto: precisa de preço, então só procedimento da tabela.
   const orcar = !i && status === 'A_REALIZAR'
   const [valores, setValores] = useState<Record<string, number>>({})
-  const valorDe = (n: string) => valores[n] ?? daTabela(n)?.valorCentavos ?? 0
+  const preco = usePreco(props.paciente.nascimento)
+  const valorDe = (n: string) => {
+    const t = daTabela(n)
+    return valores[n] ?? (t ? preco(t) : 0)
+  }
   const quantidade = Math.max(1, dentes.length)
   // Completo (boca toda) só no lançamento novo; editar mexe nos dentes um a um.
   const completo = (n: string) => !i && daTabela(n)?.porDente === false
@@ -1721,7 +1669,7 @@ function FormProcedimento(props: {
             {escolhidos.length > 1 && (
               <p className="ajuda">
                 {completos.length
-                  ? 'Os por dente vão nos dentes marcados; os completos, na boca toda.'
+                  ? 'Os por dente vão nos dentes marcados; os por procedimento, em todos os dentes.'
                   : 'Cada procedimento vai em todos os dentes marcados.'}
               </p>
             )}
@@ -1764,15 +1712,6 @@ function FormProcedimento(props: {
           aoMudar={setLinhas}
         />
       )}
-      {!!completos.length && (
-        <PainelBocaToda
-          nomes={completos}
-          superior={supBoca}
-          inferior={infBoca}
-          removidos={removidos}
-          denticao={den.mista.length ? 'MISTA' : den.tipo}
-        />
-      )}
       {erro('dente')}
 
       {orcar ? (
@@ -1810,10 +1749,10 @@ function FormProcedimento(props: {
                           title={
                             porDente(n)
                               ? 'Dentes marcados'
-                              : `Procedimento completo: ${dentesBoca.length} dentes, cobra uma vez`
+                              : `Por procedimento: ${dentesBoca.length} dentes, cobra uma vez`
                           }
                         >
-                          {porDente(n) ? dentes.length || 1 : 'Boca toda'}
+                          {porDente(n) ? dentes.length || 1 : 'Por proced.'}
                         </output>
                       </div>
                       <p className="ml-auto pb-2 tabular-nums">
@@ -2688,6 +2627,8 @@ interface ItemFicha {
   data: string | null
   /** Enviado ao paciente (com assinadoEm, assinado): só a situação muda. */
   autorizacao: { id: number; assinadoEm: string | null } | null
+  /** Da tabela de preços, pelo nome do procedimento. */
+  beneficios: string | null
 }
 interface Nota {
   id: string
@@ -4052,6 +3993,7 @@ function ProcedimentosFicha(props: {
                     {i.observacao}
                   </p>
                 )}
+                <Beneficios texto={i.beneficios} />
               </div>
               {props.podeEditar && (
                 <MenuAcoes rotulo={`Ações de ${i.procedimento}`}>
@@ -4618,7 +4560,7 @@ function FormProcedimentoFicha(props: {
             ))}
             <p className="ajuda">
               {completos.length && nomes.length > 1
-                ? 'Os por dente vão nos dentes marcados; os completos, na boca toda.'
+                ? 'Os por dente vão nos dentes marcados; os por procedimento, em todos os dentes.'
                 : nomes.length > 1
                   ? 'Cada procedimento vai em todos os dentes marcados abaixo.'
                   : 'Escreva livremente ou escolha um procedimento já cadastrado na tabela da clínica. Opcional se trouxer do odontograma.'}
@@ -4634,7 +4576,7 @@ function FormProcedimentoFicha(props: {
       <Passo
         n={3}
         id="passo-dentes"
-        titulo={soCompletos ? 'Dentes (boca toda)' : 'Dentes e faces'}
+        titulo={soCompletos ? 'Dentes (por procedimento)' : 'Dentes e faces'}
         feito={(temDente && !denteInvalido) || soTrazidos || soCompletos}
       >
         {!soCompletos && (
@@ -4662,22 +4604,8 @@ function FormProcedimentoFicha(props: {
             }
           />
         )}
-        {!!completos.length && (
-          <div className={soCompletos ? '' : 'mt-4'}>
-            <PainelBocaToda
-              nomes={completos}
-              superior={superior}
-              inferior={inferior}
-              removidos={removidos}
-              denticao={denticao}
-              extra={
-                soCompletos && (
-                  <div className="rounded-xl bg-superficie-2 p-3">{escolhaDenticao}</div>
-                )
-              }
-            />
-          </div>
-        )}
+        {/* Só boca toda: os dentes vão todos; resta escolher a dentição. */}
+        {soCompletos && <div className="rounded-xl bg-superficie-2 p-3">{escolhaDenticao}</div>}
       </Passo>
     </div>
   )
@@ -4769,7 +4697,7 @@ function FormProcedimentoFicha(props: {
                               />
                               <span className="truncate">
                                 {rotulo} ·{' '}
-                                {x[0].porDente ? dentesDoGrupo(x).join(', ') : 'boca toda'}
+                                {x[0].porDente ? dentesDoGrupo(x).join(', ') : 'por procedimento'}
                               </span>
                             </span>
                           </span>

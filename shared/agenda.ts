@@ -25,6 +25,20 @@ export function paraHora(minutos: number) {
   return `${String(Math.floor(minutos / 60)).padStart(2, '0')}:${String(minutos % 60).padStart(2, '0')}`
 }
 
+/** aaaa-mm-dd daqui a `n` dias ou meses; mês mais curto fica no último dia (31/01 + 1 mês = 28/02). */
+export function somarPrazo(data: string, n: number, unidade: 'DIAS' | 'MESES') {
+  const d = new Date(`${data}T00:00:00Z`)
+  if (unidade === 'DIAS') d.setUTCDate(d.getUTCDate() + n)
+  else {
+    const dia = d.getUTCDate()
+    d.setUTCDate(1)
+    d.setUTCMonth(d.getUTCMonth() + n)
+    const ultimo = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+    d.setUTCDate(Math.min(dia, ultimo))
+  }
+  return d.toISOString().slice(0, 10)
+}
+
 /** Sem procedimentos, a consulta dura um intervalo (R-033). */
 export const fimPadrao = (inicio: string) => paraHora(paraMinutos(inicio) + INTERVALO)
 

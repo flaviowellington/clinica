@@ -34,6 +34,7 @@ export function usarServidor() {
     await db.itemOrcamento.deleteMany()
     await db.autorizacao.deleteMany()
     await db.alertaRetorno.deleteMany()
+    await db.retornoProcedimento.deleteMany()
     await db.lancamento.deleteMany()
     await db.orcamento.deleteMany()
     await db.procedimento.deleteMany()

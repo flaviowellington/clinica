@@ -41,6 +41,7 @@ const camposProfissional = {
   email: true,
   celular: true,
   corAgenda: true,
+  valorConsultaCentavos: true,
   ativo: true,
   fotoEm: true,
   horariosIndisponiveis: true,

@@ -162,6 +162,11 @@ export const ProfissionalDto = z.object({
       .regex(/^#[0-9a-f]{6}$/i, 'Cor inválida.')
       .nullable(),
   ),
+  /** Vira o orçamento da consulta ao atender; vazio ou 0 = não gera. */
+  valorConsultaCentavos: z.preprocess(
+    (v) => (v === '' || v == null || v === 0 || v === '0' ? null : Number(v)),
+    centavos().nullable(),
+  ),
 })
 
 /** E-mail do usuário, obrigatório e em minúsculas: é por ele que se recupera a senha. */
@@ -321,6 +326,8 @@ export const AgendamentoDto = z.object({
   categoria: texto(60),
   observacoes: texto(LIMITE_OBSERVACAO),
   primeiraConsulta: z.boolean().catch(false),
+  /** Retorno incluso usado para esta consulta (GET /retornos/saldo). */
+  retornoId: idOpcional,
   confirmacao: canal,
   alerta: canal,
 })
@@ -353,13 +360,66 @@ export const MensagemLivreDto = z.object({
 
 export const EmailTesteDto = z.object({ para: emailObrigatorio('Informe um e-mail válido.') })
 
-export const ProcedimentoTabelaDto = z.object({
-  nome: textoObrigatorio('Informe o nome do procedimento.', 200),
-  valorCentavos: centavos('Informe o valor.'),
-  especialidade: texto(80),
-  porDente: z.boolean().catch(true),
-  ativo: z.boolean().catch(true),
-})
+const centavosOpcional = z.preprocess((v) => (v === '' ? null : v), centavos().nullish())
+
+/** Quantidade opcional de 1 a `max`; vazio ou zero vira null. */
+const quantidade = (max: number, mensagem: string) =>
+  z.preprocess(
+    (v) => (v === '' || v === 0 || v === '0' ? null : v == null ? v : Number(v)),
+    z.number({ error: mensagem }).int(mensagem).min(1, mensagem).max(max, mensagem).nullish(),
+  )
+
+export const UNIDADES_PRAZO = { DIAS: 'dias', MESES: 'meses' } as const
+
+export const ProcedimentoTabelaDto = z
+  .object({
+    nome: textoObrigatorio('Informe o nome do procedimento.', 200),
+    /** Só de quem ainda manda um valor único: vira o de adulto. */
+    valorCentavos: centavos('Informe o valor.').optional(),
+    valorCriancaCentavos: centavosOpcional,
+    valorAdultoCentavos: centavosOpcional,
+    beneficios: texto(300),
+    retornos: quantidade(99, 'Retornos: de 0 a 99.'),
+    alertaRetorno: quantidade(999, 'Alerta de retorno: de 1 a 999.'),
+    alertaRetornoUnidade: z
+      .enum(chaves(UNIDADES_PRAZO), { error: 'Escolha dias ou meses.' })
+      .nullish(),
+    especialidade: texto(80),
+    porDente: z.boolean().catch(true),
+    ativo: z.boolean().catch(true),
+  })
+  .transform((d, ctx) => {
+    const alerta = d.alertaRetorno ?? null
+    if (alerta !== null && !d.alertaRetornoUnidade) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['alertaRetornoUnidade'],
+        message: 'Escolha dias ou meses.',
+      })
+      return z.NEVER
+    }
+    const porFaixa = d.valorCriancaCentavos !== undefined || d.valorAdultoCentavos !== undefined
+    const crianca = d.valorCriancaCentavos ?? null
+    const adulto = porFaixa ? (d.valorAdultoCentavos ?? null) : (d.valorCentavos ?? null)
+    const valor = adulto ?? crianca
+    if (valor === null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['valorAdultoCentavos'],
+        message: 'Informe o valor de criança ou de adulto.',
+      })
+      return z.NEVER
+    }
+    return {
+      ...d,
+      valorCentavos: valor,
+      valorCriancaCentavos: crianca,
+      valorAdultoCentavos: adulto,
+      retornos: d.retornos ?? null,
+      alertaRetorno: alerta,
+      alertaRetornoUnidade: alerta === null ? null : d.alertaRetornoUnidade!,
+    }
+  })
 
 // ── Profissionais e conta corrente ───────────────────────────
 

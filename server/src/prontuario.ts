@@ -37,6 +37,7 @@ import {
 } from '../../shared/dtos'
 import { lerCorpo } from './dto'
 import { lerConfig } from './configuracoes'
+import { aoExecutar } from './tratamentos'
 
 const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const dia = (iso: string) => new Date(`${iso}T00:00:00Z`)
@@ -222,7 +223,7 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       include: {
         profissional: pessoaCurta,
         autorizacao: comAutorizacao,
-        procedimento: { select: { porDente: true } },
+        procedimento: { select: { porDente: true, beneficios: true } },
       },
     }),
     // Em aberto ou aprovado: tudo; cancelado: só o que chegou a ser feito; excluído: nada.
@@ -237,7 +238,7 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       include: {
         orcamento: { include: { profissional: pessoaCurta } },
         autorizacao: comAutorizacao,
-        procedimento: { select: { porDente: true } },
+        procedimento: { select: { porDente: true, beneficios: true } },
       },
     }),
   ])
@@ -260,6 +261,7 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       valorCentavos: null as number | null,
       // Escrito à mão (sem tabela) conta como por dente.
       porDente: c.procedimento?.porDente ?? true,
+      beneficios: c.procedimento?.beneficios ?? null,
     })),
     ...itens.map((i) => ({
       origem: 'ORCAMENTO' as const,
@@ -278,11 +280,26 @@ rotasFichaPaciente.get('/:id/procedimentos', exigir('prontuario.ver'), async (_r
       orcamentoDescontoCentavos: i.orcamento.descontoCentavos,
       valorCentavos: i.valorCentavos as number | null,
       porDente: i.procedimento?.porDente ?? true,
+      beneficios: i.procedimento?.beneficios ?? null,
     })),
   ]
   lista.sort((a, b) => b.data.localeCompare(a.data) || b.id - a.id)
   res.json(lista)
 })
+
+/** Retornos e alerta do procedimento executado; o lançamento é o procedimento no mesmo dia. */
+const executouClinico = (
+  c: { pacienteId: number; profissionalId: number; procedimentoId: number | null; data: Date },
+  usuarioId: number,
+) =>
+  aoExecutar({
+    chave: `clinico:${c.pacienteId}:${c.procedimentoId}:${isoDe(c.data)}`,
+    pacienteId: c.pacienteId,
+    profissionalId: c.profissionalId,
+    procedimentoId: c.procedimentoId,
+    base: isoDe(c.data),
+    usuarioId,
+  })
 
 /** Lê o procedimento pelo DTO; o nome vem da tabela e o profissional precisa existir. */
 async function lerProcedimento(corpo: unknown, res: Response) {
@@ -320,6 +337,7 @@ rotasFichaPaciente.post('/:id/procedimentos', exigir('prontuario.editar'), async
       : [comum]
     ).map((data) => db.procedimentoClinico.create({ data })),
   )
+  if (dados.status === 'EXECUTADO') await executouClinico(criados[0], usuarioDe(res).id)
   // ponytail: responde só o primeiro; ninguém usa a lista ainda.
   res.status(201).json({ ...criados[0], data: isoDe(criados[0].data) })
 })
@@ -413,6 +431,27 @@ function montarFicha({ autorizacoes, etapas, ...f }: FichaDoBanco) {
   }
 }
 
+/** Fichas prontas para a tela, com os benefícios da tabela de preços (o item guarda só o nome). */
+async function montarFichas(lista: FichaDoBanco[]) {
+  const nomes = [...new Set(lista.flatMap((f) => f.itens.map((i) => normalizar(i.procedimento))))]
+  const tabela = await db.procedimento.findMany({
+    where: { nomeBusca: { in: nomes }, beneficios: { not: null } },
+    select: { nomeBusca: true, beneficios: true },
+  })
+  const beneficios = new Map(tabela.map((p) => [p.nomeBusca, p.beneficios]))
+  return lista.map((f) => {
+    const m = montarFicha(f)
+    return {
+      ...m,
+      itens: m.itens.map((i) => ({
+        ...i,
+        beneficios: beneficios.get(normalizar(i.procedimento)) ?? null,
+      })),
+    }
+  })
+}
+const montarUma = async (f: FichaDoBanco) => (await montarFichas([f]))[0]
+
 const novoId = () => randomBytes(4).toString('hex')
 
 rotasFichaPaciente.get('/:id/fichas', exigir('prontuario.ver'), async (_req, res) => {
@@ -421,7 +460,7 @@ rotasFichaPaciente.get('/:id/fichas', exigir('prontuario.ver'), async (_req, res
     include: comItens,
     orderBy: { id: 'desc' },
   })
-  res.json(lista.map(montarFicha))
+  res.json(await montarFichas(lista))
 })
 
 rotasFichaPaciente.post('/:id/fichas', exigir('prontuario.editar'), async (req, res) => {
@@ -458,7 +497,7 @@ rotasFichaPaciente.post('/:id/fichas', exigir('prontuario.editar'), async (req, 
     },
     include: comItens,
   })
-  res.status(201).json(montarFicha(f))
+  res.status(201).json(await montarUma(f))
 })
 
 // ── Fotos e exames (R-076, R-077) ───────────────────────────────────────────
@@ -695,6 +734,8 @@ rotasProntuario.put('/procedimentos/:id', exigir('prontuario.editar'), async (re
     db.procedimentoClinico.update({ where: { id: c.id }, data: dados }),
     ...marca,
   ])
+  if (novo.status === 'EXECUTADO' && c.status !== 'EXECUTADO')
+    await executouClinico(novo, usuarioDe(res).id)
   res.json({ ...novo, data: isoDe(novo.data) })
 })
 
@@ -798,7 +839,7 @@ rotasProntuario.patch('/fichas/:id', exigir('prontuario.editar'), async (req, re
     }),
     ...marca,
   ])
-  res.json(montarFicha(nova))
+  res.json(await montarUma(nova))
 })
 
 rotasProntuario.delete('/fichas/:id', exigir('prontuario.editar'), async (req, res) => {
@@ -840,7 +881,7 @@ rotasProntuario.post('/fichas/:id/notas', exigir('prontuario.editar'), async (re
     data: { notas: [...(f.notas as object[]), nota] },
     include: comItens,
   })
-  res.status(201).json(montarFicha(nova))
+  res.status(201).json(await montarUma(nova))
 })
 
 rotasProntuario.patch('/fichas/:id/notas/:nota', exigir('prontuario.editar'), async (req, res) => {
@@ -864,7 +905,7 @@ rotasProntuario.patch('/fichas/:id/notas/:nota', exigir('prontuario.editar'), as
       include: comItens,
     }),
   ])
-  res.json(montarFicha(nova))
+  res.json(await montarUma(nova))
 })
 
 rotasProntuario.post('/fichas/:id/itens', exigir('prontuario.editar'), async (req, res) => {

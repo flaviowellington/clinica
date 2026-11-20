@@ -40,7 +40,7 @@ test('a realizar: por dente × boca toda no mesmo orçamento (completo cobra uma
   await o.d.getByRole('button', { name: '+ Outro procedimento' }).click()
   await preencher(o.procedimento(2), 'Selante')
   await expect(
-    o.d.getByText('Os por dente vão nos dentes marcados; os completos, na boca toda.'),
+    o.d.getByText('Os por dente vão nos dentes marcados; os por procedimento, em todos os dentes.'),
   ).toBeVisible()
   await expect(o.d.getByText('Dentes e faces dos procedimentos por dente (opcional)')).toBeVisible()
   await expect(o.bocaToda).toContainText('32 dentes')

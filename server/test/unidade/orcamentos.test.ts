@@ -94,10 +94,10 @@ describe('desconto em % e em reais', () => {
 })
 
 describe('tipo de procedimento da tabela', () => {
-  it('por dente × boca toda', () => {
+  it('por dente × por procedimento', () => {
     expect(tipoProcedimento(true).curto).toBe('por dente')
-    expect(tipoProcedimento(false).curto).toBe('boca toda')
-    expect(tipoProcedimento(false).rotulo).toMatch(/boca toda/)
+    expect(tipoProcedimento(false).curto).toBe('por procedimento')
+    expect(tipoProcedimento(false).rotulo).toBe('Por procedimento')
   })
 })
 

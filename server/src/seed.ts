@@ -5,6 +5,8 @@ import { gerarHash } from './auth'
 import { deflateSync, crc32 } from 'node:zlib'
 import { COMO_CONHECEU, normalizar } from '../../shared/regras'
 import { randomBytes } from 'node:crypto'
+import type { z } from 'zod'
+import { ProcedimentoTabelaDto } from '../../shared/dtos'
 import {
   MODELO_ANAMNESE,
   MODELOS_DOCUMENTO,
@@ -254,6 +256,7 @@ const profissionais = [
     especialidade: 'Ortodontia',
     corAgenda: '#f97316',
     cro: 'CRO-XX 10001',
+    valorConsultaCentavos: 35000,
   },
   {
     login: 'dentista2',
@@ -282,6 +285,7 @@ const profissionais = [
     especialidade: 'Odontopediatria',
     corAgenda: '#ec4899',
     cro: 'CRO-XX 10005',
+    valorConsultaCentavos: 40000,
   },
   {
     login: 'dentista6',
@@ -681,22 +685,49 @@ if (!(await db.lancamento.count())) {
 
 // ── Tabela de procedimentos (valores fictícios) ──────────────────────────────
 // [nome, especialidade, valor final, por dente?]
-// Por dente: cobra valor × dentes. Boca toda: cobra uma vez e marca a dentição inteira.
-const TABELA: [string, string, number, boolean][] = [
-  ['Consulta de avaliação', 'Clínica geral', 15000, false],
+// Por dente: cobra valor × dentes. Por procedimento: cobra uma vez e marca a dentição inteira.
+// Mesma entrada da tela (ProcedimentoTabelaDto): faixa etária, benefícios, retornos e alerta.
+// Os extras ficam fora dos itens que os e2e usam (limpeza, selante, flúor, raspagem, resina).
+type Extra = Partial<z.input<typeof ProcedimentoTabelaDto>>
+const TABELA: [string, string, number, boolean, Extra?][] = [
+  ['Consulta de avaliação', 'Clínica geral', 15000, false, { valorCriancaCentavos: 12000 }],
   ['Limpeza (profilaxia)', 'Periodontia', 18000, false],
   ['Raspagem e alisamento radicular', 'Periodontia', 6000, true],
   ['Restauração em resina (1 face)', 'Dentística', 25000, true],
   ['Restauração em resina (2 faces)', 'Dentística', 32000, true],
-  ['Clareamento em consultório', 'Dentística', 90000, false],
+  ['Clareamento em consultório', 'Dentística', 90000, false, { beneficios: 'Até 3 sessões' }],
   ['Tratamento de canal (unirradicular)', 'Endodontia', 85000, true],
   ['Tratamento de canal (multirradicular)', 'Endodontia', 130000, true],
   ['Extração simples', 'Cirurgia bucomaxilofacial', 25000, true],
-  ['Extração de siso', 'Cirurgia bucomaxilofacial', 60000, true],
+  [
+    'Extração de siso',
+    'Cirurgia bucomaxilofacial',
+    60000,
+    true,
+    { retornos: 1, beneficios: 'Retorno para tirar os pontos' },
+  ],
   ['Coroa de porcelana', 'Prótese', 180000, true],
-  ['Implante unitário', 'Implantodontia', 350000, true],
-  ['Aparelho ortodôntico fixo (instalação)', 'Ortodontia', 120000, false],
-  ['Manutenção ortodôntica mensal', 'Ortodontia', 25000, false],
+  [
+    'Implante unitário',
+    'Implantodontia',
+    350000,
+    true,
+    { alertaRetorno: 4, alertaRetornoUnidade: 'MESES' },
+  ],
+  [
+    'Aparelho ortodôntico fixo (instalação)',
+    'Ortodontia',
+    120000,
+    false,
+    { alertaRetorno: 1, alertaRetornoUnidade: 'MESES' },
+  ],
+  [
+    'Manutenção ortodôntica mensal',
+    'Ortodontia',
+    25000,
+    false,
+    { alertaRetorno: 1, alertaRetornoUnidade: 'MESES' },
+  ],
   ['Aplicação de flúor', 'Odontopediatria', 8000, false],
   ['Selante', 'Odontopediatria', 9000, true],
 ]
@@ -745,12 +776,15 @@ const detalhamento = (nome: string) =>
   DETALHAMENTOS.find(([k]) => nome.toLowerCase().includes(k))?.[1] ?? null
 if (!(await db.procedimento.count())) {
   await db.procedimento.createMany({
-    data: TABELA.map(([nome, especialidade, valorCentavos, porDente]) => ({
-      nome,
+    data: TABELA.map(([nome, especialidade, valorAdultoCentavos, porDente, extra]) => ({
+      ...ProcedimentoTabelaDto.parse({
+        nome,
+        especialidade,
+        valorAdultoCentavos,
+        porDente,
+        ...extra,
+      }),
       nomeBusca: normalizar(nome),
-      especialidade,
-      valorCentavos,
-      porDente,
     })),
   })
   console.log('Tabela de procedimentos criada.')
@@ -783,8 +817,9 @@ if (!(await db.orcamento.count())) {
     },
   })
 
-  // Aprovado em 3x: uma parcela paga e um procedimento já feito.
-  const totalAprovado = procs[6].valorCentavos + procs[10].valorCentavos
+  // Aprovado em 3x: uma parcela paga, um procedimento já feito e um com retorno incluso.
+  const siso = procs.find((p) => p.retornos)!
+  const totalAprovado = procs[6].valorCentavos + procs[10].valorCentavos + siso.valorCentavos
   const aprovado = await db.orcamento.create({
     data: {
       pacienteId: pacs[1].id,
@@ -800,8 +835,19 @@ if (!(await db.orcamento.count())) {
         create: [
           { ...item(procs[6], '36'), executadoEm: dias(-5), executadoPorId: adminId },
           item(procs[10], '36'),
+          item(siso, '38'),
         ],
       },
+    },
+  })
+  // Como a aprovação faz (darRetornosDaAprovacao): o retorno já fica disponível ao paciente.
+  await db.retornoProcedimento.create({
+    data: {
+      chave: `orcamento:${aprovado.id}:${siso.id}`,
+      pacienteId: pacs[1].id,
+      procedimentoId: siso.id,
+      nome: siso.nome,
+      total: siso.retornos!,
     },
   })
   await db.lancamento.create({

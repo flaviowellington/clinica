@@ -76,6 +76,7 @@ const ACAO_DA_CHAVE: Partial<Record<ChaveConfig, Acao>> = {
   mensagens: 'configuracao.mensagens',
   permissoes: 'configuracao.permissoes',
   desconto: 'configuracao.permissoes',
+  faixaEtaria: 'configuracao.procedimentos',
   especialidadesFicha: 'prontuario.editar',
 }
 

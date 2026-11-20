@@ -12,6 +12,8 @@ import { api, consultaConfig, consultaEu, dataBR, mensagemDeErro } from '../api'
 import { avisar } from '../estado'
 import { Abas } from '../componentes/Abas'
 import { CampoReais } from '../componentes/CampoReais'
+import { FimDaLista, useAosPoucos } from '../componentes/CarregarMais'
+import { UNIDADES_PRAZO } from '../../../shared/dtos'
 import { Dialogo } from '../componentes/Dialogo'
 import { confirmar } from '../componentes/Confirmar'
 import { Icone } from '../componentes/Icones'
@@ -153,7 +155,10 @@ function Secao(props: {
         </div>
         {props.acao}
       </header>
-      <div className={props.colado ? '' : 'space-y-4 p-5'}>{props.children}</div>
+      {/* flex: quando o cartão tem altura limitada, o corpo encolhe e a tabela rola por dentro. */}
+      <div className={props.colado ? 'flex min-h-0 flex-1 flex-col' : 'space-y-4 p-5'}>
+        {props.children}
+      </div>
     </section>
   )
 }
@@ -502,8 +507,65 @@ interface Procedimento {
   nome: string
   especialidade: string | null
   valorCentavos: number
+  valorCriancaCentavos: number | null
+  valorAdultoCentavos: number | null
+  beneficios: string | null
+  retornos: number | null
+  alertaRetorno: number | null
+  alertaRetornoUnidade: keyof typeof UNIDADES_PRAZO | null
   porDente: boolean
   ativo: boolean
+}
+
+/** "3 retornos · alerta em 6 meses", para a lista; vazio quando não tem nenhum dos dois. */
+function textoRetornos(p: Procedimento) {
+  const partes = []
+  if (p.retornos) partes.push(`${p.retornos} ${p.retornos === 1 ? 'retorno' : 'retornos'}`)
+  if (p.alertaRetorno && p.alertaRetornoUnidade) {
+    const um = p.alertaRetornoUnidade === 'DIAS' ? 'dia' : 'mês'
+    const unidade = p.alertaRetorno === 1 ? um : UNIDADES_PRAZO[p.alertaRetornoUnidade]
+    partes.push(`alerta em ${p.alertaRetorno} ${unidade}`)
+  }
+  return partes.join(' · ')
+}
+
+/** Até que idade vale o preço de criança da tabela; grava ao sair do campo. */
+function IdadeCrianca() {
+  const c = useQuery(consultaConfig('faixaEtaria'))
+  const salvar = useSalvar('faixaEtaria', 'Idade de criança salva')
+  if (!c.data) return null
+  return (
+    <label className="flex items-center gap-2 text-sm font-bold text-suave">
+      Criança até
+      <input
+        key={c.data.criancaAte}
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={18}
+        className="campo w-20 text-center"
+        defaultValue={c.data.criancaAte}
+        aria-label="Idade máxima para ser considerado criança"
+        onBlur={(e) => {
+          const criancaAte = Number(e.currentTarget.value)
+          if (criancaAte !== c.data.criancaAte) salvar.mutate({ criancaAte })
+        }}
+        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+      />
+      anos
+    </label>
+  )
+}
+
+/** Preço de uma faixa etária; sem preço, o procedimento não se faz nela. */
+function PrecoFaixa({ valor }: { valor: number | null }) {
+  return valor === null ? (
+    <span className="text-suave">
+      —<span className="sr-only">não se faz</span>
+    </span>
+  ) : (
+    <span className="font-bold tabular-nums">{reais(valor)}</span>
+  )
 }
 
 function Procedimentos() {
@@ -520,7 +582,13 @@ function Procedimentos() {
       normalizar(p.nome).includes(normalizar(busca)) &&
       (tipo === 'todos' || (tipo === 'porDente') === p.porDente),
   )
-  const ativos = lista.data?.filter((p) => p.ativo).length ?? 0
+  const { itens, proximo } = useAosPoucos(visiveis, `${busca}|${tipo}`)
+  const editar = (p: Procedimento, classe: string) => (
+    <button className={`botao-fantasma ${classe}`} onClick={() => setEditando(p)}>
+      <Icone nome="lapis" className="h-4 w-4" />
+      Editar
+    </button>
+  )
   return (
     <>
       <Secao
@@ -533,6 +601,10 @@ function Procedimentos() {
           </button>
         }
         colado
+        // Computador: o cartão ocupa o resto da tela (10,25rem = título + abas acima dele + margem
+        // de baixo) e só a tabela rola. Celular: rola a página (RESPONSIVIDADE, regra 4).
+        // mb-0: o Dialogo oculto vem depois e o space-y-5 daria 20 px de margem ao cartão.
+        className="lg:mb-0 lg:flex lg:max-h-[calc(100dvh-11.25rem)] lg:flex-col"
       >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-borda px-4 py-3">
           <div className="flex flex-wrap items-center gap-3">
@@ -542,7 +614,7 @@ function Procedimentos() {
                 [
                   ['todos', 'Todos'],
                   ['porDente', TIPO_PROCEDIMENTO.porDente.rotulo],
-                  ['completo', 'Boca toda'],
+                  ['completo', TIPO_PROCEDIMENTO.completo.rotulo],
                 ] as const
               ).map(([v, rotulo]) => (
                 <button
@@ -562,11 +634,7 @@ function Procedimentos() {
               ))}
             </div>
           </div>
-          {lista.data && (
-            <span className="text-sm font-bold text-suave">
-              {ativos} {ativos === 1 ? 'ativo' : 'ativos'} · {lista.data.length} no total
-            </span>
-          )}
+          <IdadeCrianca />
         </div>
         {lista.isPending && <p className="px-4 py-10 text-center text-suave">Carregando…</p>}
         {lista.data && !visiveis.length ? (
@@ -576,56 +644,99 @@ function Procedimentos() {
             texto={busca ? 'Confira o nome ou limpe a busca.' : undefined}
           />
         ) : (
-          <div className="overflow-x-auto lg:max-h-[calc(100dvh-24rem)] lg:min-h-40 lg:overflow-auto">
-            <table className="w-full min-w-[44rem] text-left">
-              <thead className="sticky top-0 z-10 bg-superficie shadow-[inset_0_-1px_0_var(--borda)]">
-                <tr>
-                  <th className={TH}>Procedimento</th>
-                  <th className={TH}>Especialidade</th>
-                  <th className={TH}>Tipo</th>
-                  <th className={`${TH} text-right`}>Valor</th>
-                  <th className={TH}>Situação</th>
-                  <th className={TH}>
-                    <span className="sr-only">Ações</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {visiveis.map((p) => (
-                  <tr
-                    key={p.id}
-                    className={`border-b border-borda last:border-0 hover:bg-primaria-clara ${p.ativo ? '' : 'text-suave'}`}
-                  >
-                    <td className={`px-4 py-2.5 font-bold ${p.ativo ? 'text-titulo' : ''}`}>
+          <>
+            {/* Celular: cartões; a tabela só a partir de md. */}
+            <ul className="divide-y divide-borda md:hidden">
+              {itens.map((p) => (
+                <li key={p.id} className={`space-y-2 px-4 py-3 ${p.ativo ? '' : 'text-suave'}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <span
+                      className={`min-w-0 font-bold break-words ${p.ativo ? 'text-titulo' : ''}`}
+                    >
                       {p.nome}
-                    </td>
-                    <td className="px-4 py-2.5">{p.especialidade ?? '—'}</td>
-                    <td className="px-4 py-2.5">
-                      <SeloTipoProcedimento porDente={p.porDente} />
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-bold tabular-nums">
-                      {reais(p.valorCentavos)}
-                      <span className="block text-xs font-normal text-suave">
-                        {p.porDente ? 'por dente' : 'o procedimento todo'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Situacao ativo={p.ativo} />
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <button
-                        className="botao-fantasma botao-pequeno"
-                        onClick={() => setEditando(p)}
-                      >
-                        <Icone nome="lapis" className="h-4 w-4" />
-                        Editar
-                      </button>
-                    </td>
+                    </span>
+                    <Situacao ativo={p.ativo} />
+                  </div>
+                  {p.beneficios && <p className="text-sm break-words">{p.beneficios}</p>}
+                  {textoRetornos(p) && <p className="text-xs text-suave">{textoRetornos(p)}</p>}
+                  <dl className="flex flex-wrap gap-x-6 gap-y-1">
+                    <div>
+                      <dt className="text-xs text-suave">Criança</dt>
+                      <dd>
+                        <PrecoFaixa valor={p.valorCriancaCentavos} />
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-suave">Adulto</dt>
+                      <dd>
+                        <PrecoFaixa valor={p.valorAdultoCentavos} />
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <SeloTipoProcedimento porDente={p.porDente} />
+                    {editar(p, '')}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="md:hidden">
+              <FimDaLista aoVer={proximo} />
+            </div>
+            {/* relative: os textos sr-only das linhas ficam presos aqui, sem esticar a página. */}
+            <div className="relative hidden overflow-x-auto md:block lg:min-h-40 lg:flex-1 lg:overflow-auto">
+              <table className="w-full min-w-[46rem] text-left">
+                <thead className="sticky top-0 z-10 bg-superficie shadow-[inset_0_-1px_0_var(--borda)]">
+                  <tr>
+                    <th className={TH}>Procedimento</th>
+                    <th className={TH}>Especialidade</th>
+                    <th className={TH}>Tipo</th>
+                    <th className={`${TH} text-right`}>Criança</th>
+                    <th className={`${TH} text-right`}>Adulto</th>
+                    <th className={TH}>Situação</th>
+                    <th className={TH}>
+                      <span className="sr-only">Ações</span>
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {itens.map((p) => (
+                    <tr
+                      key={p.id}
+                      className={`border-b border-borda last:border-0 hover:bg-primaria-clara ${p.ativo ? '' : 'text-suave'}`}
+                    >
+                      <td className="px-4 py-2.5">
+                        <span className={`font-bold ${p.ativo ? 'text-titulo' : ''}`}>
+                          {p.nome}
+                        </span>
+                        {p.beneficios && (
+                          <span className="block text-xs text-suave">{p.beneficios}</span>
+                        )}
+                        {textoRetornos(p) && (
+                          <span className="block text-xs text-suave">{textoRetornos(p)}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">{p.especialidade ?? '—'}</td>
+                      <td className="px-4 py-2.5">
+                        <SeloTipoProcedimento porDente={p.porDente} />
+                      </td>
+                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        <PrecoFaixa valor={p.valorCriancaCentavos} />
+                      </td>
+                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        <PrecoFaixa valor={p.valorAdultoCentavos} />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Situacao ativo={p.ativo} />
+                      </td>
+                      <td className="px-4 py-2.5 text-right">{editar(p, 'botao-pequeno')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <FimDaLista aoVer={proximo} />
+            </div>
+          </>
         )}
       </Secao>
       <Dialogo
@@ -653,8 +764,11 @@ export function FormProcedimento(props: {
 }) {
   const qc = useQueryClient()
   const p = props.procedimento
-  const [valor, setValor] = useState(p?.valorCentavos ?? 0)
+  // null = não se faz nessa faixa etária.
+  const [crianca, setCrianca] = useState<number | null>(p ? p.valorCriancaCentavos : 0)
+  const [adulto, setAdulto] = useState<number | null>(p ? p.valorAdultoCentavos : 0)
   const [porDente, setPorDente] = useState(p?.porDente ?? true)
+  const [comAlerta, setComAlerta] = useState(!!p?.alertaRetorno)
   const salvar = useMutation({
     mutationFn: async (d: Record<string, unknown>) =>
       p
@@ -675,9 +789,14 @@ export function FormProcedimento(props: {
       onSubmit={(e) => {
         e.preventDefault()
         const f = Object.fromEntries(new FormData(e.currentTarget))
+        if (crianca === null && adulto === null)
+          return avisar('Informe o valor de criança ou de adulto.', true)
         salvar.mutate({
           ...f,
-          valorCentavos: valor,
+          valorCriancaCentavos: crianca,
+          valorAdultoCentavos: adulto,
+          // Sem a caixa marcada, os campos do alerta nem vão no formulário: sem alerta.
+          alertaRetorno: f.alertaRetorno ?? null,
           porDente,
           ativo: p ? f.ativo === 'on' : true,
         })
@@ -693,9 +812,101 @@ export function FormProcedimento(props: {
           autoFocus
         />
       </label>
-      <div className="sm:max-w-xs">
-        <CampoReais id="proc-valor" rotulo="Valor final *" valor={valor} aoMudar={setValor} />
-        <span className="ajuda">Preço cobrado do paciente.</span>
+      <fieldset>
+        <legend className="rotulo">Valor final *</legend>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(
+            [
+              ['crianca', 'Criança', crianca, setCrianca],
+              ['adulto', 'Adulto', adulto, setAdulto],
+            ] as const
+          ).map(([id, rotulo, v, mudar]) => (
+            <div key={id} className="space-y-2 rounded-2xl bg-superficie-2 p-3">
+              <label className="flex min-h-11 cursor-pointer items-center gap-3">
+                <input
+                  type="checkbox"
+                  className="check-sucesso"
+                  checked={v !== null}
+                  onChange={(e) => mudar(e.target.checked ? 0 : null)}
+                />
+                <span className="font-bold">Faz em {rotulo.toLowerCase()}</span>
+              </label>
+              {v !== null && (
+                <CampoReais
+                  id={`proc-valor-${id}`}
+                  rotulo={`Valor ${rotulo.toLowerCase()}`}
+                  rotuloOculto
+                  valor={v}
+                  aoMudar={mudar}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+        <span className="ajuda">Preço cobrado do paciente em cada faixa etária.</span>
+      </fieldset>
+      <label className="block">
+        <span className="rotulo">Benefícios</span>
+        <textarea
+          name="beneficios"
+          className="campo"
+          rows={2}
+          maxLength={300}
+          defaultValue={p?.beneficios ?? ''}
+          placeholder="Ex.: 4 bisnagas + 2 sessões no consultório"
+        />
+        <span className="ajuda">O que está incluso no preço.</span>
+      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="rotulo">Retornos inclusos</span>
+          <input
+            name="retornos"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={99}
+            className="campo"
+            defaultValue={p?.retornos ?? ''}
+            placeholder="0"
+          />
+          <span className="ajuda">Quantos retornos o paciente tem direito sem pagar.</span>
+        </label>
+        <div className="space-y-2 rounded-2xl bg-superficie-2 p-3">
+          <label className="flex min-h-11 cursor-pointer items-center gap-3">
+            <input
+              type="checkbox"
+              className="check-sucesso"
+              checked={comAlerta}
+              onChange={(e) => setComAlerta(e.target.checked)}
+            />
+            <span className="font-bold">Alerta de retorno</span>
+          </label>
+          {comAlerta && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-suave">Em</span>
+              <input
+                name="alertaRetorno"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={999}
+                required
+                aria-label="Prazo do alerta de retorno"
+                className="campo w-24"
+                defaultValue={p?.alertaRetorno ?? ''}
+              />
+              <CampoSelect
+                name="alertaRetornoUnidade"
+                aria-label="Unidade do prazo"
+                className="w-auto"
+                defaultValue={p?.alertaRetornoUnidade ?? 'MESES'}
+                vazio={false}
+                opcoes={UNIDADES_PRAZO}
+              />
+            </div>
+          )}
+        </div>
       </div>
       <fieldset>
         <legend className="rotulo">Tipo de procedimento *</legend>
@@ -710,7 +921,7 @@ export function FormProcedimento(props: {
               [
                 false,
                 tipoProcedimento(false).rotulo,
-                'Feito na boca inteira: cobra uma vez e já marca todos os dentes da dentição do paciente.',
+                'Cobra uma vez, com qualquer número de dentes, e já marca todos os dentes da dentição do paciente.',
               ],
             ] as const
           ).map(([v, rotulo, ajuda]) => (
@@ -2215,7 +2426,7 @@ function PainelDesconto(props: { escolhidos: number[]; aoMudar: (ids: number[]) 
   )
 }
 
-/** Etiqueta do tipo do procedimento: por dente ou completo (boca toda). */
+/** Etiqueta do tipo do procedimento: por dente ou por procedimento. */
 export function SeloTipoProcedimento({ porDente }: { porDente: boolean }) {
   return (
     <span
@@ -2223,7 +2434,7 @@ export function SeloTipoProcedimento({ porDente }: { porDente: boolean }) {
       title={tipoProcedimento(porDente).rotulo}
     >
       <Icone nome="dente" className="h-3.5 w-3.5" />
-      {porDente ? 'Por dente' : 'Boca toda'}
+      {tipoProcedimento(porDente).rotulo}
     </span>
   )
 }

@@ -67,6 +67,8 @@ model Pessoa {
   cro                   String?
   especialidade         String?
   corAgenda             String?
+  /// Só profissional: valor da consulta; ao atender, vira um orçamento com ela (null = não gera).
+  valorConsultaCentavos Int?
   /// Foto do profissional ou do paciente: quadrado 400x400 em WebP, já recortado no servidor.
   foto                  Bytes?
   /// Quando a foto mudou; vai na URL para o navegador não mostrar a antiga do cache.
@@ -98,8 +100,9 @@ model Pessoa {
   orcamentos     Orcamento[]       @relation("pacienteOrcamento")
   orcamentosProf Orcamento[]       @relation("profissionalOrcamento")
   contas         ContaFinanceira[]
+  retornosInclusos RetornoProcedimento[]
 
-  procedimentosClinicos     ProcedimentoClinico[] @relation("pacienteProcedimento")
+  procedimentosClinicos    ProcedimentoClinico[] @relation("pacienteProcedimento")
   procedimentosClinicosProf ProcedimentoClinico[] @relation("profissionalProcedimento")
   autorizacoes              Autorizacao[]
   anamneses                 Anamnese[]
@@ -253,6 +256,12 @@ model Agendamento {
   confirmadoPor String?
   mensagens     Mensagem[]
 
+  /// Consulta marcada usando um retorno incluso de procedimento executado.
+  retornoId Int?
+  retorno   RetornoProcedimento? @relation(fields: [retornoId], references: [id])
+  /// Orçamento da consulta gerado ao atender (valor da consulta do profissional).
+  orcamento Orcamento?
+
   /// Exclusão lógica: some da agenda, mas fica para auditoria.
   excluidoEm    DateTime?
   excluidoPorId Int?
@@ -340,12 +349,50 @@ model Procedimento {
   nome          String
   nomeBusca     String
   especialidade String?
+  /// Valor que o orçamento usa: o de adulto, ou o de criança quando só há ele.
   valorCentavos Int
+  /// Preço por faixa etária; null = não se faz nessa faixa.
+  valorCriancaCentavos Int?
+  valorAdultoCentavos  Int?
+  /// O que está incluso, ex.: "4 bisnagas + 2 sessões no consultório".
+  beneficios    String?
+  /// Quantos retornos o paciente tem direito sem pagar de novo.
+  retornos      Int?
+  /// Daqui a quanto tempo avisar o retorno (ex.: 6 MESES); null = sem alerta.
+  alertaRetorno        Int?
+  alertaRetornoUnidade UnidadePrazo?
   /// Cobrança por dente (valor × dentes) ou valor fixo (uma vez, com qualquer número de dentes).
   porDente      Boolean               @default(true)
   ativo         Boolean               @default(true)
   itens         ItemOrcamento[]
   clinicos      ProcedimentoClinico[]
+  retornosDados RetornoProcedimento[]
+}
+
+/// Retornos que o paciente ganhou ao executar um procedimento da tabela (um por lançamento).
+/// Usados = consultas marcadas com ele, sem as desmarcadas e excluídas.
+model RetornoProcedimento {
+  id             Int           @id @default(autoincrement())
+  /// Identifica o lançamento, para os vários dentes darem um só: ver aoExecutar.
+  chave          String        @unique
+  pacienteId     Int
+  paciente       Pessoa        @relation(fields: [pacienteId], references: [id])
+  procedimentoId Int
+  procedimento   Procedimento  @relation(fields: [procedimentoId], references: [id])
+  /// Cópia do nome e da quantidade: mudar a tabela não mexe no que o paciente já ganhou.
+  nome           String
+  total          Int
+  /// O alerta de retorno já saiu (na execução); a aprovação dá os retornos antes de executar.
+  alertado       Boolean       @default(false)
+  criadoEm       DateTime      @default(now())
+  agendamentos   Agendamento[]
+
+  @@index([pacienteId])
+}
+
+enum UnidadePrazo {
+  DIAS
+  MESES
 }
 
 enum StatusOrcamento {
@@ -376,6 +423,9 @@ model Orcamento {
   confirmadoPorId    Int?
   confirmadoPor      Usuario?        @relation("confirmouOrcamento", fields: [confirmadoPorId], references: [id])
   canceladoEm        DateTime?
+  /// Consulta que gerou este orçamento (valor da consulta); um por consulta.
+  agendamentoId      Int?            @unique
+  agendamento        Agendamento?    @relation(fields: [agendamentoId], references: [id])
   /// Exclusão lógica (só em aberto): some da ficha e dos relatórios.
   excluidoEm         DateTime?
   excluidoPorId      Int?

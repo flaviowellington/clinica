@@ -123,6 +123,8 @@ export const PADROES = {
   permissoes: MATRIZ_PADRAO,
   /** Usuários (id) que podem dar desconto em orçamento, além do Administrador. */
   desconto: [] as number[],
+  /** Até que idade (inclusive) o paciente paga o preço de criança da tabela. */
+  faixaEtaria: { criancaAte: 12 },
 }
 export type ChaveConfig = keyof typeof PADROES
 export const CHAVES = Object.keys(PADROES) as ChaveConfig[]
@@ -319,6 +321,16 @@ export function validarConfig(
     case 'permissoes': {
       const valor = lerMatriz(bruto)
       return valor ? { valor } : { erro: 'Permissões inválidas.' }
+    }
+    case 'faixaEtaria': {
+      const criancaAte = b?.criancaAte
+      if (
+        !Number.isInteger(criancaAte) ||
+        (criancaAte as number) < 1 ||
+        (criancaAte as number) > 18
+      )
+        return { erro: 'Idade máxima de criança: de 1 a 18 anos.' }
+      return { valor: { criancaAte } }
     }
     case 'mensagens': {
       const confirmacao = txt(b?.confirmacao, 1000)

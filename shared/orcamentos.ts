@@ -50,13 +50,40 @@ export const descontoDoPercentual = (subtotalCentavos: number, percentual: numbe
 export const percentualDoDesconto = (subtotalCentavos: number, descontoCentavos: number) =>
   subtotalCentavos ? Math.round((descontoCentavos / subtotalCentavos) * 10000) / 100 : 0
 
+/** Anos completos em `hoje` (as duas datas aaaa-mm-dd). */
+export function idade(nascimento: string, hoje: string) {
+  const anos = Number(hoje.slice(0, 4)) - Number(nascimento.slice(0, 4))
+  return hoje.slice(5, 10) < nascimento.slice(5, 10) ? anos - 1 : anos
+}
+
+/**
+ * Preço da tabela para o paciente: criança até `criancaAte` anos (inclusive), adulto depois.
+ * Sem data de nascimento, adulto. Faixa sem preço usa o da outra.
+ */
+export function precoPara(
+  p: {
+    valorCentavos: number
+    valorCriancaCentavos?: number | null
+    valorAdultoCentavos?: number | null
+  },
+  nascimento: string | null | undefined,
+  criancaAte: number,
+  hoje: string,
+) {
+  const crianca = !!nascimento && idade(nascimento, hoje) <= criancaAte
+  const [esta, outra] = crianca
+    ? [p.valorCriancaCentavos, p.valorAdultoCentavos]
+    : [p.valorAdultoCentavos, p.valorCriancaCentavos]
+  return esta ?? outra ?? p.valorCentavos
+}
+
 /**
  * Os dois tipos de procedimento da tabela: por dente (valor × dentes marcados) ou
- * procedimento completo, na boca toda (cobra uma vez e vale para todos os dentes da dentição).
+ * por procedimento (cobra uma vez e vale para todos os dentes da dentição).
  */
 export const TIPO_PROCEDIMENTO = {
   porDente: { rotulo: 'Por dente', curto: 'por dente' },
-  completo: { rotulo: 'Procedimento completo (boca toda)', curto: 'boca toda' },
+  completo: { rotulo: 'Por procedimento', curto: 'por procedimento' },
 } as const
 export const tipoProcedimento = (porDente: boolean) =>
   TIPO_PROCEDIMENTO[porDente ? 'porDente' : 'completo']

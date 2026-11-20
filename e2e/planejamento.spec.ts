@@ -74,7 +74,7 @@ function formulario(d: Locator) {
     face: (f: string) => d.getByRole('button', { name: f, exact: true }),
     dentição: (nome: string) =>
       d.getByRole('radiogroup', { name: 'Dentição' }).getByRole('radio', { name: nome }),
-    selos: (tipo: 'Por dente' | 'Boca toda') => d.getByText(tipo, { exact: true }),
+    selos: (tipo: 'Por dente' | 'Por procedimento') => d.getByText(tipo, { exact: true }),
     rodape: d.locator('footer [aria-live="polite"]'),
     outroProcedimento: () => d.getByRole('button', { name: '+ Outro procedimento' }).click(),
     outroDente: () => d.getByRole('button', { name: '+ Adicionar dente' }).first().click(),
@@ -292,8 +292,8 @@ test('procedimento completo (boca toda): todos os dentes, sem marcar um a um', a
   const p = await abrirPlanejamento(page, 'boca toda')
   const f = await p.abrirForm()
   await preencher(f.procedimento(1), 'Limpeza (profilaxia)')
-  await expect(f.selos('Boca toda')).toHaveCount(1)
-  await expect(f.d.getByRole('heading', { name: 'Dentes (boca toda)' })).toBeVisible()
+  await expect(f.selos('Por procedimento')).toHaveCount(1)
+  await expect(f.d.getByRole('heading', { name: 'Dentes (por procedimento)' })).toBeVisible()
   await expect(f.dente(1)).toHaveCount(0) // não pede dente
   await expect(f.bocaToda).toContainText('32 dentes · dentição permanente')
   await expect(
@@ -352,9 +352,9 @@ test('mistura: por dente nos dentes marcados e boca toda na boca inteira', async
   await f.outroProcedimento()
   await preencher(f.procedimento(2), 'Aplicação de flúor')
   await expect(f.selos('Por dente')).toHaveCount(1)
-  await expect(f.selos('Boca toda')).toHaveCount(1)
+  await expect(f.selos('Por procedimento')).toHaveCount(1)
   await expect(
-    f.d.getByText('Os por dente vão nos dentes marcados; os completos, na boca toda.'),
+    f.d.getByText('Os por dente vão nos dentes marcados; os por procedimento, em todos os dentes.'),
   ).toBeVisible()
   // O por dente ainda precisa dos dentes; a boca toda já aparece.
   await expect(f.rodape).toHaveText('Marque os dentes do procedimento.')
@@ -379,7 +379,7 @@ test('texto livre (fora da tabela) é por dente; procedimento repetido conta uma
   const f = await p.abrirForm()
   await preencher(f.procedimento(1), 'Ajuste oclusal fictício')
   await expect(f.selos('Por dente')).toHaveCount(0)
-  await expect(f.selos('Boca toda')).toHaveCount(0)
+  await expect(f.selos('Por procedimento')).toHaveCount(0)
   await f.outroProcedimento()
   await preencher(f.procedimento(2), 'Ajuste oclusal fictício')
   await expect(f.d.getByRole('heading', { name: 'Procedimento', exact: true })).toBeVisible()
@@ -519,7 +519,7 @@ test('traz do odontograma: por dente com os dentes dele e boca toda sem dente', 
   })
 
   await test.step('boca toda vem com todos os dentes da dentição', async () => {
-    await ja.getByRole('button', { name: /Limpeza \(profilaxia\).*boca toda/ }).click()
+    await ja.getByRole('button', { name: /Limpeza \(profilaxia\).*por procedimento/ }).click()
     await expect(ja.getByText('2 escolhidos')).toBeVisible()
     await expect(f.rodape).toHaveText(total(2 + 32))
   })

@@ -307,6 +307,32 @@ describe('PT-68 ficha de especialidade com status por dente', () => {
     ])
   })
 
+  it('cards mostram os benefícios da tabela de preços (lista e fichas)', async () => {
+    const api = await entrarComo('PROFISSIONAL')
+    const { dentista, paciente, resina } = await base(api)
+    await db.procedimento.update({ where: { id: resina.id }, data: { beneficios: '1 retorno' } })
+    await api('POST', `/api/pacientes/${paciente.id}/procedimentos`, {
+      procedimentoId: resina.id,
+      profissionalId: dentista.id,
+      status: 'A_REALIZAR',
+      dente: '16',
+    })
+    const lista = (await api('GET', `/api/pacientes/${paciente.id}/procedimentos`)).corpo
+    expect(lista).toMatchObject([{ nome: resina.nome, beneficios: '1 retorno' }])
+    const f = await api('POST', `/api/pacientes/${paciente.id}/fichas`, {
+      especialidade: 'Endodontia',
+      profissionalId: dentista.id,
+    })
+    const url = `/api/prontuario/fichas/${f.corpo.id}/itens`
+    await api('POST', url, { dente: '16', procedimento: 'restauração em RESINA' })
+    await api('POST', url, { dente: '17', procedimento: 'Fora da tabela' })
+    const [ficha] = (await api('GET', `/api/pacientes/${paciente.id}/fichas`)).corpo
+    expect(ficha.itens).toMatchObject([
+      { procedimento: 'restauração em RESINA', beneficios: '1 retorno' },
+      { procedimento: 'Fora da tabela', beneficios: null },
+    ])
+  })
+
   it('nasce com as etapas da especialidade; datas, etapas e status são editáveis', async () => {
     const api = await entrarComo('PROFISSIONAL')
     const { dentista, paciente } = await base(api)
